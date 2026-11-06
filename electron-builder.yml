@@ -1,0 +1,10 @@
+appId: dev.ark.app
+productName: Ark
+files:
+  - out/**
+extraResources:
+  - from: resources/statusline-wrapper.cjs
+    to: statusline-wrapper.cjs
+win:
+  target: nsis
+  icon: resources/icon.png

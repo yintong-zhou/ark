@@ -1,0 +1,80 @@
+import { contextBridge, ipcRenderer } from 'electron';
+import type { ThreadUpdate } from '@shared/thread';
+import type { ArkApi, ChatEvent, UsageState } from '@shared/types';
+
+// The renderer gets these typed functions only, never ipcRenderer itself.
+const api: ArkApi = {
+  usage: {
+    get: () => ipcRenderer.invoke('usage:get'),
+    refresh: () => ipcRenderer.invoke('usage:refresh'),
+    onChanged: (cb) => {
+      const listener = (_e: unknown, s: UsageState) => cb(s);
+      ipcRenderer.on('usage:changed', listener);
+      return () => {
+        ipcRenderer.removeListener('usage:changed', listener);
+      };
+    },
+  },
+  history: { get: () => ipcRenderer.invoke('history:get') },
+  statusline: {
+    status: () => ipcRenderer.invoke('statusline:status'),
+    connect: () => ipcRenderer.invoke('statusline:connect'),
+    disconnect: () => ipcRenderer.invoke('statusline:disconnect'),
+  },
+  settings: {
+    getView: () => ipcRenderer.invoke('settings:get-view'),
+    setView: (v) => ipcRenderer.invoke('settings:set-view', v),
+  },
+  catalog: {
+    list: () => ipcRenderer.invoke('catalog:list'),
+    save: (a) => ipcRenderer.invoke('catalog:save', a),
+    remove: (id) => ipcRenderer.invoke('catalog:remove', id),
+    importable: () => ipcRenderer.invoke('catalog:importable'),
+    import: (path) => ipcRenderer.invoke('catalog:import', path),
+    draft: (d) => ipcRenderer.invoke('catalog:draft', d),
+  },
+  skills: { list: () => ipcRenderer.invoke('skills:list') },
+  engines: {
+    status: () => ipcRenderer.invoke('engines:status'),
+    save: (c) => ipcRenderer.invoke('engines:save', c),
+  },
+  chat: {
+    pickFolder: () => ipcRenderer.invoke('chat:pick-folder'),
+    start: (agentId, projectDir) => ipcRenderer.invoke('chat:start', agentId, projectDir),
+    send: (chatId, text) => ipcRenderer.invoke('chat:send', chatId, text),
+    stop: (chatId) => ipcRenderer.invoke('chat:stop', chatId),
+    onEvent: (cb) => {
+      const listener = (_e: unknown, chatId: string, ev: ChatEvent) => cb(chatId, ev);
+      ipcRenderer.on('chat:event', listener);
+      return () => {
+        ipcRenderer.removeListener('chat:event', listener);
+      };
+    },
+  },
+  projects: {
+    list: () => ipcRenderer.invoke('projects:list'),
+    add: (dir) => ipcRenderer.invoke('projects:add', dir),
+    gitInit: (id) => ipcRenderer.invoke('projects:git-init', id),
+  },
+  threads: {
+    list: () => ipcRenderer.invoke('threads:list'),
+    open: (id) => ipcRenderer.invoke('threads:open', id),
+    create: (projectId, text, files) => ipcRenderer.invoke('threads:create', projectId, text, files),
+    send: (id, text, files) => ipcRenderer.invoke('threads:send', id, text, files),
+    attachment: (id, file) => ipcRenderer.invoke('threads:attachment', id, file),
+    approveTeam: (id, agentIds) => ipcRenderer.invoke('threads:approve-team', id, agentIds),
+    react: (id, seq, emoji) => ipcRenderer.invoke('threads:react', id, seq, emoji),
+    startDeveloper: (id) => ipcRenderer.invoke('threads:start-developer', id),
+    answer: (id, seq, allow) => ipcRenderer.invoke('threads:answer', id, seq, allow),
+    pause: (id) => ipcRenderer.invoke('threads:pause', id),
+    onUpdate: (cb) => {
+      const listener = (_e: unknown, u: ThreadUpdate) => cb(u);
+      ipcRenderer.on('threads:update', listener);
+      return () => {
+        ipcRenderer.removeListener('threads:update', listener);
+      };
+    },
+  },
+};
+
+contextBridge.exposeInMainWorld('ark', api);

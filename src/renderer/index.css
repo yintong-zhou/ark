@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/*
+ * Brand tokens (brand-guidelines.md). Tailwind's own palette, radii and type sizes are cleared
+ * so that only brand values can be written in a class name.
+ */
+@theme {
+  --color-*: initial;
+  --color-primary: #0E1013;     /* rail, title bar, status bar */
+  --color-secondary: #FAFAF9;   /* names, titles, selected items */
+  --color-accent: #00A896;      /* calls to action, and "your turn" (bar, dot) */
+  --color-raised: #2C2F36;      /* Dark neutral: cards, selected and hovered rows, menus */
+  --color-neutral-light: #DEE1E6; /* message body */
+  /* Steps from Primary toward Secondary: no new hue */
+  --color-sidebar: #17191C;     /* Primary + 4% Secondary: sidebar, team panel */
+  --color-content: #131518;     /* Primary + 2% Secondary: the thread, composer field */
+  --color-divider: rgb(44 47 54 / 0.6);      /* Dark neutral at 60% */
+  --color-muted: rgb(222 225 230 / 0.55);    /* Light neutral at 55%: timestamps, headers, inactive rows */
+
+  --font-heading: "Outfit", sans-serif;
+  --font-body: "Hanken Grotesk", sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, monospace;
+
+  /* Brand scale: multipliers 1,2,3,5,8,13 = 8,16,24,40,64,104px. Also 4 (32px) and 6 (48px) for rows and bars. */
+  --spacing: 8px;
+
+  --radius-*: initial;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+
+  --text-*: initial;
+  --text-meta: 12px;
+  --text-meta--line-height: 16px;
+  --text-body: 15px;
+  --text-body--line-height: 22px;
+  --text-title: 18px;
+  --text-title--line-height: 24px;
+}
+
+:root {
+  color-scheme: dark; /* native selects, scrollbars and the caret follow the dark surfaces */
+}
+
+/* In the base layer, so a utility on an element can still override these */
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-primary font-body text-body text-neutral-light antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-heading font-semibold text-secondary;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-raised) transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-neutral-light);
+    outline-offset: 2px;
+  }
+}
+
+/* A name or title: Outfit 600 in Secondary */
+@utility head {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+/* A section header in a sidebar: small, spaced, muted */
+@utility section {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+}
+
+/* The window is frameless: these areas move it, controls inside them must opt out */
+@utility drag {
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Presence: whoever is speaking breathes slowly. The only motion that runs on its own. */
+@keyframes presence {
+  50% { opacity: 0.35; }
+}
+@utility breathe {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: presence 1.6s ease-in-out infinite;
+  }
+}

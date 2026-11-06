@@ -1,0 +1,661 @@
+// The conductor: runs a thread's agents one turn at a time through AgentRunner, applies the turn rules,
+// persists every change through ThreadStore and tells the listeners. Turns run in a background loop per
+// thread, guarded by a generation number: pause, stopAll and every new loop bump it, and a loop that sees
+// a different number after an await returns without recording anything.
+// The build phase runs its own loop (runBuild) over the build rules; Git and the checks go through Workspace.
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { agentId, type EngineId, type Permissions } from '@shared/agent-file';
+import type { ImageInput, Upload } from '@shared/attachments';
+import {
+  BUILD_ROLES, BUILD_TURN_MS, CODE_REVIEWER, DEVELOPER, MANAGER, SECURITY_REVIEWER,
+  type Control, type NewMessage, type Reaction, type Thread, type ThreadMessage, type ThreadUpdate,
+} from '@shared/thread';
+import { claudeLimited, tierUp } from '@shared/agent-problems';
+import { tokensBy, windowLines } from '@shared/thread-view';
+import { mergeTags } from '@shared/tokens';
+import type { ChatEvent, TurnResult, UsageWindow } from '@shared/types';
+import { moveWindows } from '@shared/usage-math';
+import type { AgentRunner } from '../agent-runner';
+import type { Catalog } from '../catalog';
+import { afterBuildUser, afterChecks, afterManager, afterReview, openPoints, startBuild, withPhase, type BuildStep } from './build-rules';
+import { formatForAgent, NOTES, parsePhases, parseReply, withProtocol } from './protocol';
+import { afterReply, afterUser, approveTeam, mentionOf, needsHandoff, type Step } from './rules';
+import type { ThreadStore } from './store';
+import { branchName, claudeSettingsProblem, type Workspace } from './workspace';
+
+export type ConductorDeps = {
+  store: ThreadStore;
+  catalog: Pick<Catalog, 'get' | 'list'>;
+  runner: Pick<AgentRunner, 'startAgent' | 'turn' | 'stop' | 'answer' | 'onEvent'>;
+  workspace: Workspace;
+  worktrees: string; // root folder of the threads' worktrees
+  windows: (engine: EngineId) => { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined; // the account's current usage windows
+};
+
+/** How speak() runs a turn. */
+type Speak = {
+  /**
+   * A build session: the build protocol, in `cwd`. A fresh one gets `lead`, then the transcript after
+   * `since` (none when undefined); a live one gets the transcript it has not seen. No handoff.
+   */
+  build?: { cwd: string; permissions?: Permissions; lead?: string; since?: number };
+  note?: string;
+  /** A hard turn: a fresh session one tier up. */
+  hard?: true;
+  timeoutMs?: number;
+  /** An extra check on the parsed reply: an error turns it into a bad block (no control). */
+  check?: (control: Control | undefined, body: string) => string | undefined;
+};
+type Spoken = { t: Thread; chatId: string; body: string; control?: Control; error?: string };
+
+const TITLE_MAX = 60;
+
+export class Conductor {
+  private readonly listeners = new Set<(u: ThreadUpdate) => void>();
+  private readonly generation = new Map<string, number>();
+  private readonly interrupts = new Map<string, { to?: string }>(); // a user message sent during a turn
+  // ponytail: live sessions stay open until Ark quits; only the speaker's is stopped when the thread pauses or fails (or hands off). Stopping idle threads' sessions is the upgrade if the process count matters.
+  private readonly sessions = new Map<string, Map<string, string>>(); // threadId -> agentId -> chatId
+  private readonly engines = new Map<string, EngineId>(); // chatId -> the engine that runs it
+  private readonly rerouted = new Set<string>(); // chats that Auto moved from Claude to Codex
+  private readonly stuck = new Set<string>(); // chats that started on Claude while it was limited (nowhere to move)
+  private readonly pending = new Map<string, Map<number, { chatId: string; id: string }>>(); // threadId -> approval seq -> engine request
+  private readonly starting = new Set<string>(); // threads whose startDeveloper is in flight
+
+  constructor(private readonly deps: ConductorDeps) {
+    deps.runner.onEvent((chatId, e) => {
+      if (e.type === 'approval') this.approval(chatId, e);
+    });
+  }
+
+  onUpdate(cb: (u: ThreadUpdate) => void): () => void {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+
+  create(projectId: string, text: string, files: Upload[] = []): Thread {
+    const { store, catalog } = this.deps;
+    if (!catalog.get(MANAGER)) throw new Error('Add a Project manager agent (id project-manager) to the catalog');
+    const project = store.projects().find((p) => p.id === projectId);
+    if (!project) throw new Error('Unknown project');
+    const title = (text.trim().split('\n')[0].trim() || files[0]?.name || 'New thread').slice(0, TITLE_MAX);
+    let t = store.create(projectId, title);
+    const tags = mergeTags(undefined, text);
+    if (tags.length) store.save((t = { ...t, tags }));
+    this.emit(t, [store.append(t.id, this.userMessage(t.id, text, files))]);
+    this.go(t, { do: 'turn', agent: MANAGER });
+    return this.thread(t.id);
+  }
+
+  send(threadId: string, text: string, files: Upload[] = []): void {
+    let t = this.thread(threadId);
+    const m = this.deps.store.append(threadId, this.userMessage(threadId, text, files));
+    const tags = mergeTags(t.tags, text);
+    if (tags.length !== (t.tags?.length ?? 0)) this.deps.store.save((t = { ...t, tags }));
+    // A finished build, or its summary turn: nobody reads the message.
+    const over = t.phase === 'done' || (t.status === 'running' && !!t.build?.phases.every((p) => p.step === 'done'));
+    const end = over ? [this.deps.store.append(threadId, { kind: 'note', text: 'The build is finished; start a new thread to continue.' })] : [];
+    // The build is starting, or a build turn or the checks run: the developer reads it on its next turn.
+    if (this.starting.has(threadId) || (t.phase === 'build' && t.status === 'running')) return this.emit(t, [m, ...end]);
+    if (t.status === 'running') {
+      this.interrupts.set(threadId, { to: mentionOf(text, t.team) });
+      this.emit(t, [m]);
+      return;
+    }
+    if (t.phase === 'build') {
+      const d = afterBuildUser(t);
+      this.save(d.thread, [m]);
+      return this.goBuild(d.thread, d.step);
+    }
+    const d = afterUser(t, mentionOf(text, t.team));
+    this.settle(d.thread, d.step, [m, ...end]);
+  }
+
+  approveTeam(threadId: string, agentIds: string[]): void {
+    const t = this.thread(threadId);
+    if (t.phase !== 'team' || t.status !== 'waiting') throw new Error('The team can be approved only while the manager waits on its proposal');
+    for (const id of agentIds) if (!this.deps.catalog.get(id)) throw new Error(`Unknown agent: ${id}`);
+    const names = this.names();
+    const d = approveTeam(t, agentIds, names);
+    const note = this.deps.store.append(threadId, { kind: 'note', text: `Team approved: ${d.thread.team.map((id) => names[id] ?? id).join(', ')}.` });
+    this.settle(d.thread, d.step, [note]);
+  }
+
+  react(threadId: string, seq: number, emoji: Reaction): void {
+    const t = this.thread(threadId);
+    if (!this.deps.store.messages(threadId).some((m) => m.seq === seq && m.kind === 'agent')) throw new Error('You can react only to an agent message');
+    this.emit(t, [this.deps.store.append(threadId, { kind: 'reaction', target: seq, emoji })]);
+  }
+
+  /**
+   * Creates the thread's worktree on a new branch, commits the plan into it and starts the build loop.
+   * Every refusal leaves the thread as it was.
+   */
+  async startDeveloper(threadId: string): Promise<void> {
+    const { store, catalog, workspace: ws, worktrees } = this.deps;
+    const planOf = (x: Thread) => {
+      const m = store.messages(threadId).findLast((y) => y.kind === 'agent');
+      if (x.phase !== 'planning' || m?.kind !== 'agent' || m.control?.kind !== 'plan') throw new Error('The developer can start only once the plan is ready');
+      return m;
+    };
+    let t = this.thread(threadId);
+    let plan = planOf(t);
+    if (this.starting.has(threadId)) throw new Error('The developer is already starting');
+    this.starting.add(threadId);
+    try {
+      const project = store.projects().find((p) => p.id === t.projectId);
+      if (!project) throw new Error('Unknown project');
+      const head = await ws.head(project.dir);
+      if (!head) throw new Error('The project needs a Git repository with at least one commit');
+      // git -C walks up: a folder inside another repository would build that one.
+      if (!(await ws.isRepoRoot(project.dir))) throw new Error('The project folder must be the root of its Git repository');
+      for (const role of BUILD_ROLES) if (!catalog.get(role)) throw new Error(`Add a ${role} agent (id ${role}) to the catalog`);
+      if (catalog.get(DEVELOPER)!.permissions !== 'build') throw new Error('The developer agent needs permissions: build');
+      t = this.thread(threadId); // re-read: the thread may have moved during the await
+      plan = planOf(t);
+      const phases = parsePhases(plan.text);
+      if (!phases.length) throw new Error('The plan has no phases');
+
+      this.halt(t); // a turn started by a late user message must not overwrite the build phase
+      if (t.status === 'running') this.save((t = { ...t, status: 'idle', speaking: undefined }), []);
+      const gen = this.generation.get(threadId);
+      const worktree = join(worktrees, threadId.slice(0, 8));
+      const branch = branchName(t.title, threadId);
+      // A start that failed after the worktree was made (plan write or commit) resumes in it: Ark never removes worktrees.
+      const made = existsSync(worktree) && (await ws.isRepoRoot(worktree)) && !!(await ws.head(worktree));
+      if (this.generation.get(threadId) !== gen) return; // Ark closed meanwhile: nothing was created
+      if (!made) await ws.addWorktree(project.dir, worktree, branch);
+      const bad = claudeSettingsProblem(worktree);
+      if (bad) throw new Error(bad); // the user sees this error over the composer: no note as well
+      const dir = join(worktree, 'docs', 'plans');
+      mkdirSync(dir, { recursive: true });
+      const planFile = join(dir, `${new Date().toLocaleDateString('sv-SE')}-${agentId(t.title)}.md`); // sv-SE: local YYYY-MM-DD
+      writeFileSync(planFile, plan.text);
+      await ws.commitAll(worktree, `docs: plan for ${t.title}`); // the phase-1 base
+
+      t = this.thread(threadId);
+      const added = BUILD_ROLES.filter((r) => !t.team.includes(r));
+      const names = this.names();
+      const note = store.append(threadId, {
+        kind: 'note',
+        text: `Building on branch ${branch} from ${head.slice(0, 7)}. Uncommitted changes in the project are not included.` +
+          (added.length ? ` Added to the team: ${added.map((r) => names[r] ?? r).join(', ')}.` : ''),
+      });
+      // The developer's cursor starts at the plan: anything the user writes after it is the developer's to read.
+      const cursors = { ...t.cursors, [DEVELOPER]: plan.seq };
+      const d = startBuild({ ...t, team: [...t.team, ...added], waitingOn: undefined, cursors }, { worktree, branch, plan: planFile, phases });
+      // Ark closed during the start: the worktree exists, so the build is recorded, but no loop starts.
+      if (this.generation.get(threadId) !== gen) return this.save({ ...d.thread, status: 'idle', speaking: undefined }, [note]);
+      this.save(d.thread, [note]);
+      this.goBuild(d.thread, d.step);
+    } finally {
+      this.starting.delete(threadId);
+    }
+  }
+
+  /** Answers a pending approval card. */
+  answer(threadId: string, seq: number, allow: boolean): void {
+    const t = this.thread(threadId);
+    const req = this.pending.get(threadId)?.get(seq);
+    if (!req || !t.approvals?.includes(seq)) throw new Error('This request is no longer pending');
+    this.pending.get(threadId)!.delete(seq);
+    const drop = (a: number[]) => a.filter((s) => s !== seq);
+    try {
+      this.deps.runner.answer(req.chatId, req.id, allow);
+    } catch {
+      this.setApprovals(threadId, drop, []); // the session or its request is gone
+      throw new Error('This request is no longer pending');
+    }
+    this.setApprovals(threadId, drop, [this.deps.store.append(threadId, { kind: 'decision', target: seq, allow })]);
+  }
+
+  /** Stops the running turn; nothing it would have said is recorded. Does nothing when no turn runs. */
+  pause(threadId: string): void {
+    const t = this.thread(threadId);
+    if (t.status !== 'running') return;
+    this.halt(t);
+    this.save({ ...t, status: 'idle', speaking: undefined }, []);
+  }
+
+  stopAll(): void {
+    for (const [id, n] of this.generation) this.generation.set(id, n + 1);
+    this.interrupts.clear();
+    for (const id of [...this.pending.keys()]) this.dropApprovals(id);
+    for (const chats of this.sessions.values()) for (const chatId of chats.values()) this.stopChat(chatId);
+    this.sessions.clear();
+    for (const t of this.deps.store.threads()) {
+      if (t.status === 'running') this.save({ ...t, status: 'idle', speaking: undefined }, []);
+    }
+  }
+
+  /** The user's message, with its files kept in the thread's folder. */
+  private userMessage(threadId: string, text: string, files: Upload[]): NewMessage {
+    const attachments = files.map((f) => this.deps.store.saveFile(threadId, f));
+    return { kind: 'user', text, ...(attachments.length ? { attachments } : {}) };
+  }
+
+  private thread(id: string): Thread {
+    const t = this.deps.store.get(id);
+    if (!t) throw new Error('Unknown thread');
+    return t;
+  }
+
+  private names(): Record<string, string> {
+    return Object.fromEntries(this.deps.catalog.list().agents.map((a) => [a.id, a.name]));
+  }
+
+  private emit(thread: Thread, added: ThreadMessage[]): void {
+    for (const cb of this.listeners) {
+      try {
+        cb({ thread, added });
+      } catch {
+        // a broken listener must not break the thread
+      }
+    }
+  }
+
+  private save(t: Thread, added: ThreadMessage[]): void {
+    // A turn works on its own copy of the thread; tags the user wrote and pending approvals live only on disk.
+    const disk = this.deps.store.get(t.id);
+    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), approvals: disk?.approvals };
+    this.deps.store.save(next);
+    this.emit(next, added);
+  }
+
+  /** Changes the thread's pending approvals on disk, the only place they are kept. */
+  private setApprovals(threadId: string, edit: (a: number[]) => number[], added: ThreadMessage[]): void {
+    const t = this.thread(threadId);
+    const next = { ...t, approvals: edit(t.approvals ?? []) };
+    this.deps.store.save(next);
+    this.emit(next, added);
+  }
+
+  /** A runner approval request: a card on the thread that owns the chat. Unknown chats are ignored. */
+  private approval(chatId: string, e: Extract<ChatEvent, { type: 'approval' }>): void {
+    try {
+      for (const [threadId, chats] of this.sessions) {
+        for (const [agent, c] of chats) {
+          if (c !== chatId) continue;
+          const m = this.deps.store.append(threadId, { kind: 'approval', agent, tool: e.tool, detail: e.detail });
+          let mine = this.pending.get(threadId);
+          if (!mine) this.pending.set(threadId, (mine = new Map()));
+          mine.set(m.seq, { chatId, id: e.id });
+          this.setApprovals(threadId, (a) => [...a, m.seq], [m]);
+          return;
+        }
+      }
+    } catch {
+      // the card could not be recorded: deny rather than leave the engine waiting; never throw into the runner's dispatch
+      try {
+        this.deps.runner.answer(chatId, e.id, false);
+      } catch {
+        // the session is already gone
+      }
+    }
+  }
+
+  /** Forgets the thread's pending approvals (only that chat's, when given); their cards show as expired. */
+  private dropApprovals(threadId: string, chatId?: string): void {
+    const mine = this.pending.get(threadId);
+    const gone = [...(mine ?? [])].filter(([, r]) => !chatId || r.chatId === chatId).map(([seq]) => seq);
+    if (!gone.length) return;
+    for (const s of gone) mine!.delete(s);
+    this.setApprovals(threadId, (a) => a.filter((s) => !gone.includes(s)), []);
+  }
+
+  private stopChat(chatId: string): void {
+    this.engines.delete(chatId);
+    this.rerouted.delete(chatId);
+    this.stuck.delete(chatId);
+    try {
+      this.deps.runner.stop(chatId);
+    } catch {
+      // the session is already gone
+    }
+  }
+
+  /** Stops and forgets the agent's live session in the thread, if it has one. */
+  private dropSession(threadId: string, agent: string): void {
+    const chats = this.sessions.get(threadId);
+    const chatId = chats?.get(agent);
+    if (!chatId) return;
+    chats!.delete(agent);
+    this.stopChat(chatId);
+  }
+
+  /** Stops the thread's loop and the speaking agent's session, and drops its pending approvals. */
+  private halt(t: Thread): void {
+    this.generation.set(t.id, (this.generation.get(t.id) ?? 0) + 1);
+    this.interrupts.delete(t.id);
+    this.dropApprovals(t.id);
+    if (t.speaking) this.dropSession(t.id, t.speaking);
+  }
+
+  /** Applies a step: a turn starts the loop; wait and idle are saved with the messages added. */
+  private settle(t: Thread, step: Step, added: ThreadMessage[], asker?: string): void {
+    if (step.do === 'turn') {
+      this.save(t, added);
+      this.go(t, step);
+      return;
+    }
+    if (step.do === 'idle') return this.save({ ...t, status: 'idle', speaking: undefined }, added);
+    const note = step.note ? [this.deps.store.append(t.id, { kind: 'note', text: step.note })] : [];
+    this.save({ ...t, status: 'waiting', speaking: undefined, waitingOn: asker }, [...added, ...note]);
+  }
+
+  /** Starts a new loop for the thread. Its first save (status running) happens before this returns. */
+  private go(t: Thread, step: Step & { do: 'turn' }): void {
+    void this.run(t, step, this.nextGen(t.id)).catch(() => {
+      // run() turns failures into notes; this only guards against the store failing while it does
+    });
+  }
+
+  /** Starts a new build loop for the thread; like go(), a running step is saved before this returns. */
+  private goBuild(t: Thread, step: BuildStep): void {
+    void this.runBuild(t, step, this.nextGen(t.id)).catch(() => {
+      // runBuild() turns failures into notes; this only guards against the store failing while it does
+    });
+  }
+
+  private nextGen(id: string): number {
+    const gen = (this.generation.get(id) ?? 0) + 1;
+    this.generation.set(id, gen);
+    this.interrupts.delete(id);
+    return gen;
+  }
+
+  /** The seq of the phase card of plan phase `index` (0 when there is none). */
+  private phaseSeq(threadId: string, index: number): number {
+    return this.deps.store.messages(threadId).findLast((m) => m.kind === 'phase' && m.index === index)?.seq ?? 0;
+  }
+
+  /** The first user message the developer has not read yet, if any. */
+  private unreadByDeveloper(t: Thread): number | undefined {
+    const from = t.cursors[DEVELOPER] ?? 0;
+    return this.deps.store.messages(t.id).find((m) => m.kind === 'user' && m.seq > from)?.seq;
+  }
+
+  /**
+   * One turn of `agent`: starts its session when it has none, sends the input, records the reply and moves its
+   * cursor. Undefined when the loop went stale meanwhile (nothing recorded). The caller saves `running` first.
+   */
+  private async speak(t: Thread, agent: string, gen: number, o: Speak = {}): Promise<Spoken | undefined> {
+    const { store, catalog, runner } = this.deps;
+    const id = t.id;
+    const live = () => this.generation.get(id) === gen;
+    const names = this.names();
+    let chats = this.sessions.get(id);
+    if (!chats) this.sessions.set(id, (chats = new Map()));
+
+    // The session.
+    const project = store.projects().find((p) => p.id === t.projectId);
+    // An auto agent's live session follows the 90% switch: off Claude when it is limited, back when it is not (heavy work never moves).
+    // Build sessions are left alone: a restart would skip the worktree settings check in runBuild.
+    const limited = claudeLimited(this.deps.windows('claude'), Date.now() / 1000);
+    const liveChat = chats.get(agent);
+    const live0 = liveChat ? catalog.get(agent) : undefined;
+    if (liveChat && !o.build && live0?.engine.kind === 'auto' && live0.tier !== 'heavy') {
+      if ((limited && this.engines.get(liveChat) === 'claude' && !this.stuck.has(liveChat)) || (!limited && this.rerouted.has(liveChat))) this.dropSession(id, agent);
+    }
+    let chatId = chats.get(agent);
+    const fresh = !chatId;
+    if (!chatId) {
+      const def = catalog.get(agent);
+      if (!def) throw new Error('Unknown agent');
+      const dir = o.build?.cwd ?? project?.dir;
+      if (!dir) throw new Error('Unknown project');
+      const started = await runner.startAgent(withProtocol(o.hard ? { ...def, tier: tierUp(def.tier) } : def, o.build ? 'build' : undefined), dir, o.build?.permissions);
+      chatId = started.chatId;
+      if (!live()) {
+        this.stopChat(chatId); // paused while starting: the session was never registered
+        return undefined;
+      }
+      chats.set(agent, chatId);
+      this.engines.set(chatId, started.engine);
+      if (started.rerouted) this.rerouted.add(chatId);
+      else if (limited && started.engine === 'claude') this.stuck.add(chatId);
+      if (started.rerouted) this.save(t, [store.append(id, { kind: 'note', text: NOTES.rerouted(names[agent] ?? agent) })]);
+    }
+
+    // The input.
+    // The cursor moves to the last message in this input, not to the reply: anything added during the
+    // turn (a user message, a reaction) is still unseen next time; formatForAgent skips the agent's own.
+    const all = store.messages(id);
+    const upTo = all.at(-1)?.seq ?? 0;
+    const handoff = o.build ? undefined : t.handoffs[agent];
+    const seen = !fresh ? (t.cursors[agent] ?? 0) : o.build ? o.build.since : (handoff?.seq ?? 0);
+    const parts: string[] = [];
+    if (fresh && o.build?.lead) parts.push('[Ark] ' + o.build.lead);
+    if (fresh && handoff) parts.push('[Ark] ' + NOTES.fresh(handoff.text));
+    if (fresh && !o.build && t.team.length) parts.push('[Ark] ' + NOTES.roster(t.team.map((a) => ({ id: a, name: names[a] ?? a }))));
+    const unseen = seen === undefined ? [] : all.filter((m) => m.seq > seen);
+    const readFile = (file: string) => {
+      try {
+        return store.readFile(id, file);
+      } catch {
+        return undefined; // a file deleted by hand: the agent is told it could not be read
+      }
+    };
+    parts.push(formatForAgent(unseen, all, names, agent, (a) => readFile(a.file)?.toString('utf8')));
+    const images: ImageInput[] = unseen.flatMap((m) =>
+      m.kind === 'user'
+        ? (m.attachments ?? []).flatMap((a) => {
+            const bytes = a.kind === 'image' ? readFile(a.file) : undefined;
+            return bytes ? [{ mime: a.mime, data: bytes.toString('base64') }] : [];
+          })
+        : [],
+    );
+    // A manager session that starts in the team phase (first turn, or after a pause, an error, a handoff or a restart) has never seen the catalog.
+    if (fresh && project && t.phase === 'team' && agent === MANAGER) parts.push('[Ark] ' + NOTES.teamStart(project.name, project.dir, catalog.list().agents));
+    if (o.note) parts.push('[Ark] ' + o.note);
+    let result: TurnResult;
+    const engine = this.engines.get(chatId);
+    const moved = () => engine && (t = { ...t, windows: moveWindows(t.windows, engine, this.deps.windows(engine), Date.now() / 1000) });
+    moved();
+    try {
+      result = await runner.turn(chatId, parts.filter(Boolean).join('\n\n'), o.timeoutMs, undefined, images);
+    } finally {
+      this.dropApprovals(id, chatId); // an approval still open when its turn ends can no longer be answered
+    }
+    if (!live()) return undefined;
+    moved();
+
+    // The reply.
+    const parsed = parseReply(result.text);
+    const bad = o.check?.(parsed.control, parsed.body);
+    const { body, control, error } = bad ? { body: parsed.body, control: undefined, error: bad } : parsed;
+    const msg = store.append(id, { kind: 'agent', agent, text: body, model: result.model, tokens: result.tokens, ...(control ? { control } : {}) });
+    if (control?.kind === 'plan' && (t.phase === 'team' || t.phase === 'planning')) store.writePlan(id, body);
+    t = { ...t, cursors: { ...t.cursors, [agent]: upTo } };
+    this.save(t, [msg]);
+
+    // The handoff (live sessions only; build sessions are short).
+    // A failed handoff loses only the handoff: the session is dropped (the next turn replays the
+    // transcript from the last handoff) and the reply's own step still runs.
+    if (!o.build && needsHandoff(result.contextUsed ?? result.tokens.input, result.contextWindow)) {
+      let h: TurnResult | Error;
+      try {
+        h = await runner.turn(chatId, '[Ark] ' + NOTES.handoff);
+      } catch (e) {
+        h = e instanceof Error ? e : new Error(String(e));
+      }
+      this.dropApprovals(id, chatId);
+      if (!live()) return undefined;
+      this.dropSession(id, agent);
+      if (h instanceof Error) {
+        const note = store.append(id, { kind: 'note', text: `${names[agent] ?? agent} could not write a handoff: ${h.message}` });
+        this.save(t, [note]);
+      } else {
+        t = { ...t, handoffs: { ...t.handoffs, [agent]: { seq: upTo, text: h.text } } };
+        this.save(t, []);
+      }
+    }
+    return { t, chatId, body, control, error };
+  }
+
+  /** One agent turn, then the next step. Every await is followed by a generation check. */
+  private async run(t: Thread, step: Step & { do: 'turn' }, gen: number): Promise<void> {
+    const { store, catalog } = this.deps;
+    const id = t.id;
+    const live = () => this.generation.get(id) === gen;
+    const agent = step.agent;
+    t = { ...t, status: 'running', speaking: agent, waitingOn: undefined };
+    this.save(t, []);
+    try {
+      // A hard turn runs in a fresh session one tier up, and the member goes back to its own tier after.
+      const def = catalog.get(agent);
+      const bump = !!step.hard && !!def && def.engine.kind !== 'model' && tierUp(def.tier) !== def.tier;
+      if (bump) this.dropSession(id, agent);
+      const r = await this.speak(t, agent, gen, {
+        note: step.note,
+        hard: bump || undefined,
+        check: (control, body) => {
+          // A pick the catalog cannot start would leave the team card unusable: a bad reply, corrected once by the rules.
+          const unknown = agent === MANAGER && control?.kind === 'team' ? control.picks.find((p) => !catalog.get(p.agent)) : undefined;
+          if (unknown) return `ark block: unknown agent: ${unknown.agent}`;
+          // A plan the build cannot split into phases: the same.
+          if (control?.kind === 'plan' && !parsePhases(body).length) return 'ark block: plan has no "## Phase N: <title>" headings';
+          return undefined;
+        },
+      });
+      if (!r) return;
+      if (bump) this.dropSession(id, agent);
+      t = r.t;
+      const { control, error } = r;
+
+      // The next step. A user message sent during the turn already came after the agent started,
+      // so a wait gives way to it as if it had been sent now.
+      const interrupt = this.interrupts.get(id);
+      this.interrupts.delete(id);
+      let d = afterReply(t, agent, control, error, interrupt);
+      if (d.step.do === 'wait' && interrupt) d = afterUser(d.thread, interrupt.to);
+      this.settle(d.thread, d.step, [], d.step.do === 'wait' && control?.kind === 'ask' ? agent : undefined);
+    } catch (e) {
+      if (!live()) return; // 'stopped' after a pause, or anything once the thread moved on
+      this.dropSession(id, agent);
+      const note = store.append(id, { kind: 'note', text: `${this.names()[agent] ?? agent} stopped: ${e instanceof Error ? e.message : String(e)}` });
+      this.save({ ...t, status: 'error', speaking: undefined }, [note]);
+    }
+  }
+
+  /**
+   * The build loop: developer turn, Ark's commit and checks, code review, security review, phase after phase,
+   * then the manager's summary. Steps come from the build rules; every await is followed by a generation check.
+   */
+  private async runBuild(t: Thread, step: BuildStep, gen: number): Promise<void> {
+    const { store, workspace: ws } = this.deps;
+    const id = t.id;
+    const live = () => this.generation.get(id) === gen;
+    const names = this.names();
+    const turn = (agent: string | undefined, added: ThreadMessage[] = []) =>
+      this.save((t = { ...t, status: 'running', speaking: agent, waitingOn: undefined }), added);
+    let blockedOn: string[] | undefined; // the failed checks, when the phase blocked on them
+    let asker: string | undefined;
+    if (step.do !== 'wait' && step.do !== 'finish') turn(undefined);
+    try {
+      for (;;) {
+        if (step.do === 'wait' || step.do === 'finish') {
+          const note = step.do === 'wait' && step.note ? [store.append(id, { kind: 'note', text: step.note })] : [];
+          const waiting = step.do === 'wait';
+          return this.save({ ...t, status: waiting ? 'waiting' : 'idle', speaking: undefined, waitingOn: waiting ? asker : undefined }, note);
+        }
+        const b = t.build!;
+        const p = b.phases[b.current];
+
+        if (step.do === 'review') {
+          const agent = step.who === 'code' ? CODE_REVIEWER : SECURITY_REVIEWER;
+          const diff = await ws.diff(b.worktree, p.base!);
+          if (!live()) return;
+          // The reviewers load the worktree's .claude/settings.json too, and the developer may have written it this phase.
+          const bad = claudeSettingsProblem(b.worktree);
+          if (bad) throw new Error(bad);
+          turn(agent);
+          this.dropSession(id, agent); // a fresh session per review
+          const r = await this.speak(t, agent, gen, {
+            build: { cwd: b.worktree, lead: NOTES.review({ kind: step.who, phase: p.text, diff, worktree: b.worktree }) },
+            note: step.retry,
+          });
+          if (!r) return;
+          this.dropSession(id, agent);
+          t = r.t;
+          turn(undefined); // the next diff or head is Ark's own work: a git failure is not the reviewer's
+          ({ thread: t, step } = afterReview(t, step.who, r.control, r.error, this.unreadByDeveloper(t) !== undefined));
+          if (step.do === 'develop' || step.do === 'summary') this.dropSession(id, DEVELOPER); // the phase is over
+          continue;
+        }
+
+        if (step.do === 'escalate' || step.do === 'summary') {
+          const note = step.do === 'escalate'
+            ? NOTES.blocked({ phase: p.title, points: blockedOn ?? openPoints(store.messages(id), this.phaseSeq(id, b.current)) })
+            : NOTES.summary({
+                branch: b.branch,
+                phases: b.phases.map((q) => ({ title: q.title, notes: q.notes, commit: q.commit?.slice(0, 7) })),
+                tokens: Object.entries(tokensBy(store.messages(id), (m) => `${m.agent}\n${m.model}`)).map(([k, x]) => {
+                  const [a, model] = k.split('\n');
+                  return `${names[a] ?? a} (${model}): ${x.input} in / ${x.output} out`;
+                }),
+                windows: windowLines(t.windows),
+              });
+          turn(MANAGER);
+          const r = await this.speak(t, MANAGER, gen, { note });
+          if (!r) return;
+          asker = MANAGER; // a blocked phase waits on the manager's question
+          ({ thread: t, step } = afterManager(r.t));
+          continue;
+        }
+
+        // develop / fix: a developer turn, then Ark's commit and the checks.
+        let note: string | undefined;
+        if (step.do === 'develop') {
+          const base = await ws.head(b.worktree);
+          if (!live()) return;
+          if (!base) throw new Error('The worktree has no commit');
+          t = withPhase(t, (q) => { q.base = base; }).thread;
+          this.dropSession(id, DEVELOPER); // a fresh session per phase
+          turn(undefined, [store.append(id, { kind: 'phase', index: b.current })]);
+        } else {
+          note = step.why === 'checks' ? NOTES.checksFailed(step.results ?? []) : step.why === 'review' ? NOTES.fix : NOTES.userFix;
+        }
+        // A fresh session loads the worktree's .claude/settings.json: refuse one that would skip the approval card.
+        const bad = this.sessions.get(id)?.has(DEVELOPER) ? undefined : claudeSettingsProblem(b.worktree);
+        if (bad) throw new Error(bad);
+        // The user wrote something the developer has not read: a fresh session starts just before it, and every turn says so.
+        const unread = this.unreadByDeveloper(t);
+        if (unread !== undefined && !(step.do === 'fix' && step.why === 'user')) note = note ? `${note}
+${NOTES.userFix}` : NOTES.userFix;
+        turn(DEVELOPER);
+        const deps = !existsSync(join(b.worktree, 'node_modules')) && existsSync(join(b.worktree, 'package.json'));
+        const lead = NOTES.develop({
+          plan: b.plan, index: b.current, total: b.phases.length, phase: p.text,
+          done: b.phases.slice(0, b.current).map((q) => q.title), branch: b.branch, worktree: b.worktree, deps,
+        });
+        const r = await this.speak(t, DEVELOPER, gen, {
+          build: { cwd: b.worktree, permissions: 'build', lead, since: Math.min(this.phaseSeq(id, b.current), (unread ?? Infinity) - 1) },
+          note,
+          timeoutMs: BUILD_TURN_MS,
+        });
+        if (!r) return;
+        t = r.t;
+        turn(undefined); // the commit and the checks are Ark's own work: a git failure is not the developer's
+        const sha = await ws.commitAll(b.worktree, `ark: phase ${b.current + 1} — ${p.title}`);
+        if (!live()) return;
+        if (sha) t = withPhase(t, (q) => { q.commit = sha; }).thread; // saved with the checks note
+        const results = await ws.runChecks(b.worktree, ws.projectChecks(b.worktree));
+        if (!live()) return;
+        const failed = results.filter((x) => !x.ok).map((x) => x.script);
+        const text = !results.length ? 'No checks found in package.json.'
+          : failed.length ? `Checks failed: ${failed.join(', ')}.` : `Checks passed: ${results.map((x) => x.script).join(', ')}.`;
+        this.save(t, [store.append(id, { kind: 'note', text })]);
+        ({ thread: t, step } = afterChecks(t, results));
+        blockedOn = step.do === 'escalate' ? failed : undefined;
+      }
+    } catch (e) {
+      if (!live()) return; // 'stopped' after a pause, or anything once the thread moved on
+      const who = t.speaking;
+      if (who) this.dropSession(id, who);
+      const note = store.append(id, { kind: 'note', text: `${who ? (names[who] ?? who) : 'The build'} stopped: ${e instanceof Error ? e.message : String(e)}` });
+      this.save({ ...t, status: 'error', speaking: undefined }, [note]);
+    }
+  }
+}

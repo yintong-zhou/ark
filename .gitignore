@@ -1,0 +1,18 @@
+# Secrets e credenziali
+.env
+credentials.json
+token.json
+
+# Intermedi (sempre rigenerabili)
+.tmp/
+
+# Dipendenze
+node_modules/
+
+# Bozze brainstorming
+.superpowers/
+
+# Build
+out/
+dist/
+*.tsbuildinfo

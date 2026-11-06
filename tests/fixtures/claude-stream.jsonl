@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"s1","model":"claude-haiku-5-5","skills":["dataviz","ark-agent:ark-probe-a"],"plugins":[{"name":"ark-agent","path":"D:\\x"},{"name":"cc-plugin-telemetry","path":"builtin"}],"mcp_servers":[]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":""},{"type":"text","text":"noted."}]}}
+{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":2,"cache_creation_input_tokens":6909,"cache_read_input_tokens":17329,"output_tokens":5}}

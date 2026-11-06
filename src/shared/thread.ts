@@ -1,0 +1,64 @@
+import type { Attachment } from './attachments';
+import type { EngineId } from './agent-file';
+import type { TokenCount } from './types';
+
+export const MANAGER = 'project-manager';
+export const PLANNING_BUDGET = 20;
+export const HANDOFF_AT = 0.5;
+export type Project = { id: string; name: string; dir: string; git: boolean };
+export type Phase = 'team' | 'planning' | 'build' | 'done';
+export type ThreadStatus = 'running' | 'waiting' | 'idle' | 'error'; // waiting = for the user
+export type Reaction = '👍' | '👎';
+export type TeamPick = { agent: string; reason: string };
+export const REVIEW_ROUNDS = 2;
+export const BUILD_TURN_MS = 3_600_000; // developer turns, approvals included
+export const BUILD_ROLES = ['developer', 'code-reviewer', 'security-reviewer'] as const;
+export const [DEVELOPER, CODE_REVIEWER, SECURITY_REVIEWER] = BUILD_ROLES;
+export type PhaseStep = 'develop' | 'review' | 'security' | 'blocked' | 'done';
+export type BuildPhase = {
+  title: string; text: string; step: PhaseStep;
+  base?: string;      // commit the phase started from (set when it starts)
+  commit?: string;    // last commit Ark made for it
+  rounds: number;     // times the developer was sent back (checks or reviews)
+  notes: number;      // review findings so far, all rounds
+  open: number;       // findings in the current review round
+  checks?: string[];  // scripts that passed at the last run; [] = no checks found; undefined = not run yet
+};
+export type Build = { worktree: string; branch: string; plan: string; phases: BuildPhase[]; current: number };
+export type Control =
+  | { kind: 'team'; picks: TeamPick[]; leftOut: string }
+  | { kind: 'next'; agent: string; hard?: true }
+  | { kind: 'ask'; question: string; choices: string[] }
+  | { kind: 'plan' }
+  | { kind: 'review'; pass: boolean; findings: string[] };
+type Base = { seq: number; at: number };
+export type ThreadMessage = Base & (
+  | { kind: 'user'; text: string; attachments?: Attachment[] }
+  | { kind: 'agent'; agent: string; text: string; model: string; tokens: TokenCount; control?: Control }
+  | { kind: 'reaction'; target: number; emoji: Reaction }
+  | { kind: 'note'; text: string } // Ark's own line: shown to the user and to the agents
+  | { kind: 'phase'; index: number } // shown as the phase card
+  | { kind: 'approval'; agent: string; tool: string; detail: string }
+  | { kind: 'decision'; target: number; allow: boolean } // the answer to an approval, hidden like a reaction
+);
+export type NewMessage = ThreadMessage extends infer M ? (M extends ThreadMessage ? Omit<M, 'seq' | 'at'> : never) : never;
+/** How one usage window moved while the thread ran: the first reading, the highest since, and which window it was. */
+export type WindowMove = { from: number; to: number; resetsAt: number };
+export type ThreadWindows = Partial<Record<EngineId, { fiveHour?: WindowMove; weekly?: WindowMove }>>;
+export type Thread = {
+  id: string; projectId: string; title: string; createdAt: number;
+  phase: Phase; status: ThreadStatus;
+  tags?: string[];                   // labels the user wrote as #tag, kept on the thread
+  speaking?: string;                 // agent whose turn is running
+  team: string[];                    // approved agent ids, MANAGER first; empty during the team phase
+  waitingOn?: string;                // agent that asked the user
+  agentTurns: number;                // planning agent turns since the last user message
+  retried: boolean;                  // the current speaker already got its one correction
+  summarizing: boolean;              // the manager was asked for the budget summary
+  cursors: Record<string, number>;   // last seq each agent's live session has seen
+  handoffs: Record<string, { seq: number; text: string }>;
+  build?: Build;
+  approvals?: number[];              // seqs of approval messages still waiting
+  windows?: ThreadWindows;           // how the account's usage windows moved while the thread ran
+};
+export type ThreadUpdate = { thread: Thread; added: ThreadMessage[] };

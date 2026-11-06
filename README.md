@@ -1,0 +1,133 @@
+# Ark
+
+Where coding agents work together. Ark is a local, open-source desktop app for Windows that brings the coding agents on
+your machine (Claude Code, Codex, OpenCode) into one place.
+
+## Phase 0: usage at a glance
+
+Ark currently shows, for the agents installed on your machine:
+
+- **Each open session's context**: how full it is, with a tick at 50%, so you can decide when to compact or hand off.
+- **The 5-hour and weekly limits** of each agent, with time to reset. A tick on the weekly bar marks where usage would
+  be if you spread the week evenly.
+- **History** of the last 7 days, and **which account** each agent is signed in with.
+
+Ark only reads. It never runs the agents and never sends anything anywhere.
+
+| Agent       | Where the numbers come from                                                                |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| Claude Code | Its status line (after you click **Connect status line**) and `claude auth status`        |
+| Codex       | Its local session files in `~/.codex/sessions` (read-only) and `codex app-server`          |
+| OpenCode    | Detection only for now                                                                     |
+
+### The Claude Code status line
+
+Claude Code shares context and limits only through its status line. **Connect status line** changes the `statusLine`
+entry in `~/.claude/settings.json` so it runs a small Ark script first. Your own status line keeps running unchanged.
+Ark backs up `settings.json` before changing it, and **Disconnect** restores the original entry. Projects that set their
+own `statusLine` in `.claude/settings*.json` won't report to Ark. Limits appear after a session's first response, on Pro
+and Max plans.
+
+**Before uninstalling Ark, click Disconnect** so Claude Code goes back to your own status line. Otherwise
+`settings.json` keeps pointing at Ark's script. If you already uninstalled, restore the `statusLine` entry from the
+latest backup in `%APPDATA%\ark\backups`.
+
+## Agents
+
+Ark keeps a catalog of agents. Each agent is a Markdown file in `%APPDATA%\ark\agents`, so you can edit it in any
+editor and keep it in Git. It has a role prompt, an engine (Claude Code or Codex), and the list of skills it may use.
+
+- **Seeds**: a first set of agents (for example project manager, planner, developer, code and security reviewers) is
+  there from the start.
+- **Import**: copy agents from `~/.claude/agents` and from Claude Code plugins into the catalog.
+- **Draft with AI**: describe an agent in one sentence and a light-tier agent writes a draft for you to approve.
+- **Chat**: pick an agent and a project folder and talk to it, on Claude Code or Codex.
+
+Each agent sees only its own skills. The project's own `CLAUDE.md` or `AGENTS.md` is kept, so the agent follows the
+project's rules. Your personal instructions, memory, other skills, plugins and MCP servers are left out: Claude Code's
+auto-memory is turned off, and Ark refuses to start a Codex agent while `~/.codex/AGENTS.md` (or `AGENTS.override.md`)
+exists, because Codex would load it into every session. In this step every agent is read-only: it can read the project
+but has no edit, write or shell tools.
+
+Agents never change `~/.claude` or `~/.codex`: Ark only reads skills and agents there, and copies the skills an agent
+needs into a private folder for each session. The engines themselves still keep their usual session logs
+(`~/.claude/projects` and `~/.codex/sessions`). (Only **Connect status line**, above, edits `settings.json`.)
+
+`npm run test:live` checks this against the real engines. It makes a few cheap calls on your Claude Code and Codex
+subscriptions.
+
+## Threads
+
+A **project** is a local folder that is a Git repository (Ark offers **Initialize Git** when it is not). A **thread** is
+one piece of work in a project: a conversation between you and a team of agents from the catalog. Each thread keeps its
+transcript on disk in `%APPDATA%\ark\threads`, so it survives closing Ark.
+
+- **Team phase**: when you start a thread, the project manager reads your request and proposes a team from the catalog,
+  with a one-line reason for each agent. You edit the list and press **Approve team**. Nobody else speaks until you do.
+- **Planning**: the project manager gives the floor to one agent at a time. Only one agent speaks per turn, and each
+  agent sees only its own skills, as in Chat. After 20 agent turns without a plan, the manager summarizes and asks you
+  how to continue.
+- **`@you`**: an agent that needs your decision tags you. The thread is marked **Your turn** (an Accent bar on the message and the thread) and the team pauses until
+  you answer, with the quick replies the agent offers or in your own words. You can also write at any time (to steer the
+  team, or `@` an agent to talk to it) and **Pause** a running turn.
+- **Mentions and tags**: type `@` to pick an agent and `#` to label the thread (`#bug`, `#ui`). A tag stays on the thread, shows as a chip in the message and in the project's sidebar, and a click on it narrows the thread list.
+- **Files and images**: attach with the paperclip, a drop or a paste (up to 5 per message). Images (png, jpg, gif, webp, 5 MB each) reach the agents as images; text and code files (200 KB each) are pasted into the message they read. Other types are refused, since agents only see what Ark gives them. Attachments live in the thread's `files` folder.
+- **Emoji**: the smiley in the composer opens a grid of emoji.
+- **Reactions**: react 👍 or 👎 to any agent message. A reaction does not start a turn: the agents see it on their next turn ("the user reacted 👍 to ...").
+- **The plan card**: when the planner finishes, its plan appears as a card in the thread and is saved as `plan.md` in the
+  thread's folder. **Start developer** approves it.
+
+- **Build phase**: **Start developer** creates a Git worktree on a new branch `ark/<title>-<id>` (under
+  `%APPDATA%\ark\worktrees`) from the project's current commit, so uncommitted changes are not in it, and your checked-out
+  branch is never touched. The plan is copied into the worktree and committed first. The developer then builds the plan
+  phase by phase. After each developer turn Ark commits the work and runs the project's `typecheck`, `lint`, `test` and
+  `build` scripts, then the code reviewer and the security reviewer each get a turn. After two rounds without agreement the
+  project manager sends the open points to you. When every phase is done the manager closes the thread with a summary.
+- **Auto**: an agent runs at its own `tier`. When the project manager marks a task as hard (`"hard": true`), that one turn runs
+  one tier up, in a fresh session. Agents set to `engine: auto` run light and standard work on Codex when Claude's 5-hour or
+  weekly window is at 90% or more, when Codex is installed; heavy work stays on Claude. A running auto agent moves at its
+  next turn, and moves back when Claude is under 90% again. Agents with a fixed engine or model never move. A rerouted
+  session leaves a note in the thread.
+- **Thread cost**: the team panel shows tokens per model, and how the usage windows moved while the thread ran, for example
+  `Claude 5h 41% → 44%`, marked "Including your other sessions" because a window counts all your usage. The build summary
+  lists the same.
+- **Approvals**: build agents can edit files in the worktree, but anything risky (installing packages, network commands,
+  commands outside the worktree) shows an approval card with the agent, the tool and the command. **Allow** or **Deny**
+  it; a card that was not answered before its turn ended shows "Expired". A thread that waits on an approval gets a badge.
+  Ark refuses to start a developer session when the worktree's `.claude/settings.json` sets `permissions.allow`,
+  `permissions.defaultMode` or `hooks` (they would act without a card) or is not valid JSON; the note names the file.
+- **Dependencies**: a new worktree has no `node_modules`, so the developer asks to run `npm ci` on first use. That is one
+  approval card per thread; Ark never installs anything by itself.
+
+If Ark is closed during a turn, the thread notes it and continues when you send a message. A long agent session is
+handed off to a fresh one at 50% of its context, so a thread can run for a long time.
+
+`npm run test:live` also starts a real thread on the light tier and checks that the project manager answers with a team
+proposal or a question, and runs the approval round trip (deny and allow) with a Claude build agent, and a deny with a
+Codex build agent.
+
+Known limit: Ark does not rely on Codex's experimental skill roots (codex-cli 0.132.0 lacks them, 0.167.0 has them
+again). It turns off every skill Codex finds and gives a Codex agent its own skills as a list (name, description, file)
+in its instructions; the agent reads the SKILL.md on request. Codex agents therefore have no native `$skill` mentions.
+Live-tested with codex-cli 0.167.0; 0.132.0 cannot talk to the current model service. Ark also turns on Codex's
+Windows sandbox (`windows.sandbox = "unelevated"`, no admin rights; without it Codex runs commands unsandboxed on
+Windows) and refuses to start a Codex agent if a read-only command can still write.
+
+## Run it
+
+Requirements: Windows, Node.js 22 or newer.
+
+```sh
+npm install
+npm run dev
+```
+
+If `npm run dev` fails with "Electron uninstall", npm skipped Electron's download step. Run
+`node node_modules/electron/install.js` once.
+
+Other scripts: `npm test`, `npm run test:live`, `npm run typecheck`, `npm run lint`, and `npm run dist`, which builds the Windows installer
+into `dist/`.
+
+## License
+
+MIT

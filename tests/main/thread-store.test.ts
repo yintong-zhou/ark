@@ -1,0 +1,125 @@
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, expect, test } from 'vitest';
+import type { NewMessage } from '@shared/thread';
+import { ThreadStore } from '../../src/main/services/threads/store';
+
+let root: string;
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), 'ark-threads-'));
+});
+afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+const dir = (name: string, git = false) => {
+  const d = join(root, name);
+  mkdirSync(join(d, git ? '.git' : '.'), { recursive: true });
+  return d;
+};
+const note = (text: string): NewMessage => ({ kind: 'note', text });
+
+test('addProject dedupes by folder and detects git', () => {
+  const s = new ThreadStore(root);
+  const p = s.addProject(dir('app', true));
+  expect(p).toMatchObject({ name: 'app', git: true });
+  expect(s.addProject(dir('app', true)).id).toBe(p.id);
+  expect(s.addProject(dir('plain')).git).toBe(false);
+  expect(s.projects()).toHaveLength(2);
+  expect(new ThreadStore(root).projects()).toHaveLength(2); // persisted
+  mkdirSync(join(dir('plain'), '.git'));
+  expect(s.setGit(s.projects()[1].id).git).toBe(true);
+});
+
+test('create rejects an unknown project', () => {
+  expect(() => new ThreadStore(root).create('nope', 't')).toThrow('Unknown project');
+});
+
+test('append numbers messages from 1 and survives a new store instance', () => {
+  const s = new ThreadStore(root);
+  const t = s.create(s.addProject(dir('app')).id, 'T');
+  expect(t).toMatchObject({ phase: 'team', status: 'idle', agentTurns: 0, team: [], cursors: {} });
+  expect(s.append(t.id, note('a')).seq).toBe(1);
+  expect(s.append(t.id, note('b')).seq).toBe(2);
+  expect(new ThreadStore(root).append(t.id, note('c')).seq).toBe(3);
+  expect(s.messages(t.id).map((m) => m.seq)).toEqual([1, 2, 3]);
+  expect(() => s.messages('../x')).toThrow('Unknown thread');
+});
+
+test('messages skips a corrupt line', () => {
+  const s = new ThreadStore(root);
+  const t = s.create(s.addProject(dir('app')).id, 'T');
+  s.append(t.id, note('a'));
+  appendFileSync(join(root, 'threads', t.id, 'messages.jsonl'), 'garbage{\nnull\n7\n"x"\n');
+  s.append(t.id, note('b'));
+  expect(s.messages(t.id).map((m) => m.kind === 'note' && m.text)).toEqual(['a', 'b']);
+});
+
+test('recover turns running into idle, clears speaking and cursors, and adds the note', () => {
+  const s = new ThreadStore(root);
+  const t = s.create(s.addProject(dir('app')).id, 'T');
+  s.save({ ...t, status: 'running', speaking: 'planner', cursors: { planner: 3 } });
+  const idle = s.create(t.projectId, 'idle');
+  s.recover();
+  const r = new ThreadStore(root).get(t.id)!;
+  expect(r.status).toBe('idle');
+  expect(r.speaking).toBeUndefined();
+  expect(r.cursors).toEqual({});
+  expect(s.messages(t.id).at(-1)).toMatchObject({ kind: 'note', text: 'Ark was closed during a turn. Send a message to continue.' });
+  expect(s.messages(idle.id)).toEqual([]);
+});
+
+test('recover clears pending approvals', () => {
+  const s = new ThreadStore(root);
+  const t = s.create(s.addProject(dir('app')).id, 'T');
+  s.save({ ...t, status: 'running', approvals: [4, 5] });
+  s.recover();
+  expect(new ThreadStore(root).get(t.id)!.approvals).toBeUndefined();
+});
+
+test('threads are listed newest first', () => {
+  const s = new ThreadStore(root);
+  const p = s.addProject(dir('app'));
+  const a = s.create(p.id, 'a');
+  const b = s.create(p.id, 'b');
+  s.save({ ...a, createdAt: 1000 });
+  s.save({ ...b, createdAt: 2000 });
+  expect(s.threads().map((t) => t.title)).toEqual(['b', 'a']);
+});
+
+test('writePlan writes plan.md and returns its path', () => {
+  const s = new ThreadStore(root);
+  const t = s.create(s.addProject(dir('app')).id, 'T');
+  expect(s.writePlan(t.id, '# plan')).toBe(join(root, 'threads', t.id, 'plan.md'));
+});
+
+test('append after a torn last line keeps the new message and the right seq', () => {
+  const s = new ThreadStore(root);
+  const t = s.create(s.addProject(dir('app')).id, 'T');
+  writeFileSync(join(root, 'threads', t.id, 'messages.jsonl'), '{"seq":1,"kind":"note","text":"a","at":1}\n{"seq":2,"ki');
+  expect(s.append(t.id, note('b')).seq).toBe(2);
+  expect(s.messages(t.id).map((m) => m.kind === 'note' && m.text)).toEqual(['a', 'b']);
+});
+
+test('recover keeps going when one thread is broken', () => {
+  const s = new ThreadStore(root);
+  const p = s.addProject(dir('app'));
+  const bad = s.create(p.id, 'bad');
+  const good = s.create(p.id, 'good');
+  s.save({ ...bad, status: 'running' });
+  s.save({ ...good, status: 'running' });
+  mkdirSync(join(root, 'threads', bad.id, 'messages.jsonl')); // reading it as a file fails
+  expect(() => s.recover()).not.toThrow();
+  expect(s.get(good.id)!.status).toBe('idle');
+  expect(s.get(bad.id)!.status).toBe('running');
+});
+
+test('saveFile keeps an upload under the thread and readFile refuses anything else', () => {
+  const s = new ThreadStore(root);
+  const t = s.create(s.addProject(dir('app')).id, 'T');
+  const a = s.saveFile(t.id, { name: 'My shot (1).png', bytes: new Uint8Array([1, 2, 3]) });
+  expect(a).toMatchObject({ name: 'My shot (1).png', kind: 'image', mime: 'image/png', size: 3 });
+  expect(a.file).toMatch(/^[0-9a-f]{8}-My_shot_1_\.png$/);
+  expect([...s.readFile(t.id, a.file)]).toEqual([1, 2, 3]);
+  for (const bad of ['../thread.json', 'thread.json', '12345678-../x', 'a/b']) expect(() => s.readFile(t.id, bad)).toThrow('Unknown attachment');
+  expect(() => s.saveFile(t.id, { name: 'x.exe', bytes: new Uint8Array(1) })).toThrow("isn't supported");
+});
