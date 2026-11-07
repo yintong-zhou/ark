@@ -40,25 +40,41 @@ async function gitOk(dir: string, args: string[]): Promise<string> {
   return r.stdout;
 }
 
-/** Why a script was killed, as a first line of its tail; both kills set `killed`, only the buffer one has this code. */
-const why = (err: Error & { killed?: boolean; code?: unknown }, timeout: number) =>
-  err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `output over ${MAX_BUFFER / 1024 / 1024} MB, stopped\n`
-  : err.killed ? `timed out after ${timeout / 1000} s\n` : '';
-
-/** Runs one npm script. The shell is needed because npm is a .cmd on Windows; names come from CHECK_SCRIPTS only. */
+/**
+ * Runs one npm script. The shell is needed because npm is a .cmd on Windows; names come from CHECK_SCRIPTS only.
+ * The time and output limits are ours, not execFile's: execFile would kill only the shell, leaving npm and its children
+ * running and holding the worktree. On Windows the whole tree goes, while the shell is still alive for taskkill to walk.
+ */
 function runScript(dir: string, script: string, timeout: number): Promise<CheckResult> {
   return new Promise((resolve) => {
-    execFile(
+    let stopped = '';
+    const child = execFile(
       `npm run ${script}`,
       [],
-      { cwd: dir, shell: true, timeout, windowsHide: true, encoding: 'utf8', maxBuffer: MAX_BUFFER },
-      (err, stdout, stderr) =>
-        resolve({
-          script,
-          ok: !err,
-          tail: err ? why(err, timeout) + `${stdout}${stderr}`.slice(-CHECK_TAIL) : '',
-        }),
+      // execFile's own cap is only a backstop, above ours.
+      { cwd: dir, shell: true, windowsHide: true, encoding: 'utf8', maxBuffer: 2 * MAX_BUFFER },
+      (err, stdout, stderr) => {
+        clearTimeout(timer);
+        // A script we stopped fails even if it got to exit 0 before the kill landed.
+        const ok = !err && !stopped;
+        resolve({ script, ok, tail: ok ? '' : stopped + `${stdout}${stderr}`.slice(-CHECK_TAIL) });
+      },
     );
+    const stop = (why: string) => {
+      if (stopped) return;
+      stopped = why;
+      if (process.platform === 'win32' && child.pid)
+        execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {});
+      else child.kill();
+    };
+    const timer = setTimeout(() => stop(`timed out after ${timeout / 1000} s\n`), timeout);
+    let size = 0;
+    const count = (chunk: string) => {
+      size += chunk.length;
+      if (size > MAX_BUFFER) stop(`output over ${MAX_BUFFER / 1024 / 1024} MB, stopped\n`);
+    };
+    child.stdout?.on('data', count);
+    child.stderr?.on('data', count);
   });
 }
 

@@ -30,7 +30,7 @@ beforeEach(() => {
   base = git(repo, 'rev-parse', 'HEAD');
   mainBranch = git(repo, 'branch', '--show-current');
 });
-// Retries: on Windows a timed-out check's process tree outlives it for a moment and holds the folder (tree kill deferred).
+// Retries: on Windows a killed process tree can hold the folder for a moment after taskkill returns.
 afterEach(() => rmSync(root, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 }));
 
 const pkg = (scripts: Record<string, string>) => {
