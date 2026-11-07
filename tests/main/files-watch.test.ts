@@ -56,6 +56,19 @@ test('watching is reference counted', async () => {
   expect(calls).toEqual([]);
 });
 
+test('drop closes the root whatever its count and returns the count it had', async () => {
+  w.watch('k', dir);
+  w.watch('k', dir);
+  expect(w.drop('k')).toBe(2);
+  writeFileSync(join(dir, 'a.txt'), '1');
+  await quiet(500);
+  expect(calls).toEqual([]);
+  w.unwatch('k'); // a no-op now: the root is gone
+  w.watch('k', dir);
+  expect(w.drop('k')).toBe(1); // a new watch starts from 1
+  expect(w.drop('k')).toBe(0); // not watched
+});
+
 test('closeAll stops every watcher', async () => {
   w.watch('k', dir);
   w.closeAll();

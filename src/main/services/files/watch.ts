@@ -35,6 +35,13 @@ export class RootWatcher {
     if (e && --e.refs <= 0) this.close(key);
   }
 
+  /** Closes the root whatever its count (a folder about to be removed) and returns the count it had, 0 if it wasn't watched. */
+  drop(key: string): number {
+    const refs = this.roots.get(key)?.refs ?? 0;
+    this.close(key);
+    return refs;
+  }
+
   closeAll(): void {
     for (const key of [...this.roots.keys()]) this.close(key);
   }

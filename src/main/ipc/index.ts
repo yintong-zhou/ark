@@ -7,7 +7,7 @@ import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validat
 import { rootKey, UUID_RE } from '@shared/files';
 import type { WorktreeRow } from '@shared/git';
 import type { ShellOption } from '@shared/terminal';
-import type { Reaction } from '@shared/thread';
+import type { Build, Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
 import type { AgentRunner } from '../services/agent-runner';
 import { importAgent, importableAgents, type Catalog } from '../services/catalog';
@@ -357,14 +357,32 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   };
   handle('git:worktrees', (id) => worktreeRows(projectFolder(id)));
   handle('git:remove-worktree', async (id, path) => {
-    const dir = projectFolder(id);
+    const pid = uuid(id, 'project');
+    const dir = projectFolder(pid);
     const p = pathArg(path);
-    const t = worktreeThread(store.threads(), p);
+    const t = worktreeThread(store.threads().filter((x) => x.projectId === pid), p); // this project's threads only
     checkRemovable(t);
-    // The recursive watch holds the folder on Windows, so release it first.
-    if (t) watcher.unwatch(rootKey({ kind: 'thread', id: t.id }));
-    await git.removeWorktree(dir, p);
-    if (t) conductor.worktreeRemoved(t.id);
+    if (!t) await git.removeWorktree(dir, p);
+    else {
+      // The recursive watch holds the folder on Windows, and the tree, status and tabs stores each hold a reference to it:
+      // close it whatever the count, and put the references back if git refuses (a worktree with changes, say).
+      const key = rootKey({ kind: 'thread', id: t.id });
+      const wt = (t.build as Build).worktree;
+      const held = watcher.drop(key);
+      try {
+        await git.removeWorktree(dir, p);
+      } catch (e) {
+        for (let i = 0; i < held; i++) {
+          try {
+            watcher.watch(key, wt);
+          } catch {
+            // the folder is gone: nothing to watch
+          }
+        }
+        throw e;
+      }
+      conductor.worktreeRemoved(t.id);
+    }
     return worktreeRows(dir);
   });
   handle('git:prune-worktrees', async (id) => {
