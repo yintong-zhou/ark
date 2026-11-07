@@ -69,6 +69,7 @@ test('parseRefs: current first, track counts, remote HEAD and twins left out', (
     line('refs/heads/a', 'a', '', '', ' '),
     line('refs/heads/main', 'main', 'origin/main', 'ahead 2, behind 1', '*'),
     line('refs/heads/old', 'old', 'origin/old', 'gone', ' '),
+    line('refs/heads/v1', 'heads/v1', '', '', ' '), // a tag named v1 makes :short say heads/v1
     line('refs/remotes/origin/HEAD', 'origin', '', '', ' '),
     line('refs/remotes/origin/main', 'origin/main', '', '', ' '),
     line('refs/remotes/origin/a', 'origin/a', '', '', ' '),
@@ -79,6 +80,7 @@ test('parseRefs: current first, track counts, remote HEAD and twins left out', (
       { name: 'main', current: true, upstream: 'origin/main', ahead: 2, behind: 1 },
       { name: 'a', current: false, ahead: 0, behind: 0 },
       { name: 'old', current: false, upstream: 'origin/old', ahead: 0, behind: 0 },
+      { name: 'v1', current: false, ahead: 0, behind: 0 },
     ],
     remote: ['origin/feat/x'],
   });

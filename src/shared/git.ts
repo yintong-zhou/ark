@@ -100,16 +100,18 @@ export function parseRefs(out: string): GitBranches {
   const local: GitBranch[] = [];
   const remotes: { name: string; rest: string }[] = [];
   for (const l of out.split('\n')) {
-    const [ref, short, upstream, track, head] = l.split('\0');
+    // Names come from the full ref: `:short` turns a branch that shares a tag's name into `heads/<name>`.
+    const [ref, , upstream, track, head] = l.split('\0');
     if (ref.startsWith('refs/heads/')) {
-      const b: GitBranch = { name: short, current: head === '*', ahead: 0, behind: 0 };
+      const b: GitBranch = { name: ref.slice('refs/heads/'.length), current: head === '*', ahead: 0, behind: 0 };
       if (upstream) b.upstream = upstream;
       b.ahead = Number(/ahead (\d+)/.exec(track)?.[1] ?? 0);
       b.behind = Number(/behind (\d+)/.exec(track)?.[1] ?? 0);
       if (b.current) local.unshift(b);
       else local.push(b);
     } else if (ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD')) {
-      remotes.push({ name: short, rest: short.slice(short.indexOf('/') + 1) });
+      const name = ref.slice('refs/remotes/'.length);
+      remotes.push({ name, rest: name.slice(name.indexOf('/') + 1) });
     }
   }
   const twin = (r: { name: string; rest: string }): boolean => local.some((b) => b.upstream === r.name || b.name === r.rest);
