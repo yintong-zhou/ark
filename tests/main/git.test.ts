@@ -697,3 +697,12 @@ test('mergeBranch and threadBranch take the branch itself, not a tag or an optio
   expect(await threadBranch(dir, '-x')).toEqual({ branch: '-x', into: 'main', ahead: 0 });
   expect(await mergeBranch(dir, '-x')).toBe('merged');
 });
+
+test('mergeBranch refuses to start while a merge is already in progress', async () => {
+  const dir = conflicted(); // `other` is half merged into main
+  sh(dir, 'branch', 'third');
+  const mergeHead = sh(dir, 'rev-parse', 'MERGE_HEAD');
+  await expect(mergeBranch(dir, 'third')).rejects.toThrow('Finish the merge in progress first'); // not 'conflict'
+  expect(sh(dir, 'rev-parse', 'MERGE_HEAD')).toBe(mergeHead);
+  expect((await status(dir)).merging).toBe(true); // the first merge is untouched
+});

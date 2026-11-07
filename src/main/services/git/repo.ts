@@ -251,6 +251,8 @@ export const mergeBranch = (dir: string, branch: string): Promise<'merged' | 'co
     await mustBeLocal(dir, branch);
     const into = await headBranch(dir);
     if (!into) throw new Error('Check out a branch in the project first');
+    // Git refuses to start a merge in the middle of one, and the catch below would then take MERGE_HEAD for this merge's conflict.
+    if (await isMerging(dir)) throw new Error('Finish the merge in progress first');
     try {
       // The full ref, so a tag with the same name is never merged instead; given that way git would title the commit
       // "Merge branch 'refs/heads/x'", so the title is ours.

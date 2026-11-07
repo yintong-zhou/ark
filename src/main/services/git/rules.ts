@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { RootRef } from '@shared/files';
 import { GIT_BUSY } from '@shared/git';
@@ -6,8 +7,17 @@ import { rootDir, type RootStore } from '../files/guard';
 
 /** What the Git view may do with a thread's folder and branch. Pure apart from `rootDir`, so the tests pass a fake store. */
 
-/** Git prints `C:/x`, Node `C:\x`, and Windows ignores case. */
-export const samePath = (a: string, b: string): boolean => resolve(a).toLowerCase() === resolve(b).toLowerCase();
+/** The real location (junctions and symlinks followed, which git prints); a path that doesn't exist is only resolved. */
+const real = (p: string): string => {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return resolve(p);
+  }
+};
+
+/** Git prints the real path as `C:/x`, Node spells it `C:\x`, and Windows ignores case. */
+export const samePath = (a: string, b: string): boolean => real(a).toLowerCase() === real(b).toLowerCase();
 
 /**
  * The folder a root names. A thread's worktree belongs to the developer while its turn runs, so the write actions (not

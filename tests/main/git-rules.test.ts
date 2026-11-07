@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 import { expect, test } from 'vitest';
 import { GIT_BUSY } from '@shared/git';
 import type { Project, Thread } from '@shared/thread';
@@ -44,4 +47,23 @@ test('checkMergeable refuses a running thread', () => {
   expect(checkMergeable(withBuild())).toBe('ark/t-1');
   expect(() => checkMergeable(withBuild({ status: 'running' }))).toThrow(GIT_BUSY);
   expect(() => checkMergeable(thread())).toThrow('Unknown worktree');
+});
+
+test('samePath sees through a junction, and compares a missing path by its spelling', () => {
+  const base = mkdtempSync(join(tmpdir(), 'ark-rules-'));
+  try {
+    const target = join(base, 'real');
+    mkdirSync(join(target, 'sub'), { recursive: true });
+    const link = join(base, 'jn');
+    symlinkSync(target, link, 'junction');
+    // git prints the real path of a worktree added through a junction; the thread keeps the spelling it was given
+    expect(samePath(join(link, 'sub'), join(target, 'sub'))).toBe(true);
+    expect(samePath(join(link, 'sub'), join(target, 'SUB').split(sep).join('/'))).toBe(true);
+    const owner = withBuild({}, { worktree: join(link, 'sub') });
+    expect(worktreeThread([owner], join(target, 'sub'))).toBe(owner);
+    expect(samePath(join(base, 'real', 'x'), join(base, 'REAL', 'X'))).toBe(true); // missing: resolved only
+    expect(samePath(join(link, 'x'), join(target, 'x'))).toBe(false); // missing: no junction to follow
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });
