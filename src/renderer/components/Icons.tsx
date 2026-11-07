@@ -106,3 +106,25 @@ export const RefreshIcon = () => (
     <path d="M14.5 2.5V6H11M5.5 17.5V14H9" />
   </svg>
 );
+
+/** Fetch: an arrow down inside a faint ring, since it brings the remote's news without touching the branch. */
+export const FetchIcon = () => (
+  <svg {...base}>
+    <circle cx="10" cy="10" r="7" opacity="0.35" />
+    <path d="M10 6.5v6M7 10l3 3 3-3" />
+  </svg>
+);
+
+/** Pull: an arrow down onto a line. */
+export const PullIcon = () => (
+  <svg {...base}>
+    <path d="M10 3.5v9M6 8.5l4 4 4-4M4.5 16.5h11" />
+  </svg>
+);
+
+/** Push: an arrow up off a line. */
+export const PushIcon = () => (
+  <svg {...base}>
+    <path d="M10 12.5v-9M6 7.5l4-4 4 4M4.5 16.5h11" />
+  </svg>
+);

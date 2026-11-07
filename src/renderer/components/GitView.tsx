@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import type { RootRef } from '@shared/files';
+import { rootKey, type RootRef } from '@shared/files';
 import { GIT_BUSY, groups, letter, type GitEntry, type GitSide, type GitStatus } from '@shared/git';
 import { act, useGit } from '../git/status-store';
-import { DiscardIcon, FileIcon, MinusIcon, PlusIcon } from './Icons';
+import { BranchMenu } from './GitSections';
+import { DiscardIcon, FetchIcon, FileIcon, MinusIcon, PlusIcon, PullIcon, PushIcon } from './Icons';
 import { BUTTON_INSET, CTA, FIELD } from './ui';
 
 type Props = {
@@ -21,15 +22,24 @@ const ACTION = 'flex size-[20px] shrink-0 items-center justify-center rounded-xs
 /** Hover actions stay reachable from the keyboard. */
 const REVEAL = 'flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100';
 
-const nameOf = (rel: string) => rel.slice(rel.lastIndexOf('/') + 1);
-const folderOf = (rel: string) => rel.slice(0, Math.max(0, rel.lastIndexOf('/')));
+// An untracked nested repository comes as `dir/`: its name is the folder's, not an empty string.
+const trimmed = (rel: string) => rel.replace(/\/$/, '');
+const nameOf = (rel: string) => trimmed(rel).slice(trimmed(rel).lastIndexOf('/') + 1);
+const folderOf = (rel: string) => trimmed(rel).slice(0, Math.max(0, trimmed(rel).lastIndexOf('/')));
 
 type Act = (call: () => Promise<GitStatus>) => void;
+type Sync = 'fetch' | 'pull' | 'push';
+
+/** The commit message each root's box holds, kept across switching the view or the root. */
+const drafts = new Map<string, string>();
 
 /** The Git view: the branch, the commit box and the changed files of one root, grouped like VS Code. */
 export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: Props) {
   const { status, error, busy } = useGit(root, true);
-  const [message, setMessage] = useState('');
+  const key = rootKey(root);
+  const [message, setMessage] = useState(() => drafts.get(key) ?? '');
+  const [syncing, setSyncing] = useState<Sync>();
+  const [menu, setMenu] = useState<{ x: number; y: number }>();
   if (!status) return <p className="px-[4px] text-meta text-muted">{error ?? 'Loading…'}</p>;
 
   const git = window.ark.git;
@@ -38,6 +48,20 @@ export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: P
   const discard = (rels: string[], question: string) => {
     if (confirm(question)) run(() => git.discard(root, rels));
   };
+  const edit = (text: string) => {
+    setMessage(text);
+    if (text) drafts.set(key, text);
+    else drafts.delete(key);
+  };
+  const sync = (kind: Sync) => {
+    setSyncing(kind);
+    void attempt(() => act(root, () => git[kind](root))).finally(() => setSyncing(undefined));
+  };
+  const syncButton = (kind: Sync, title: string, icon: ReactNode) => (
+    <button title={title} aria-label={title} disabled={locked} onClick={() => sync(kind)} className={ACTION}>
+      <span className={`flex ${syncing === kind ? 'motion-safe:animate-spin' : ''}`}>{icon}</span>
+    </button>
+  );
 
   const { conflicts, staged, changes } = groups(status.entries);
   // Nothing commits while a conflict is open. A merge commits its index as is, even with no diff left and no message
@@ -49,7 +73,7 @@ export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: P
     if (!canCommit) return;
     void attempt(async () => {
       await act(root, () => git.commit(root, message, all));
-      setMessage('');
+      edit('');
     });
   };
 
@@ -68,7 +92,7 @@ export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: P
             </button>
           )}
           {side === 'changes' && (
-            <button title="Discard changes" aria-label={`Discard ${e.rel}`} disabled={locked} onClick={() => discard([e.rel], e.x === '?' ? `Move ${nameOf(e.rel)} to the Recycle Bin?` : `Discard changes to ${nameOf(e.rel)}? This can't be undone.`)} className={ACTION}>
+            <button title="Discard changes" aria-label={`Discard ${e.rel}`} disabled={locked} onClick={() => discard([e.rel], e.x === '?' ? `Move ${e.rel.endsWith('/') ? 'folder ' : ''}${nameOf(e.rel)} to the Recycle Bin?` : `Discard changes to ${nameOf(e.rel)}? This can't be undone.`)} className={ACTION}>
               <DiscardIcon />
             </button>
           )}
@@ -110,10 +134,29 @@ export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: P
 
   return (
     <div className="flex flex-col gap-1">
-      <p className="flex h-3 items-center gap-1 px-[4px] text-secondary">
-        <span className="min-w-0 flex-1 truncate font-heading">{status.branch ?? `detached at ${status.oid?.slice(0, 7) ?? ''}`}</span>
-        {status.upstream && <span className="text-meta text-muted">↑{status.ahead} ↓{status.behind}</span>}
-      </p>
+      <div className="flex h-3 items-center gap-1 px-[4px] text-secondary">
+        <button
+          title="Branches"
+          aria-haspopup="menu"
+          aria-expanded={menu !== undefined}
+          // a press on the button must not also close the menu through its outside click, or the click would reopen it
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu(menu ? undefined : { x: r.left, y: r.bottom + 4 });
+          }}
+          className="min-w-0 truncate rounded-xs font-heading hover:text-neutral-light"
+        >
+          {status.branch ?? `detached at ${status.oid?.slice(0, 7) ?? ''}`}
+        </button>
+        {status.upstream && <span className="shrink-0 text-meta text-muted">↑{status.ahead} ↓{status.behind}</span>}
+        <span className="ml-auto flex shrink-0">
+          {syncButton('fetch', 'Fetch', <FetchIcon />)}
+          {syncButton('pull', 'Pull', <PullIcon />)}
+          {syncButton('push', 'Push', <PushIcon />)}
+        </span>
+      </div>
+      {menu && <BranchMenu root={root} status={status} locked={locked} attempt={attempt} at={menu} onClose={() => setMenu(undefined)} />}
       {error && <p className="px-[4px] text-meta text-muted">{error}</p>}
       {busyThread && <p className="px-[4px] text-meta text-muted">{GIT_BUSY}</p>}
       <textarea
@@ -122,7 +165,7 @@ export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: P
         value={message}
         disabled={locked}
         rows={2}
-        onChange={(e) => setMessage(e.target.value)}
+        onChange={(e) => edit(e.target.value)}
         onKeyDown={(e) => {
           if (e.ctrlKey && e.key === 'Enter') {
             e.preventDefault();
