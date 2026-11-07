@@ -5,6 +5,7 @@ import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
 import { checkUploads, kindOf, type Upload } from '@shared/attachments';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
 import { rootKey, UUID_RE } from '@shared/files';
+import { GIT_BUSY } from '@shared/git';
 import type { ShellOption } from '@shared/terminal';
 import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
@@ -274,7 +275,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     const ref = rootRef(r);
     const dir = rootDir(ref, store);
     if (write && ref.kind === 'thread' && store.get(ref.id)?.status === 'running') {
-      throw new Error('The team is working in this worktree. Git actions wait for the turn to end.');
+      throw new Error(GIT_BUSY);
     }
     return dir;
   };

@@ -38,7 +38,10 @@ export const gitState = (root: RootRef): GitState => entries.get(rootKey(root))?
 /** Reloads the status. Overlapping refreshes: the last to resolve wins (main already runs git one at a time per folder). */
 export async function refresh(root: RootRef): Promise<void> {
   try {
-    patch(root, { status: await window.ark.git.status(root), error: undefined });
+    const status = await window.ark.git.status(root);
+    const cur = entry(root).state;
+    if (!cur.error && JSON.stringify(cur.status) === JSON.stringify(status)) return; // unchanged: the poll re-renders nothing
+    patch(root, { status, error: undefined });
   } catch (e) {
     patch(root, { error: readable(e) });
   }

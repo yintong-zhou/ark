@@ -111,6 +111,13 @@ test('a failed refresh stores the error and keeps the last status', async () => 
   expect(store.gitState(root).error).toBeUndefined();
 });
 
+test('a refresh with an unchanged status keeps the same snapshot', async () => {
+  await store.refresh(root);
+  const before = store.gitState(root);
+  await store.refresh(root);
+  expect(store.gitState(root)).toBe(before);
+});
+
 test('act stores the returned status and clears busy on failure', async () => {
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));

@@ -17,6 +17,9 @@ export type GitStatus = {
 
 export type GitSide = 'staged' | 'changes';
 
+/** Why write actions on a thread's worktree are refused while its turn runs: main's error and the Git view's note. */
+export const GIT_BUSY = 'The team is working in this worktree. Git actions wait for the turn to end.';
+
 export type ShowResult = { kind: 'text'; text: string } | { kind: 'binary' } | { kind: 'large'; size: number } | { kind: 'missing' };
 
 /** The text after the first `n` spaces: keeps spaces inside the path (split with a limit would drop it). */
