@@ -134,6 +134,30 @@ Windows) and refuses to start a Codex agent if a read-only command can still wri
 - Ctrl+C copies when text is selected, otherwise it stops the running command; Ctrl+V pastes.
 - Terminals keep running while you visit Usage or Agents. Reloading or closing Ark ends them.
 
+## Git
+
+- **Git view**: the project sidebar's third view, next to Threads and Files. It shares the Files view's folder picker
+  (the project or the thread's worktree) and works when that folder is a repository's root; a project without Git
+  shows **Initialize Git**. From top to bottom: the branch, a message box (Ctrl+Enter commits), the commit button, then
+  the changed files in **Merge conflicts**, **Staged changes** and **Changes**. Empty groups are hidden; with nothing
+  changed the view says `No changes`.
+- **Commit and Commit all**: with staged changes the button reads **Commit** and commits them. With nothing staged it
+  reads **Commit all**, which stages every change (new files too) and commits. Commit all is never offered while a
+  conflict is open.
+- **Stage, unstage and discard**: hover a row, or a group's header for all its files. Discard asks first. A changed
+  file goes back to its last committed or staged state, which can't be undone; a new file moves to the Recycle Bin.
+- **Diffs**: click a row to open its diff in a tab next to the file tabs, `<name> (changes)` or `<name> (staged)`,
+  side by side and read-only. **Open file** opens the normal editor. The diff follows the file as it changes. A
+  conflicted file opens in the editor instead.
+- **Letters**: changed files show a letter at the right, in the Git view and in the Files tree: `M` modified, `A`
+  added, `D` deleted, `R` renamed, `U` untracked, `!` conflict. A folder with changes inside shows a dot.
+- **Merges**: while a merge is in progress, a banner reads "Merging <branch>. Fix the conflicts, stage them, then
+  commit." with **Abort merge**. Once no conflicts are left, Commit works with an empty message and keeps Git's merge
+  message.
+- **No hooks**: Ark runs Git without the project's hooks, so pre-commit checks don't run. Use the terminal to run them.
+- **Threads at work**: on a thread's worktree, every Git action waits while the team's turn is running. Status and diffs
+  stay readable.
+
 ## Run it
 
 Requirements: Windows, Node.js 22 or newer.

@@ -16,8 +16,9 @@ behavior in `README.md`.
 
 - `src/main/services/`: app logic. `adapters/` (agent detection and usage), `engines/` (Claude/Codex sessions,
   isolation, project rules), `threads/` (conductor, protocol, build rules, workspace/worktree, store), `files/`
-  (explorer and editor: path guard, file operations, watcher).
-- `src/renderer/editor/`, `src/renderer/files/`: module-level stores for open tabs (Monaco, loaded lazily) and the file tree.
+  (explorer and editor: path guard, file operations, watcher), `git/` (the Git UI's runner and operations).
+- `src/renderer/editor/`, `src/renderer/files/`, `src/renderer/git/`: module-level stores for open tabs (Monaco, loaded
+  lazily), the file tree and the Git status.
 - `src/main/services/terminals.ts`, `src/renderer/terminal/`: the user's terminals (node-pty in main, xterm loaded lazily).
 - `src/main/ipc/index.ts`: IPC handlers. `src/preload/index.ts`: the `contextBridge` API.
 - `src/shared/`: types and pure logic used by both main and renderer.
@@ -32,6 +33,7 @@ behavior in `README.md`.
 - Agents are isolated: each sees only its own skills; the user's memory, plugins and MCP servers are left out. Don't weaken `engines/isolation.ts`.
 - Agents are read-only by default. Only the developer builds, inside a Git worktree `ark/<title>-<id>`; risky actions need an approval card.
 - Ark's own Git runs without project hooks. Keep that.
+- The Git UI runs git only through `services/git/run.ts` (no hooks, literal pathspecs, no prompts).
 - The editor writes only inside a project folder or a thread worktree, when the user saves; the renderer sends a root and a
   relative path, and main checks every path (`services/files/guard.ts`). Deletes go to the Recycle Bin.
 - The terminal is the user's own shell, not an agent: it gets the user's env minus `ELECTRON_*` (not `cleanEnv`) and is
