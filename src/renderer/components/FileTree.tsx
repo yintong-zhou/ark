@@ -1,6 +1,8 @@
-import { useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { joinRel, parentOf, type FileEntry, type RootRef } from '@shared/files';
+import { changedDirs, letter } from '@shared/git';
 import { expand, toggle, useTree } from '../files/tree-store';
+import { useGit } from '../git/status-store';
 import { Menu, type MenuItem } from './Menu';
 
 type Props = {
@@ -10,6 +12,8 @@ type Props = {
   onOpen: (rel: string) => void;
   /** Runs a file action; a refusal shows in the pane's problem line. */
   attempt: (call: () => Promise<unknown>) => Promise<void>;
+  /** The root is a Git repository: changed files show their letter, folders holding changes a dot. */
+  git: boolean;
 };
 
 /** An inline name field: where a new entry goes, or which entry is being renamed. */
@@ -19,8 +23,13 @@ const INDENT = 12;
 const ROW = 'group flex h-3 w-full items-center gap-[4px] rounded-xs pr-1 text-left';
 
 /** The Files view: a lazy tree of a project folder or a thread worktree. */
-export function FileTree({ root, name, onOpen, attempt }: Props) {
+export function FileTree({ root, name, onOpen, attempt, git }: Props) {
   const tree = useTree(root);
+  const { status } = useGit(root, git);
+  const marks = useMemo(() => {
+    const entries = status?.entries ?? [];
+    return { letters: new Map(entries.map((e) => [e.rel, letter(e, 'tree')])), dirs: changedDirs(entries) };
+  }, [status]);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] }>();
   const [edit, setEdit] = useState<Edit>();
   const [selected, setSelected] = useState<string>();
@@ -80,6 +89,7 @@ export function FileTree({ root, name, onOpen, attempt }: Props) {
       }
       const isDir = e.kind === 'dir';
       const isOpen = isDir && tree.expanded.has(rel);
+      const mark = isDir ? (marks.dirs.has(rel) ? '•' : undefined) : marks.letters.get(rel);
       out.push(
         <button
           key={rel}
@@ -95,6 +105,7 @@ export function FileTree({ root, name, onOpen, attempt }: Props) {
         >
           <span aria-hidden className="flex w-2 shrink-0 justify-center text-meta">{isDir ? (isOpen ? '▾' : '▸') : ''}</span>
           <span className={`min-w-0 flex-1 truncate ${e.kind === 'link' ? 'italic' : ''}`}>{e.name}</span>
+          {mark && <span className={`shrink-0 text-meta ${mark === '!' ? 'text-secondary' : 'text-muted'}`}>{mark}</span>}
         </button>,
       );
       if (isOpen) out.push(...rows(rel, depth + 1));

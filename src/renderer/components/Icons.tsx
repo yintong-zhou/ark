@@ -43,6 +43,29 @@ export const PlusIcon = () => (
   </svg>
 );
 
+/** Unstage: the plus without its upright. */
+export const MinusIcon = () => (
+  <svg {...base}>
+    <path d="M4 10h12" />
+  </svg>
+);
+
+/** Discard: an arrow turning back counter-clockwise. */
+export const DiscardIcon = () => (
+  <svg {...base}>
+    <path d="M4.5 11a5.5 5.5 0 1 0 1.6-3.9L4 9.2" />
+    <path d="M4 5v4.2h4.2" />
+  </svg>
+);
+
+/** Open file: a page with a folded corner. */
+export const FileIcon = () => (
+  <svg {...base}>
+    <path d="M11.5 3H6a1.5 1.5 0 0 0-1.5 1.5v11A1.5 1.5 0 0 0 6 17h8a1.5 1.5 0 0 0 1.5-1.5V7z" />
+    <path d="M11.5 3v4h4" opacity="0.35" />
+  </svg>
+);
+
 export const PaperclipIcon = () => (
   <svg {...base}>
     <path d="M16.5 9.5 10 16a4 4 0 0 1-5.7-5.7l7-7a2.7 2.7 0 0 1 3.8 3.8l-7 7a1.3 1.3 0 0 1-1.9-1.9l6.3-6.3" />

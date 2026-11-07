@@ -6,6 +6,7 @@ import { toUploads } from '../components/Attachments';
 import { Composer } from '../components/Composer';
 import { Editor } from '../components/Editor';
 import { FileTree } from '../components/FileTree';
+import { GitView } from '../components/GitView';
 import { CloseIcon, PlusIcon } from '../components/Icons';
 import { Empty, PaneHeader } from '../components/Page';
 import { Main, Pill, Presence, Sidebar, SideLabel, SideRow } from '../components/Shell';
@@ -29,8 +30,10 @@ type Props = {
 };
 
 /** The sidebar view outlives this screen: back from Usage or Agents, the user finds Files where they left it. */
-let lastView: 'threads' | 'files' = 'threads';
-const keepView = (v: 'threads' | 'files') => (lastView = v);
+type View = 'threads' | 'files' | 'git';
+let lastView: View = 'threads';
+const keepView = (v: View) => (lastView = v);
+const VIEW_LABEL: Record<View, string> = { threads: 'Threads', files: 'Files', git: 'Git' };
 
 /** What a thread row says on the right. */
 const trail = (t: Thread) =>
@@ -49,8 +52,8 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const only = filter && tags.includes(filter) ? filter : undefined;
   const listed = only ? mine.filter((t) => t.tags?.includes(only)) : mine;
   const [view, setViewState] = useState(lastView);
-  const setView = (v: 'threads' | 'files') => setViewState(keepView(v));
-  // Files show the project, or the open thread's worktree once its build has one.
+  const setView = (v: View) => setViewState(keepView(v));
+  // Files and Git show the project, or the open thread's worktree once its build has one.
   const worktree = thread?.build?.worktree;
   const [rootSel, setRootSel] = useState<'project' | 'worktree'>('project');
   const [rootFor, setRootFor] = useState(thread?.id);
@@ -63,6 +66,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const tabs = useTabs(project?.id);
   const fileDoc = tabs.active ? tabs.docs.find((d) => d.tab.key === tabs.active) : undefined;
   const showThread = () => project && activate(project.id, null);
+  const initGit = project && <button onClick={() => void attempt(() => ws.gitInit(project.id))} className={BUTTON}>Initialize Git</button>;
   const terms = useTerms(project?.id);
   // Ctrl+` toggles the terminal from anywhere in the area, Monaco and xterm included (capture runs first). It is the
   // physical key left of 1, whatever the layout prints on it.
@@ -103,13 +107,13 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         footer={project && (
           <div className="flex flex-col gap-1 border-t border-divider p-2">
             <p className="truncate text-meta text-muted" title={project.dir}>{project.dir}</p>
-            {!project.git && <button onClick={() => void attempt(() => ws.gitInit(project.id))} className={BUTTON}>Initialize Git</button>}
+            {!project.git && view !== 'git' && initGit}
           </div>
         )}
       >
         {project && (
           <div role="tablist" aria-label="Sidebar view" className="flex gap-[4px] px-1 pb-1">
-            {(['threads', 'files'] as const).map((v) => (
+            {(['threads', 'files', 'git'] as const).map((v) => (
               <button
                 key={v}
                 role="tab"
@@ -117,12 +121,12 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 onClick={() => setView(v)}
                 className={`rounded-full px-1 text-meta ${view === v ? 'bg-neutral-light text-primary' : 'bg-raised text-muted hover:text-secondary'}`}
               >
-                {v === 'threads' ? 'Threads' : 'Files'}
+                {VIEW_LABEL[v]}
               </button>
             ))}
           </div>
         )}
-        {project && view === 'files' ? (
+        {project && view !== 'threads' ? (
           <>
             {worktree && (
               <select
@@ -135,13 +139,27 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 <option value="worktree">Worktree · #{thread?.title}</option>
               </select>
             )}
-            <FileTree
-              key={rootKey(root)}
-              root={root}
-              name={root.kind === 'thread' ? `${thread?.title ?? ''} (worktree)` : project.name}
-              onOpen={(rel) => openFile(root, rel)}
-              attempt={attempt}
-            />
+            {view === 'files' ? (
+              <FileTree
+                key={rootKey(root)}
+                root={root}
+                name={root.kind === 'thread' ? `${thread?.title ?? ''} (worktree)` : project.name}
+                onOpen={(rel) => openFile(root, rel)}
+                attempt={attempt}
+                git={project.git}
+              />
+            ) : project.git ? (
+              <GitView
+                key={rootKey(root)}
+                root={root}
+                busyThread={root.kind === 'thread' && thread?.status === 'running'}
+                onOpenFile={(rel) => openFile(root, rel)}
+                onOpenDiff={(rel) => openFile(root, rel)}
+                attempt={attempt}
+              />
+            ) : (
+              initGit
+            )}
           </>
         ) : project ? (
           <>

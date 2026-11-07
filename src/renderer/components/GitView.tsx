@@ -1,0 +1,157 @@
+import { useState, type ReactNode } from 'react';
+import type { RootRef } from '@shared/files';
+import { GIT_BUSY, groups, letter, type GitEntry, type GitSide, type GitStatus } from '@shared/git';
+import { act, useGit } from '../git/status-store';
+import { DiscardIcon, FileIcon, MinusIcon, PlusIcon } from './Icons';
+import { BUTTON_INSET, CTA, FIELD } from './ui';
+
+type Props = {
+  root: RootRef;
+  /** The root is a thread worktree whose turn is running: every write action waits. */
+  busyThread: boolean;
+  onOpenFile: (rel: string) => void;
+  onOpenDiff: (rel: string, side: GitSide) => void; // wired by the diff tab; until then a row click opens the file
+  /** Runs an action; a refusal shows in the pane's problem line. */
+  attempt: (call: () => Promise<unknown>) => Promise<void>;
+};
+
+/** A 20px icon action inside a 24px row, its icon drawn at 16px. */
+const ACTION = 'flex size-[20px] shrink-0 items-center justify-center rounded-xs text-muted hover:text-secondary disabled:opacity-40 [&_svg]:size-2';
+/** Hover actions stay reachable from the keyboard. */
+const REVEAL = 'flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100';
+
+const nameOf = (rel: string) => rel.slice(rel.lastIndexOf('/') + 1);
+const folderOf = (rel: string) => rel.slice(0, Math.max(0, rel.lastIndexOf('/')));
+
+type Act = (call: () => Promise<GitStatus>) => void;
+
+/** The Git view: the branch, the commit box and the changed files of one root, grouped like VS Code. */
+export function GitView({ root, busyThread, onOpenFile, attempt }: Props) {
+  const { status, error, busy } = useGit(root, true);
+  const [message, setMessage] = useState('');
+  if (!status) return <p className="px-1 text-meta text-muted">{error ?? 'Loading…'}</p>;
+
+  const git = window.ark.git;
+  const locked = busyThread || busy; // one action at a time
+  const run: Act = (call) => void attempt(() => act(root, call));
+  const discard = (rels: string[], what: string, untracked: boolean) => {
+    if (confirm(untracked ? `Move ${what} to the Recycle Bin?` : `Discard changes to ${what}? This can't be undone.`)) run(() => git.discard(root, rels));
+  };
+
+  const { conflicts, staged, changes } = groups(status.entries);
+  // With staged changes Commit takes those; with none it stages everything, never while a conflict is open.
+  const all = staged.length === 0 && conflicts.length === 0;
+  const canCommit = !locked && (staged.length > 0 || (all && changes.length > 0)) && (status.merging || message.trim() !== '');
+  const commit = () => {
+    if (!canCommit) return;
+    void attempt(async () => {
+      await act(root, () => git.commit(root, message, all));
+      setMessage('');
+    });
+  };
+
+  const row = (e: GitEntry, side: GitSide | 'conflict') => {
+    const l = letter(e, side === 'conflict' ? 'tree' : side);
+    return (
+      <div key={`${side}:${e.rel}`} className="group flex h-3 items-center gap-[4px] rounded-xs pr-1 text-muted hover:bg-raised/50 hover:text-secondary">
+        <button title={e.rel} onClick={() => onOpenFile(e.rel)} className="flex min-w-0 flex-1 items-baseline gap-[4px] pl-[4px] text-left">
+          <span className="truncate">{nameOf(e.rel)}</span>
+          <span className="truncate text-meta text-muted">{folderOf(e.rel)}</span>
+        </button>
+        <span className={REVEAL}>
+          {l !== 'D' && (
+            <button title="Open file" aria-label={`Open ${e.rel}`} onClick={() => onOpenFile(e.rel)} className={ACTION}>
+              <FileIcon />
+            </button>
+          )}
+          {side === 'changes' && (
+            <button title="Discard changes" aria-label={`Discard ${e.rel}`} disabled={locked} onClick={() => discard([e.rel], nameOf(e.rel), e.x === '?')} className={ACTION}>
+              <DiscardIcon />
+            </button>
+          )}
+          {side === 'staged' ? (
+            <button title="Unstage" aria-label={`Unstage ${e.rel}`} disabled={locked} onClick={() => run(() => git.unstage(root, [e.rel]))} className={ACTION}>
+              <MinusIcon />
+            </button>
+          ) : (
+            <button title="Stage" aria-label={`Stage ${e.rel}`} disabled={locked} onClick={() => run(() => git.stage(root, [e.rel]))} className={ACTION}>
+              <PlusIcon />
+            </button>
+          )}
+        </span>
+        <span className={`w-1 shrink-0 text-center text-meta ${l === '!' ? 'text-secondary' : 'text-muted'}`}>{l}</span>
+      </div>
+    );
+  };
+
+  const group = (title: string, list: GitEntry[], side: GitSide | 'conflict', actions: ReactNode) =>
+    list.length > 0 && (
+      <section key={side}>
+        <div className="group flex items-center gap-[4px] pb-[4px] pl-[4px] pr-1 pt-2">
+          <h3 className="section flex-1 font-body font-normal text-muted">
+            {title} <span className="text-meta">{list.length}</span>
+          </h3>
+          <span className={REVEAL}>{actions}</span>
+        </div>
+        {list.map((e) => row(e, side))}
+      </section>
+    );
+
+  const rels = (list: GitEntry[]) => list.map((e) => e.rel);
+  const stageAll = (list: GitEntry[]) => (
+    // `[]` would also stage open conflicts (markers and all), so while any exist only the group's files go
+    <button title="Stage all" aria-label="Stage all" disabled={locked} onClick={() => run(() => git.stage(root, conflicts.length ? rels(list) : []))} className={ACTION}>
+      <PlusIcon />
+    </button>
+  );
+
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="flex h-3 items-center gap-1 px-[4px] text-secondary">
+        <span className="min-w-0 flex-1 truncate font-heading">{status.branch ?? `detached at ${status.oid?.slice(0, 7) ?? ''}`}</span>
+        {status.upstream && <span className="text-meta text-muted">↑{status.ahead} ↓{status.behind}</span>}
+      </p>
+      {error && <p className="px-[4px] text-meta text-muted">{error}</p>}
+      {busyThread && <p className="px-[4px] text-meta text-muted">{GIT_BUSY}</p>}
+      <textarea
+        aria-label="Commit message"
+        placeholder="Message (Ctrl+Enter to commit)"
+        value={message}
+        disabled={locked}
+        rows={2}
+        onChange={(e) => setMessage(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        className={`${FIELD} max-h-[150px] min-h-[62px] w-full resize-none field-sizing-content disabled:opacity-60`}
+      />
+      <button onClick={commit} disabled={!canCommit} className={`${CTA} w-full justify-center`}>{all ? 'Commit all' : 'Commit'}</button>
+      <p className="px-[4px] text-meta text-muted">Runs without Git hooks. Use the terminal to run them.</p>
+      {status.merging && (
+        <div className="flex flex-col gap-1 rounded-sm bg-raised p-1">
+          <p className="text-meta text-secondary">Merging {status.branch ?? 'HEAD'}. Fix the conflicts, stage them, then commit.</p>
+          <button onClick={() => run(() => git.mergeAbort(root))} disabled={locked} className={`${BUTTON_INSET} self-start`}>Abort merge</button>
+        </div>
+      )}
+      {status.entries.length === 0 && <p className="px-[4px] text-muted">No changes</p>}
+      <div className="flex flex-col">
+        {group('Merge conflicts', conflicts, 'conflict', stageAll(conflicts))}
+        {group('Staged changes', staged, 'staged',
+          <button title="Unstage all" aria-label="Unstage all" disabled={locked} onClick={() => run(() => git.unstage(root, []))} className={ACTION}>
+            <MinusIcon />
+          </button>,
+        )}
+        {group('Changes', changes, 'changes', <>
+          <button title="Discard all" aria-label="Discard all" disabled={locked} onClick={() => discard([], `${changes.length} files`, false)} className={ACTION}>
+            <DiscardIcon />
+          </button>
+          {stageAll(changes)}
+        </>)}
+        {status.truncated && <p className="h-3 px-[4px] text-meta text-muted">Showing first 5000 changes</p>}
+      </div>
+    </div>
+  );
+}
