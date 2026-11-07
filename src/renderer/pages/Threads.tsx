@@ -218,7 +218,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {project && fileDoc?.diff ? (
-            <DiffView key={fileDoc.tab.key} doc={fileDoc} onOpenFile={() => openFile(fileDoc.tab.root, fileDoc.tab.rel)} />
+            <DiffView key={fileDoc.tab.key} projectId={project.id} doc={fileDoc} onOpenFile={() => openFile(fileDoc.tab.root, fileDoc.tab.rel)} />
           ) : project && fileDoc ? (
             <Editor key={project.id} projectId={project.id} doc={fileDoc} />
           ) : !project ? (
