@@ -19,6 +19,14 @@ export const UsageIcon = () => (
   </svg>
 );
 
+/** A prompt and a cursor in a window. */
+export const TerminalIcon = () => (
+  <svg {...base}>
+    <rect x="2.5" y="4" width="15" height="12" rx="1.5" opacity="0.35" />
+    <path d="m6 8 2.5 2L6 12M10.5 12.5H14" />
+  </svg>
+);
+
 /** Three agents linked to each other. */
 export const AgentsIcon = () => (
   <svg {...base}>

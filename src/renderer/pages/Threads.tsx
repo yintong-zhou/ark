@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { rootKey, type RootRef } from '@shared/files';
 import type { Project, Thread } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
@@ -11,10 +11,12 @@ import { Empty, PaneHeader } from '../components/Page';
 import { Main, Pill, Presence, Sidebar, SideLabel, SideRow } from '../components/Shell';
 import { TabStrip } from '../components/TabStrip';
 import { TeamPanel } from '../components/TeamPanel';
+import { TerminalPanel } from '../components/TerminalPanel';
 import { ThreadView } from '../components/ThreadView';
 import { BUTTON, CTA, ICON_BUTTON } from '../components/ui';
 import { activate, open as openTab, useTabs } from '../editor/tabs-store';
 import type { useThreads } from '../hooks/useThreads';
+import { panelHeight, setPanelHeight, toggle as toggleTerminal, useTerms } from '../terminal/terms-store';
 
 type Props = {
   ws: ReturnType<typeof useThreads>;
@@ -61,6 +63,23 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const tabs = useTabs(project?.id);
   const fileDoc = tabs.active ? tabs.docs.find((d) => d.tab.key === tabs.active) : undefined;
   const showThread = () => project && activate(project.id, null);
+  const terms = useTerms(project?.id);
+  // Ctrl+` toggles the terminal from anywhere in the area, Monaco and xterm included (capture runs first). It is the
+  // physical key left of 1, whatever the layout prints on it.
+  const here = useRef({ projectId: project?.id, root });
+  useEffect(() => {
+    here.current = { projectId: project?.id, root };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const { projectId, root: r } = here.current;
+      if (!projectId || !e.ctrlKey || e.code !== 'Backquote') return;
+      e.preventDefault();
+      toggleTerminal(projectId, r);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
 
   const start = async (files: File[]) => {
     const t = text.trim();
@@ -169,54 +188,80 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
 
       <Main>
         {(ws.error ?? problem) && <p role="alert" className="shrink-0 border-b border-divider px-3 py-1 text-muted">{ws.error ?? problem}</p>}
-        {project && tabs.docs.length > 0 && (
-          <TabStrip projectId={project.id} tabs={tabs} label={draft ? 'New thread' : thread ? `# ${thread.title}` : project.name} />
+        {project && (
+          <TabStrip
+            projectId={project.id}
+            tabs={tabs}
+            label={draft ? 'New thread' : thread ? `# ${thread.title}` : project.name}
+            terminal={{ open: terms.open, onToggle: () => toggleTerminal(project.id, root) }}
+          />
         )}
-        {project && fileDoc ? (
-          <Editor key={project.id} projectId={project.id} doc={fileDoc} />
-        ) : !project ? (
-          <>
-            <PaneHeader title="Projects" />
-            <Empty glyph="📁" title="Add a project folder" action={<button onClick={onAddProject} className={CTA}>Add project</button>}>
-              A project is the folder your agents work in. Each project keeps its own threads.
-            </Empty>
-          </>
-        ) : draft ? (
-          <>
-            <PaneHeader title="New thread" meta={[`in ${project.name}`]} />
-            <div className="flex min-h-0 flex-1 flex-col justify-end">
-              <Empty glyph="💡" title="What do you want to work on?">
-                The project manager reads it and proposes a team. Nobody starts before you approve.
+        <div className="flex min-h-0 flex-1 flex-col">
+          {project && fileDoc ? (
+            <Editor key={project.id} projectId={project.id} doc={fileDoc} />
+          ) : !project ? (
+            <>
+              <PaneHeader title="Projects" />
+              <Empty glyph="📁" title="Add a project folder" action={<button onClick={onAddProject} className={CTA}>Add project</button>}>
+                A project is the folder your agents work in. Each project keeps its own threads.
               </Empty>
-            </div>
-            <Composer
-              label="What do you want to work on?"
-              placeholder="Describe the goal"
-              value={text}
-              onChange={setText}
-              onSubmit={start}
-              attach
-              tags={tags}
-              submitLabel="Start thread"
-              extra={
-                <button onClick={() => onDraft(false)} aria-label="Cancel" title="Cancel" className={ICON_BUTTON}>
-                  <CloseIcon />
-                </button>
-              }
-            />
-          </>
-        ) : thread ? (
-          <ThreadView key={thread.id} thread={thread} messages={ws.messages} agents={ws.agents} tags={tags} onTag={(t) => setFilter(only === t ? undefined : t)} />
-        ) : (
+            </>
+          ) : draft ? (
+            <>
+              <PaneHeader title="New thread" meta={[`in ${project.name}`]} />
+              <div className="flex min-h-0 flex-1 flex-col justify-end">
+                <Empty glyph="💡" title="What do you want to work on?">
+                  The project manager reads it and proposes a team. Nobody starts before you approve.
+                </Empty>
+              </div>
+              <Composer
+                label="What do you want to work on?"
+                placeholder="Describe the goal"
+                value={text}
+                onChange={setText}
+                onSubmit={start}
+                attach
+                tags={tags}
+                submitLabel="Start thread"
+                extra={
+                  <button onClick={() => onDraft(false)} aria-label="Cancel" title="Cancel" className={ICON_BUTTON}>
+                    <CloseIcon />
+                  </button>
+                }
+              />
+            </>
+          ) : thread ? (
+            <ThreadView key={thread.id} thread={thread} messages={ws.messages} agents={ws.agents} tags={tags} onTag={(t) => setFilter(only === t ? undefined : t)} />
+          ) : (
+            <>
+              <PaneHeader title={project.name} />
+              <Empty
+                glyph="💬"
+                title={mine.length === 0 ? 'No threads yet' : 'Pick a thread'}
+                action={<button onClick={() => onDraft(true)} className={CTA}>New thread</button>}
+              >
+                {mine.length === 0 ? 'Start one and the project manager will propose a team.' : 'Open one on the left, or start a new one.'}
+              </Empty>
+            </>
+          )}
+        </div>
+        {project && terms.open && (
           <>
-            <PaneHeader title={project.name} />
-            <Empty
-              glyph="💬"
-              title={mine.length === 0 ? 'No threads yet' : 'Pick a thread'}
-              action={<button onClick={() => onDraft(true)} className={CTA}>New thread</button>}
-            >
-              {mine.length === 0 ? 'Start one and the project manager will propose a team.' : 'Open one on the left, or start a new one.'}
-            </Empty>
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize terminal"
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+              onPointerMove={(e) => {
+                // the panel's height is a share of <Main>, so the drag measures against <Main> too
+                const box = e.currentTarget.parentElement?.getBoundingClientRect();
+                if (box && e.currentTarget.hasPointerCapture(e.pointerId)) setPanelHeight((box.bottom - e.clientY) / box.height);
+              }}
+              className="h-[4px] shrink-0 cursor-row-resize border-t border-divider hover:bg-divider"
+            />
+            <div style={{ height: `${panelHeight() * 100}%` }} className="flex shrink-0 flex-col">
+              <TerminalPanel projectId={project.id} root={root} />
+            </div>
           </>
         )}
       </Main>
