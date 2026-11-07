@@ -87,6 +87,39 @@ test('data that arrives before create resolves is written once the terminal exis
   expect(xterms.at(-1)!.written).toEqual(['banner', 'more']);
 });
 
+test('output for an id with no create in flight is dropped, not held', async () => {
+  // a terminal closed while main still had output in flight: nobody will ever claim it
+  emitData(`id-${nextId + 1}`, 'stale');
+  await store.create(P, root, PS); // gets id-(nextId + 1)
+  expect(xterms.at(-1)!.written).toEqual([]);
+});
+
+test('held output nobody claimed is freed once the creates in flight are done', async () => {
+  let release!: () => void;
+  gate = new Promise((r) => (release = r));
+  const made = store.create(P, root, PS);
+  await vi.waitFor(() => expect(terminal.create).toHaveBeenCalled());
+  emitData(`id-${nextId + 1}`, 'stale'); // not the id being created
+  release();
+  await made;
+  gate = Promise.resolve();
+  await store.create(P, root, PS); // gets that id
+  expect(xterms.at(-1)!.written).toEqual([]);
+});
+
+test('toggling during the first create starts only one PowerShell, and the view says it is starting', async () => {
+  let release!: () => void;
+  gate = new Promise((r) => (release = r));
+  store.toggle(P, root);
+  expect(store.termsOf(P).starting).toBe(true);
+  store.toggle(P, root);
+  store.toggle(P, root);
+  release();
+  await vi.waitFor(() => expect(store.termsOf(P).terms).toHaveLength(1));
+  expect(terminal.create).toHaveBeenCalledTimes(1);
+  expect(store.termsOf(P).starting).toBe(false);
+});
+
 test('a write longer than 64 KB is sent in order in chunks of at most 65 536', async () => {
   await store.create(P, root, PS);
   const input = 'abcd'.repeat(50_000);

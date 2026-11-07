@@ -11,9 +11,10 @@ import { loadXterm } from './xterm';
  * the Threads area (spec §5.5). Each xterm draws into its own detached <div>, which the panel attaches while shown.
  */
 export type Term = { id: string; name: string; el: HTMLDivElement; xterm: Terminal; fit: FitAddon; exited?: number };
-export type TermsView = { terms: Term[]; active: string | null; open: boolean; error?: string };
+/** `starting`: a terminal is being created (the panel says so instead of staying blank). */
+export type TermsView = { terms: Term[]; active: string | null; open: boolean; starting: boolean; error?: string };
 
-type Proj = { ids: string[]; active: string | null; open: boolean; error?: string; counts: Partial<Record<ShellId, number>> };
+type Proj = { ids: string[]; active: string | null; open: boolean; starting: number; error?: string; counts: Partial<Record<ShellId, number>> };
 
 const POWERSHELL: ShellOption = { id: 'powershell', name: 'PowerShell' };
 const MAX_WRITE = 65_536; // main refuses more per call
@@ -21,8 +22,10 @@ const MAX_WRITE = 65_536; // main refuses more per call
 const terms = new Map<string, Term>();
 const opened = new WeakSet<Term['xterm']>();
 const projects = new Map<string, Proj>();
-// Output or an exit can beat the create reply (cmd.exe prints its banner at once): held until the term exists.
+// Output or an exit can beat the create reply (cmd.exe prints its banner at once): held until the term exists. Only
+// while a create is in flight, and freed when none is: output for a terminal already closed is never claimed.
 const early = new Map<string, { data: string[]; exit?: number }>();
+let creating = 0;
 const held = (id: string) => {
   let h = early.get(id);
   if (!h) early.set(id, (h = { data: [] }));
@@ -31,7 +34,7 @@ const held = (id: string) => {
 const snaps = new Map<string, TermsView>();
 const listeners = new Set<() => void>();
 let height = 0.35;
-const EMPTY: TermsView = { terms: [], active: null, open: false };
+const EMPTY: TermsView = { terms: [], active: null, open: false, starting: false };
 
 function emit() {
   snaps.clear();
@@ -40,7 +43,7 @@ function emit() {
 
 const proj = (projectId: string): Proj => {
   let p = projects.get(projectId);
-  if (!p) projects.set(projectId, (p = { ids: [], active: null, open: false, counts: {} }));
+  if (!p) projects.set(projectId, (p = { ids: [], active: null, open: false, starting: 0, counts: {} }));
   return p;
 };
 
@@ -59,11 +62,11 @@ function listen() {
   window.ark.terminal.onData((id, chunk) => {
     const t = terms.get(id);
     if (t) t.xterm.write(chunk);
-    else held(id).data.push(chunk);
+    else if (creating > 0) held(id).data.push(chunk);
   });
   window.ark.terminal.onExit((id, code) => {
     if (terms.has(id)) exited(id, code);
-    else held(id).exit = code;
+    else if (creating > 0) held(id).exit = code;
   });
 }
 
@@ -90,6 +93,9 @@ export async function create(projectId: string, root: RootRef, shell: ShellOptio
   const p = proj(projectId);
   const n = (p.counts[shell.id] ?? 0) + 1;
   p.counts[shell.id] = n;
+  creating++;
+  projects.set(projectId, { ...p, starting: p.starting + 1 });
+  emit();
   let xterm: Terminal | undefined;
   try {
     const { Terminal, FitAddon } = await loadXterm();
@@ -115,6 +121,9 @@ export async function create(projectId: string, root: RootRef, shell: ShellOptio
     xterm?.dispose();
     projects.set(projectId, { ...proj(projectId), error: readable(e) });
   }
+  if (--creating === 0) early.clear(); // every create in flight has claimed its own: the rest is orphaned
+  const after = proj(projectId);
+  projects.set(projectId, { ...after, starting: after.starting - 1 });
   emit();
 }
 
@@ -123,7 +132,7 @@ export function toggle(projectId: string, root: RootRef): void {
   const p = proj(projectId);
   projects.set(projectId, { ...p, open: !p.open });
   emit();
-  if (!p.open && p.ids.length === 0) void create(projectId, root, POWERSHELL);
+  if (!p.open && p.ids.length === 0 && p.starting === 0) void create(projectId, root, POWERSHELL);
 }
 
 export function activateTerm(projectId: string, id: string): void {
@@ -177,7 +186,7 @@ export function termsOf(projectId: string | undefined): TermsView {
   let s = snaps.get(projectId);
   if (!s) {
     const p = proj(projectId);
-    s = { terms: p.ids.map((id) => terms.get(id)).filter((t): t is Term => !!t), active: p.active, open: p.open, error: p.error };
+    s = { terms: p.ids.map((id) => terms.get(id)).filter((t): t is Term => !!t), active: p.active, open: p.open, starting: p.starting > 0, error: p.error };
     snaps.set(projectId, s);
   }
   return s;

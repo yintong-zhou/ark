@@ -69,6 +69,7 @@ export function TerminalPanel({ projectId, root }: { projectId: string; root: Ro
           <PlusIcon />
         </button>
       </div>
+      {view.starting && !term && <p className="shrink-0 px-2 py-[4px] text-meta text-muted">Starting the terminal…</p>}
       {view.error && <p role="alert" className="shrink-0 px-2 py-[4px] text-meta text-muted">Couldn't start the terminal: {view.error}</p>}
       <div ref={body} className="min-h-0 flex-1 overflow-hidden pl-1 pt-[4px]" />
       {menu && (

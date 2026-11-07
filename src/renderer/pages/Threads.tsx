@@ -75,6 +75,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
       const { projectId, root: r } = here.current;
       if (!projectId || !e.ctrlKey || e.code !== 'Backquote') return;
       e.preventDefault();
+      if (e.repeat) return; // a held key would flicker the panel
       toggleTerminal(projectId, r);
     };
     window.addEventListener('keydown', onKey, true);

@@ -174,7 +174,10 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
   // Chats this window started: a reload (Ctrl+R) drops the renderer's state, so they would be orphans.
   const chats = new Set<string>();
-  win.webContents.on('did-start-loading', () => {
+  // A new page in the main frame, once beforeunload has let it go: `did-start-loading` fired before that, so a reload
+  // cancelled at the unsaved-changes dialog still killed every terminal and chat under the page that stayed.
+  win.webContents.on('did-start-navigation', (e) => {
+    if (!e.isMainFrame || e.isSameDocument) return;
     for (const id of chats) {
       try {
         runner.stop(id);
