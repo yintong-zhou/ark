@@ -4,6 +4,13 @@ import { loadMonaco } from '../editor/monaco';
 import { close, keep, reload, remember, save, type Doc } from '../editor/tabs-store';
 import { BUTTON } from './ui';
 
+/** The editor font, shared with the diff tab. */
+export const FONT = { fontFamily: "'Cascadia Mono', Consolas, monospace", fontSize: 13 };
+
+/** What shows instead of a file Monaco won't open; the diff tab uses the same copy. */
+export const placeholderText = (p: NonNullable<Doc['placeholder']>): string =>
+  p.kind === 'binary' ? 'Binary file, not shown' : `Too large to open here (${(p.size / 1024 / 1024).toFixed(1)} MB)`;
+
 /** One Monaco editor for the project's file tabs: switching tabs swaps the model and restores where the user was. */
 export function Editor({ projectId, doc }: { projectId: string; doc: Doc }) {
   const host = useRef<HTMLDivElement>(null);
@@ -22,8 +29,7 @@ export function Editor({ projectId, doc }: { projectId: string; doc: Doc }) {
       made = monaco.editor.create(host.current, {
         theme: 'ark-dark',
         automaticLayout: true,
-        fontFamily: "'Cascadia Mono', Consolas, monospace",
-        fontSize: 13,
+        ...FONT,
         minimap: { enabled: true },
         wordWrap: 'off',
         model: null,
@@ -78,9 +84,7 @@ export function Editor({ projectId, doc }: { projectId: string; doc: Doc }) {
       )}
       {t.bar === 'deleted' && <Bar>Deleted on disk. Saving will recreate it.</Bar>}
       {doc.placeholder && (
-        <p className="flex flex-1 items-center justify-center text-muted">
-          {doc.placeholder.kind === 'binary' ? 'Binary file, not shown' : `Too large to open here (${(doc.placeholder.size / 1024 / 1024).toFixed(1)} MB)`}
-        </p>
+        <p className="flex flex-1 items-center justify-center text-muted">{placeholderText(doc.placeholder)}</p>
       )}
       {/* always mounted, so the one editor outlives a placeholder tab */}
       <div ref={host} className={doc.placeholder ? 'hidden' : 'min-h-0 flex-1'} />

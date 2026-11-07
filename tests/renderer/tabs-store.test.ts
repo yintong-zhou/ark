@@ -98,3 +98,27 @@ test('an automatic reload never replaces what the user typed while the file was 
   expect(m.getValue()).toBe('typed meanwhile');
   expect(tab()?.tab.dirty).toBe(true);
 });
+
+test('openDiff opens one tab per file and side, never a model', () => {
+  const before = models.length;
+  store.openDiff(P, root, 'a.ts', 'staged');
+  store.openDiff(P, root, 'a.ts', 'staged');
+  store.openDiff(P, root, 'a.ts', 'changes');
+  const diffs = store.tabsOf(P).docs.filter((d) => d.diff);
+  expect(diffs.map((d) => d.name)).toEqual(['a.ts (staged)', 'a.ts (changes)']);
+  expect(diffs.every((d) => !d.model && !d.tab.dirty)).toBe(true);
+  expect(store.tabsOf(P).active).toBe(`${KEY}\nchanges`);
+  expect(files.read).not.toHaveBeenCalled();
+  expect(models.length).toBe(before);
+  store.close(P, `${KEY}\nstaged`);
+  store.close(P, `${KEY}\nchanges`);
+});
+
+test('a disk change never reloads a diff tab', () => {
+  store.close(P, KEY);
+  store.openDiff(P, root, 'a.ts', 'changes');
+  files.stat.mockClear();
+  changed(`project:${root.id}`, ['a.ts']);
+  expect(files.stat).not.toHaveBeenCalled();
+  store.close(P, `${KEY}\nchanges`);
+});

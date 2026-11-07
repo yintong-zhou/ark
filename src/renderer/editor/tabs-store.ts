@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { editor } from 'monaco-editor';
 import { afterSave, diskChanged, keepMine, saveBase, tabKey, touches, type FileTab } from '@shared/editor-tabs';
 import { rootKey, type ReadResult, type RootRef } from '@shared/files';
+import type { GitSide } from '@shared/git';
 import { readable } from '../errors';
 import { loadMonaco } from './monaco';
 
@@ -19,6 +20,8 @@ export type Doc = {
   /** The model version that matches the disk: dirty is any other version. */
   saved?: number;
   error?: string;
+  /** A read-only diff of this file's side (spec §5.2): no model, never dirty, never reloaded by the watcher. */
+  diff?: GitSide;
 };
 export type TabsView = { docs: Doc[]; active: string | null };
 
@@ -80,20 +83,38 @@ async function fill(d: Doc, r: ReadResult): Promise<Doc> {
   };
 }
 
+const nameOf = (rel: string) => rel.slice(rel.lastIndexOf('/') + 1);
+const newTab = (key: string, root: RootRef, rel: string): FileTab => ({ key, root, rel, dirty: false, mtimeMs: null, bom: false, readonly: false, force: false });
+
+/** Adds a doc, watching its root when it is the root's first doc (close unwatches with the last). */
+function add(d: Doc) {
+  const first = ![...docs.values()].some((x) => rootKey(x.tab.root) === rootKey(d.tab.root));
+  docs.set(d.tab.key, d);
+  if (first) void window.ark.files.watch(d.tab.root).catch(() => {});
+}
+
+function focus(projectId: string, key: string) {
+  const o = of(projectId);
+  order.set(projectId, { keys: o.keys.includes(key) ? o.keys : [...o.keys, key], active: key });
+  emit();
+}
+
 export async function open(projectId: string, root: RootRef, rel: string): Promise<void> {
   listen();
   const key = tabKey(root, rel);
   if (!docs.has(key)) {
     const r = await window.ark.files.read(root, rel);
-    const name = rel.slice(rel.lastIndexOf('/') + 1);
-    const first = ![...docs.values()].some((d) => rootKey(d.tab.root) === rootKey(root));
-    const tab: FileTab = { key, root, rel, dirty: false, mtimeMs: null, bom: false, readonly: false, force: false };
-    docs.set(key, await fill({ tab, name }, r));
-    if (first) void window.ark.files.watch(root).catch(() => {});
+    add(await fill({ tab: newTab(key, root, rel), name: nameOf(rel) }, r));
   }
-  const o = of(projectId);
-  order.set(projectId, { keys: o.keys.includes(key) ? o.keys : [...o.keys, key], active: key });
-  emit();
+  focus(projectId, key);
+}
+
+/** Opens (or focuses) the diff tab of one file and side; DiffView loads both sides. */
+export function openDiff(projectId: string, root: RootRef, rel: string, side: GitSide): void {
+  listen();
+  const key = `${tabKey(root, rel)}\n${side}`;
+  if (!docs.has(key)) add({ tab: newTab(key, root, rel), name: `${nameOf(rel)} (${side})`, diff: side });
+  focus(projectId, key);
 }
 
 export function activate(projectId: string, key: string | null): void {
@@ -150,7 +171,7 @@ async function saveNow(key: string): Promise<void> {
  */
 export async function reload(key: string, auto = false): Promise<void> {
   const d = docs.get(key);
-  if (!d) return;
+  if (!d || d.diff) return;
   const before = d.model?.getAlternativeVersionId();
   try {
     const r = await window.ark.files.read(d.tab.root, d.tab.rel);
@@ -185,7 +206,7 @@ function listen() {
     subscribed = true;
     window.ark.files.onChanged((rk, rels) => {
       for (const d of [...docs.values()]) {
-        if (rootKey(d.tab.root) !== rk || !touches(rels, d.tab.rel)) continue;
+        if (d.diff || rootKey(d.tab.root) !== rk || !touches(rels, d.tab.rel)) continue;
         void window.ark.files.stat(d.tab.root, d.tab.rel).then(
           (disk) => {
             const cur = docs.get(d.tab.key);

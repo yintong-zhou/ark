@@ -4,6 +4,7 @@ import type { Project, Thread } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
 import { toUploads } from '../components/Attachments';
 import { Composer } from '../components/Composer';
+import { DiffView } from '../components/DiffView';
 import { Editor } from '../components/Editor';
 import { FileTree } from '../components/FileTree';
 import { GitView } from '../components/GitView';
@@ -15,7 +16,7 @@ import { TeamPanel } from '../components/TeamPanel';
 import { TerminalPanel } from '../components/TerminalPanel';
 import { ThreadView } from '../components/ThreadView';
 import { BUTTON, CTA, ICON_BUTTON } from '../components/ui';
-import { activate, open as openTab, useTabs } from '../editor/tabs-store';
+import { activate, open as openTab, openDiff, useTabs } from '../editor/tabs-store';
 import type { useThreads } from '../hooks/useThreads';
 import { panelHeight, setPanelHeight, toggle as toggleTerminal, useTerms } from '../terminal/terms-store';
 
@@ -154,7 +155,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 root={root}
                 busyThread={root.kind === 'thread' && thread?.status === 'running'}
                 onOpenFile={(rel) => openFile(root, rel)}
-                onOpenDiff={(rel) => openFile(root, rel)}
+                onOpenDiff={(rel, side) => openDiff(project.id, root, rel, side)}
                 attempt={attempt}
               />
             ) : (
@@ -216,7 +217,9 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
           />
         )}
         <div className="flex min-h-0 flex-1 flex-col">
-          {project && fileDoc ? (
+          {project && fileDoc?.diff ? (
+            <DiffView key={fileDoc.tab.key} doc={fileDoc} onOpenFile={() => openFile(fileDoc.tab.root, fileDoc.tab.rel)} />
+          ) : project && fileDoc ? (
             <Editor key={project.id} projectId={project.id} doc={fileDoc} />
           ) : !project ? (
             <>

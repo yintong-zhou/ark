@@ -10,7 +10,8 @@ type Props = {
   /** The root is a thread worktree whose turn is running: every write action waits. */
   busyThread: boolean;
   onOpenFile: (rel: string) => void;
-  onOpenDiff: (rel: string, side: GitSide) => void; // wired by the diff tab; until then a row click opens the file
+  /** A Staged or Changes row opens its diff; a conflict row opens the file. */
+  onOpenDiff: (rel: string, side: GitSide) => void;
   /** Runs an action; a refusal shows in the pane's problem line. */
   attempt: (call: () => Promise<unknown>) => Promise<void>;
 };
@@ -26,7 +27,7 @@ const folderOf = (rel: string) => rel.slice(0, Math.max(0, rel.lastIndexOf('/'))
 type Act = (call: () => Promise<GitStatus>) => void;
 
 /** The Git view: the branch, the commit box and the changed files of one root, grouped like VS Code. */
-export function GitView({ root, busyThread, onOpenFile, attempt }: Props) {
+export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: Props) {
   const { status, error, busy } = useGit(root, true);
   const [message, setMessage] = useState('');
   if (!status) return <p className="px-[4px] text-meta text-muted">{error ?? 'Loading…'}</p>;
@@ -56,7 +57,7 @@ export function GitView({ root, busyThread, onOpenFile, attempt }: Props) {
     const l = letter(e, side === 'conflict' ? 'tree' : side);
     return (
       <div key={`${side}:${e.rel}`} className="group flex h-3 items-center gap-[4px] rounded-xs pr-1 text-muted hover:bg-raised/50 hover:text-secondary">
-        <button title={e.rel} onClick={() => onOpenFile(e.rel)} className="flex min-w-0 flex-1 items-baseline gap-[4px] pl-[4px] text-left">
+        <button title={e.rel} onClick={() => (side === 'conflict' ? onOpenFile(e.rel) : onOpenDiff(e.rel, side))} className="flex min-w-0 flex-1 items-baseline gap-[4px] pl-[4px] text-left">
           <span className="truncate">{nameOf(e.rel)}</span>
           <span className="truncate text-meta text-muted">{folderOf(e.rel)}</span>
         </button>
