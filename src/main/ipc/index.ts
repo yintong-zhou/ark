@@ -4,6 +4,7 @@ import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'el
 import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
 import { checkUploads, kindOf, type Upload } from '@shared/attachments';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
+import { UUID_RE } from '@shared/files';
 import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
 import type { AgentRunner } from '../services/agent-runner';
@@ -39,7 +40,7 @@ type Deps = {
 };
 
 const ID = AGENT_ID_RE;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = UUID_RE;
 
 function agentId(v: unknown): string {
   if (typeof v !== 'string' || !ID.test(v)) throw new Error('invalid agent id');
