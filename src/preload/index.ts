@@ -94,6 +94,27 @@ const api: ArkApi = {
       };
     },
   },
+  terminal: {
+    shells: () => ipcRenderer.invoke('terminal:shells'),
+    create: (root, shell, cols, rows) => ipcRenderer.invoke('terminal:create', root, shell, cols, rows),
+    write: (id, data) => ipcRenderer.invoke('terminal:write', id, data),
+    resize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
+    kill: (id) => ipcRenderer.invoke('terminal:kill', id),
+    onData: (cb) => {
+      const listener = (_e: unknown, id: string, chunk: string) => cb(id, chunk);
+      ipcRenderer.on('terminal:data', listener);
+      return () => {
+        ipcRenderer.removeListener('terminal:data', listener);
+      };
+    },
+    onExit: (cb) => {
+      const listener = (_e: unknown, id: string, code: number) => cb(id, code);
+      ipcRenderer.on('terminal:exit', listener);
+      return () => {
+        ipcRenderer.removeListener('terminal:exit', listener);
+      };
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('ark', api);

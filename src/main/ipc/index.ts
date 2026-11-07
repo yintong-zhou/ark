@@ -5,6 +5,7 @@ import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
 import { checkUploads, kindOf, type Upload } from '@shared/attachments';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
 import { rootKey, UUID_RE } from '@shared/files';
+import type { ShellOption } from '@shared/terminal';
 import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
 import type { AgentRunner } from '../services/agent-runner';
@@ -15,6 +16,7 @@ import { normEntry, normRel, resolveInside, rootDir, rootRef } from '../services
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
 import { RootWatcher } from '../services/files/watch';
 import type { HistoryStore } from '../services/history';
+import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
 import { readView, writeView } from '../services/settings';
 import type { SkillEntry } from '../services/skills';
 import {
@@ -182,6 +184,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     }
     chats.clear();
     watcher.closeAll();
+    terms?.killAll(); // the page that showed them is gone
   });
   handle('chat:start', async (id, dir) => {
     const started = await runner.start(agentId(id), projectDir(dir));
@@ -260,6 +263,37 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
   handle('files:unwatch', (r) => watcher.unwatch(rootKey(rootRef(r))));
   app.on('before-quit', () => watcher.closeAll());
+
+  // Terminals: node-pty loads on the first one, so a broken native module is an error in the panel, not a dead app.
+  let shellList: Promise<Shell[]> | undefined; // PATH doesn't change under a running app
+  const shellsNow = () => (shellList ??= listShells());
+  let terms: Terminals | undefined;
+  const termId = (v: unknown) => uuid(v, 'terminal');
+  handle('terminal:shells', async (): Promise<ShellOption[]> => (await shellsNow()).map(({ id, name }) => ({ id, name })));
+  handle('terminal:create', async (r, shellId, cols, rows) => {
+    const cwd = dirOf(r);
+    const shell = (await shellsNow()).find((s) => s.id === shellId);
+    if (!shell) throw new Error('Unknown shell');
+    const [c, w] = [termSize(cols), termSize(rows)];
+    return (await termsReady()).create(shell, cwd, c, w);
+  });
+  let loading: Promise<Terminals> | undefined; // one service even when two terminals open at once
+  const termsReady = () =>
+    (loading ??= import('node-pty').then(
+      (pty) =>
+        (terms = new Terminals((file, args, opts) => pty.spawn(file, args, opts), {
+          data: (id, chunk) => !win.isDestroyed() && win.webContents.send('terminal:data', id, chunk),
+          exit: (id, code) => !win.isDestroyed() && win.webContents.send('terminal:exit', id, code),
+        })),
+    ));
+  const live = () => {
+    if (!terms) throw new Error('Unknown terminal');
+    return terms;
+  };
+  handle('terminal:write', (id, data) => live().write(termId(id), termData(data)));
+  handle('terminal:resize', (id, cols, rows) => live().resize(termId(id), termSize(cols), termSize(rows)));
+  handle('terminal:kill', (id) => terms?.kill(termId(id)));
+  app.on('before-quit', () => terms?.killAll());
 
   usage.onChanged((s) => {
     if (!win.isDestroyed()) win.webContents.send('usage:changed', s);

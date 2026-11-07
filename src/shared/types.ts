@@ -1,6 +1,7 @@
 import type { AgentDef, EngineId, Tier } from './agent-file';
 import type { ImageInput, Upload } from './attachments';
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
+import type { ShellId, ShellOption } from './terminal';
 import type { Project, Reaction, Thread, ThreadMessage, ThreadUpdate } from './thread';
 
 // Common model shared by main, preload and renderer.
@@ -136,6 +137,17 @@ export interface ArkApi {
     unwatch(root: RootRef): Promise<void>;
     /** `key` is rootKey(root); `rels` null means anything may have changed. */
     onChanged(cb: (key: string, rels: string[] | null) => void): () => void;
+  };
+  /** The user's shells in the bottom panel; output and exits arrive by terminal id. */
+  terminal: {
+    shells(): Promise<ShellOption[]>;
+    /** Starts a shell in the root's folder; returns the terminal id. */
+    create(root: RootRef, shell: ShellId, cols: number, rows: number): Promise<string>;
+    write(id: string, data: string): Promise<void>;
+    resize(id: string, cols: number, rows: number): Promise<void>;
+    kill(id: string): Promise<void>;
+    onData(cb: (id: string, chunk: string) => void): () => void;
+    onExit(cb: (id: string, code: number) => void): () => void;
   };
 }
 

@@ -2,6 +2,11 @@ appId: dev.ark.app
 productName: Ark
 files:
   - out/**
+# node-pty is a native module: it must sit outside the asar to load, and its N-API prebuilds need no rebuild
+# (a rebuild would need a C++ toolchain the user doesn't have).
+asarUnpack:
+  - node_modules/node-pty/**
+npmRebuild: false
 extraResources:
   - from: resources/statusline-wrapper.cjs
     to: statusline-wrapper.cjs
