@@ -132,6 +132,42 @@ test('act stores the returned status and clears busy on failure', async () => {
   expect(store.gitState(root).status?.branch).toBe('feature');
 });
 
+/** A status that stays pending until `release()`, which answers the latest call. */
+function hang() {
+  const gate = { release: () => {} };
+  git.status.mockImplementation(() => new Promise<GitStatus>((r) => (gate.release = () => r(clean()))));
+  return gate;
+}
+
+test('a slow status is never overtaken by the poll', async () => {
+  const gate = hang();
+  store.show(root);
+  await vi.advanceTimersByTimeAsync(20_000); // four poll ticks
+  expect(calls(root)).toBe(1);
+  gate.release();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(calls(root)).toBe(1); // the poll asked for no follow-up
+  await vi.advanceTimersByTimeAsync(5000); // the next tick starts a new one
+  expect(calls(root)).toBe(2);
+});
+
+test('requests made during a status collapse into one follow-up', async () => {
+  const gate = hang();
+  store.show(root);
+  await vi.advanceTimersByTimeAsync(0);
+  focus();
+  changed(rootKey(root), null);
+  await vi.advanceTimersByTimeAsync(300); // the debounce fires too
+  void store.refresh(root);
+  expect(calls(root)).toBe(1);
+  gate.release();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(calls(root)).toBe(2); // one more, so the state is fresh after the change
+  gate.release();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(calls(root)).toBe(2);
+});
+
 test('a disabled root never calls git', async () => {
   // useGit(root, false) never calls show, so nothing is watched, loaded or polled
   expect(store.gitState(root)).toEqual({ busy: false });

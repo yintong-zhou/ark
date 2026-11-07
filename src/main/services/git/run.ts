@@ -9,6 +9,7 @@ import { NO_HOOKS } from '../threads/workspace';
 
 const MAX_BUFFER = 64 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
+const MAX_MESSAGE = 2000;
 
 /** `env` adds to the environment of this one call. */
 type Opts = { input?: string; timeoutMs?: number; env?: Record<string, string> };
@@ -26,9 +27,9 @@ function exec(dir: string, args: string[], opts: Opts, encoding: 'utf8' | 'buffe
         maxBuffer: MAX_BUFFER,
         timeout: opts.timeoutMs ?? TIMEOUT_MS,
       },
-      // Some failures only talk on stdout ("nothing to commit"), so it is the second choice.
+      // Some failures only talk on stdout ("nothing to commit"), so it is the second choice, capped: it can be a whole listing.
       (err, stdout, stderr) =>
-        err ? reject(new Error(String(stderr).trim() || String(stdout).trim() || `git ${args[0]} failed`)) : resolve(stdout),
+        err ? reject(new Error(String(stderr).trim() || String(stdout).trim().slice(0, MAX_MESSAGE) || `git ${args[0]} failed`)) : resolve(stdout),
     );
     child.stdin?.on('error', () => {}); // git can exit before it reads its input
     child.stdin?.end(opts.input); // always closed, so git never waits for more

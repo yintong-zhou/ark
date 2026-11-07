@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { commit, discard, mergeAbort, show, stage, status, unstage } from '../../src/main/services/git/repo';
-import { queued } from '../../src/main/services/git/run';
+import { gitNow, queued } from '../../src/main/services/git/run';
 import { groups } from '../../src/shared/git';
 
 const dirs: string[] = [];
@@ -345,6 +345,60 @@ test('commit all refuses while conflicts are unresolved', async () => {
   expect(sh(dir, 'rev-parse', 'HEAD')).toBe(head);
   expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toContain('<<<<<<<'); // add -A did not run
   expect(await rows(dir)).toEqual(['UU a.txt']);
+});
+
+/** A merge of `other` into main with a conflict in a.txt; `other` also adds n.txt, which the merge stages by itself. */
+function conflicted(): string {
+  const dir = committed({ 'a.txt': 'base\n' });
+  sh(dir, 'checkout', '-q', '-b', 'other');
+  put(dir, 'a.txt', 'other\n');
+  put(dir, 'n.txt', 'new\n');
+  sh(dir, 'add', '-A');
+  sh(dir, 'commit', '-q', '-m', 'other change');
+  sh(dir, 'checkout', '-q', 'main');
+  put(dir, 'a.txt', 'main\n');
+  sh(dir, 'commit', '-q', '-am', 'main change');
+  expect(() => sh(dir, 'merge', 'other')).toThrow();
+  return dir;
+}
+
+test('unstage never touches a conflicted path, not even for "all"', async () => {
+  const dir = conflicted();
+  const sorted = async (d: string) => (await status(d)).entries.map((e) => `${e.x}${e.y} ${e.rel}`).sort(); // git lists unmerged paths last
+  expect(await sorted(dir)).toEqual(['A. n.txt', 'UU a.txt']);
+  await unstage(dir, ['a.txt']); // asked by name
+  expect(await sorted(dir)).toEqual(['A. n.txt', 'UU a.txt']);
+  await unstage(dir, []);
+  expect(await sorted(dir)).toEqual(['?? n.txt', 'UU a.txt']); // the conflict is still open
+  expect(sh(dir, 'ls-files', '-u')).toContain('a.txt');
+  expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toContain('<<<<<<<');
+  await unstage(dir, []); // nothing staged any more: a no-op, not an error
+  expect(await sorted(dir)).toEqual(['?? n.txt', 'UU a.txt']);
+});
+
+test('the merge banner has no name when no branch reaches the merged commit', async () => {
+  const dir = committed({ 'a.txt': 'base\n' });
+  sh(dir, 'checkout', '-q', '-b', 'other');
+  put(dir, 'a.txt', 'other\n');
+  sh(dir, 'commit', '-q', '-am', 'other change');
+  const sha = sh(dir, 'rev-parse', 'HEAD').trim();
+  sh(dir, 'checkout', '-q', 'main');
+  put(dir, 'a.txt', 'main\n');
+  sh(dir, 'commit', '-q', '-am', 'main change');
+  sh(dir, 'branch', '-q', '-D', 'other'); // the commit stays, but no ref names it
+  expect(() => sh(dir, 'merge', sha)).toThrow();
+  const s = await status(dir);
+  expect(s.merging).toBe(true);
+  expect(s.mergeHead).toBeUndefined(); // not the string "undefined"
+});
+
+test('a failure that only talks on stdout gets a capped message', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  put(dir, 'a.txt', 'x'.repeat(20_000) + '\n');
+  // `diff --exit-code` prints the whole diff on stdout and exits 1
+  const err = await gitNow(dir, ['diff', '--exit-code']).catch((e: Error) => e);
+  expect(err).toBeInstanceOf(Error);
+  expect((err as Error).message.length).toBe(2000);
 });
 
 test('the queue key ignores case and how the path is spelled', async () => {

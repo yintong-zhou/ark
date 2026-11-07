@@ -14,7 +14,7 @@ const IDLE: GitState = { busy: false }; // one constant for roots never shown, s
 const DEBOUNCE_MS = 300;
 const POLL_MS = 5000;
 
-type Entry = { root: RootRef; state: GitState; shown: number; debounce?: ReturnType<typeof setTimeout> };
+type Entry = { root: RootRef; state: GitState; shown: number; debounce?: ReturnType<typeof setTimeout>; inflight?: Promise<void>; again?: boolean };
 const entries = new Map<string, Entry>();
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
@@ -35,8 +35,7 @@ function patch(root: RootRef, change: Partial<GitState>) {
 /** The current state of `root`, for tests and readers outside React. */
 export const gitState = (root: RootRef): GitState => entries.get(rootKey(root))?.state ?? IDLE;
 
-/** Reloads the status. Overlapping refreshes: the last to resolve wins (main already runs git one at a time per folder). */
-export async function refresh(root: RootRef): Promise<void> {
+async function load(root: RootRef): Promise<void> {
   try {
     const status = await window.ark.git.status(root);
     const cur = entry(root).state;
@@ -45,6 +44,30 @@ export async function refresh(root: RootRef): Promise<void> {
   } catch (e) {
     patch(root, { error: readable(e) });
   }
+}
+
+/**
+ * Reloads the status; at most one call per root is outstanding, or slow ones would pile up in main's folder queue and
+ * hold back Stage and Commit. A request made meanwhile joins the running one and, unless it is the poll (`again`
+ * false: the next tick will do), asks for one more load after it, so the state is not stale after a change.
+ */
+export function refresh(root: RootRef, again = true): Promise<void> {
+  const e = entry(root);
+  if (e.inflight) {
+    e.again ||= again;
+    return e.inflight;
+  }
+  e.inflight = (async () => {
+    try {
+      do {
+        e.again = false;
+        await load(root);
+      } while (e.again);
+    } finally {
+      e.inflight = undefined;
+    }
+  })();
+  return e.inflight;
 }
 
 /** Runs a write action, which returns the fresh status. A failure is rethrown for the caller to show. */
@@ -85,7 +108,7 @@ export function show(root: RootRef) {
   void refresh(root);
   // ponytail: polls because the watcher doesn't see commits, checkouts or index changes made in a terminal; upgrade: also watch the git dir and drop the poll.
   poll ??= setInterval(() => {
-    if (document.hasFocus()) shownEntries().forEach((x) => void refresh(x.root));
+    if (document.hasFocus()) shownEntries().forEach((x) => void refresh(x.root, false));
   }, POLL_MS);
 }
 

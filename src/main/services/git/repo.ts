@@ -40,7 +40,7 @@ export const status = (dir: string): Promise<GitStatus> =>
     const s: GitStatus = { ...(await entries(dir)), merging: await isMerging(dir) };
     if (s.merging) {
       // The branch being merged, for the banner; without a name the banner just says "Merging".
-      const name = await gitNow(dir, ['name-rev', '--name-only', 'MERGE_HEAD']).then((o) => o.trim(), () => '');
+      const name = await gitNow(dir, ['name-rev', '--name-only', '--no-undefined', 'MERGE_HEAD']).then((o) => o.trim(), () => '');
       if (name) s.mergeHead = name;
     }
     return s;
@@ -67,14 +67,20 @@ export const stage = (dir: string, rels: string[]): Promise<void> =>
     await (rels.length ? withSpec(dir, ['add', '-A'], rels) : gitNow(dir, ['add', '-A']));
   });
 
-/** `[]` unstages everything. Works before the first commit, and a staged rename is undone on both paths. */
+/**
+ * `[]` unstages everything. Works before the first commit, and a staged rename is undone on both paths. Unmerged paths
+ * are never touched: restoring them would mark the conflict resolved, to HEAD's side.
+ */
 export const unstage = (dir: string, rels: string[]): Promise<void> =>
   inRepo(dir, async () => {
     const all = !rels.length;
-    const list = all ? ['.'] : [...rels];
-    if (!all) {
+    const es = (await entries(dir)).entries;
+    let list = ['.'];
+    // ponytail: with a conflict open, "all" is the staged group, so a status past the 5000-entry cap leaves the rest staged
+    if (!all || es.some((e) => e.conflict)) {
       const picked = new Set(rels);
-      for (const e of (await entries(dir)).entries) if (e.orig && picked.has(e.rel)) list.push(e.orig);
+      list = groups(es).staged.filter((e) => all || picked.has(e.rel)).flatMap((e) => (e.orig ? [e.rel, e.orig] : [e.rel]));
+      if (!list.length) return;
     }
     const hasHead = await ok(gitNow(dir, ['rev-parse', '-q', '--verify', 'HEAD']));
     // Without a HEAD, `rm --cached` needs -f when the file changed after staging (AM); with --cached it never touches the worktree.
