@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { commit, discard, mergeAbort, show, stage, status, unstage } from '../../src/main/services/git/repo';
+import { queued } from '../../src/main/services/git/run';
 import { groups } from '../../src/shared/git';
 
 const dirs: string[] = [];
@@ -262,4 +263,98 @@ test('a failed call does not block the next one on the same folder', async () =>
   const good = status(dir);
   await expect(bad).rejects.toThrow('Write a commit message');
   expect((await good).branch).toBe('main');
+});
+
+test('unstage works before the first commit when the file was edited after staging', async () => {
+  const dir = repo();
+  put(dir, 'a.txt', 'a\n');
+  await stage(dir, ['a.txt']);
+  put(dir, 'a.txt', 'edited after staging\n'); // AM: git rm --cached refuses this without -f
+  expect(await rows(dir)).toEqual(['AM a.txt']);
+  await unstage(dir, ['a.txt']);
+  expect(await rows(dir)).toEqual(['?? a.txt']);
+  expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('edited after staging\n'); // the worktree is never touched
+  await stage(dir, []);
+  put(dir, 'a.txt', 'edited again\n');
+  await unstage(dir, []);
+  expect(await rows(dir)).toEqual(['?? a.txt']);
+});
+
+test('every operation refuses a folder that is not the repository root', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  mkdirSync(join(dir, 'app'));
+  put(dir, 'app/x.txt', 'x\n');
+  const app = join(dir, 'app');
+  const msg = "Open the repository's root folder to use Git";
+  const trash = vi.fn(async () => {});
+  await expect(status(app)).rejects.toThrow(msg);
+  await expect(show(app, 'x.txt', 'head')).rejects.toThrow(msg);
+  await expect(stage(app, ['x.txt'])).rejects.toThrow(msg);
+  await expect(unstage(app, [])).rejects.toThrow(msg);
+  await expect(discard(app, [], trash)).rejects.toThrow(msg);
+  await expect(commit(app, 'm', true)).rejects.toThrow(msg);
+  await expect(mergeAbort(app)).rejects.toThrow(msg);
+  expect(trash).not.toHaveBeenCalled();
+  expect(await rows(dir)).toEqual(['?? app/x.txt']); // nothing happened
+  expect(sh(dir, 'rev-list', '--count', 'HEAD').trim()).toBe('1');
+});
+
+test('a worktree, whose .git is a file, counts as a root', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = mkdtempSync(join(tmpdir(), 'ark-git-wt-'));
+  dirs.push(wt);
+  sh(dir, 'worktree', 'add', '-q', '-b', 'side', wt);
+  expect(readFileSync(join(wt, '.git'), 'utf8').startsWith('gitdir:')).toBe(true);
+  put(wt, 'a.txt', 'a2\n');
+  expect((await status(wt)).branch).toBe('side');
+  await stage(wt, []);
+  await commit(wt, 'in the worktree', false);
+  expect(sh(wt, 'log', '-1', '--format=%s').trim()).toBe('in the worktree');
+});
+
+test('status takes no optional lock: it never rewrites the index', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const index = () => readFileSync(join(dir, '.git', 'index'));
+  const t = new Date(Date.now() + 60_000);
+  utimesSync(join(dir, 'a.txt'), t, t); // same content, new stat data: a plain git status refreshes the index
+  const before = index();
+  expect((await status(dir)).entries).toEqual([]);
+  expect(index().equals(before)).toBe(true);
+  sh(dir, 'status'); // control: plain git does rewrite it here, so the assertion above can fail
+  expect(index().equals(before)).toBe(false);
+});
+
+test('commit with nothing staged says so', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  await expect(commit(dir, 'm', false)).rejects.toThrow(/nothing/);
+});
+
+test('commit all refuses while conflicts are unresolved', async () => {
+  const dir = committed({ 'a.txt': 'base\n' });
+  sh(dir, 'checkout', '-q', '-b', 'other');
+  put(dir, 'a.txt', 'other\n');
+  sh(dir, 'commit', '-q', '-am', 'other change');
+  sh(dir, 'checkout', '-q', 'main');
+  put(dir, 'a.txt', 'main\n');
+  sh(dir, 'commit', '-q', '-am', 'main change');
+  expect(() => sh(dir, 'merge', 'other')).toThrow();
+  const head = sh(dir, 'rev-parse', 'HEAD');
+  await expect(commit(dir, 'with markers', true)).rejects.toThrow('Resolve the conflicts first');
+  await expect(commit(dir, '', true)).rejects.toThrow('Resolve the conflicts first');
+  expect(sh(dir, 'rev-parse', 'HEAD')).toBe(head);
+  expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toContain('<<<<<<<'); // add -A did not run
+  expect(await rows(dir)).toEqual(['UU a.txt']);
+});
+
+test('the queue key ignores case and how the path is spelled', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'ark-q-'));
+  dirs.push(base);
+  const order: string[] = [];
+  const slow = queued(join(base, 'Repo'), async () => {
+    await new Promise((r) => setTimeout(r, 60));
+    order.push('first');
+  });
+  const other = queued(join(base, 'repo') + sep + '.' + sep, async () => void order.push('second'));
+  await Promise.all([slow, other]);
+  expect(order).toEqual(['first', 'second']);
 });

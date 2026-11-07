@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { resolve as resolvePath } from 'node:path';
 import { NO_HOOKS } from '../threads/workspace';
 
 /**
@@ -9,7 +10,8 @@ import { NO_HOOKS } from '../threads/workspace';
 const MAX_BUFFER = 64 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
 
-type Opts = { input?: string; timeoutMs?: number };
+/** `env` adds to the environment of this one call. */
+type Opts = { input?: string; timeoutMs?: number; env?: Record<string, string> };
 
 function exec(dir: string, args: string[], opts: Opts, encoding: 'utf8' | 'buffer'): Promise<string | Buffer> {
   return new Promise((resolve, reject) => {
@@ -18,13 +20,15 @@ function exec(dir: string, args: string[], opts: Opts, encoding: 'utf8' | 'buffe
       ['-c', `core.hooksPath=${NO_HOOKS}`, ...args],
       {
         cwd: dir,
-        env: { ...process.env, GIT_LITERAL_PATHSPECS: '1', GIT_TERMINAL_PROMPT: '0' },
+        env: { ...process.env, GIT_LITERAL_PATHSPECS: '1', GIT_TERMINAL_PROMPT: '0', ...opts.env },
         windowsHide: true,
         encoding,
         maxBuffer: MAX_BUFFER,
         timeout: opts.timeoutMs ?? TIMEOUT_MS,
       },
-      (err, stdout, stderr) => (err ? reject(new Error(String(stderr).trim() || `git ${args[0]} failed`)) : resolve(stdout)),
+      // Some failures only talk on stdout ("nothing to commit"), so it is the second choice.
+      (err, stdout, stderr) =>
+        err ? reject(new Error(String(stderr).trim() || String(stdout).trim() || `git ${args[0]} failed`)) : resolve(stdout),
     );
     child.stdin?.on('error', () => {}); // git can exit before it reads its input
     child.stdin?.end(opts.input); // always closed, so git never waits for more
@@ -41,7 +45,7 @@ const tails = new Map<string, Promise<unknown>>();
 
 /** Runs `fn` after every earlier call on this folder has settled (a failure doesn't block the next). */
 export function queued<T>(dir: string, fn: () => Promise<T>): Promise<T> {
-  const key = dir.toLowerCase();
+  const key = resolvePath(dir).toLowerCase();
   const run = (tails.get(key) ?? Promise.resolve()).then(fn);
   const tail = run.catch(() => {});
   tails.set(key, tail);
