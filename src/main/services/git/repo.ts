@@ -1,0 +1,84 @@
+import { groups, parseStatus, type GitStatus, type ShowResult } from '@shared/git';
+import { resolveInside } from '../files/guard';
+import { gitNow, gitNowBuffer, queued } from './run';
+
+/**
+ * The Git view's operations on one folder. Each is one place in the folder's queue, so a status never sees a commit
+ * half done. Inside, git runs unqueued (gitNow): a gitRun there would wait for its own caller.
+ */
+
+const MAX_SHOW = 5 * 1024 * 1024;
+const SNIFF = 8192;
+
+/** Runs `cmd` on a path list sent on stdin, NUL-separated: names never touch the command line. */
+const withSpec = (dir: string, cmd: string[], rels: string[]) =>
+  gitNow(dir, [...cmd, '--pathspec-from-file=-', '--pathspec-file-nul'], { input: rels.join('\0') });
+
+const ok = (p: Promise<unknown>) => p.then(() => true, () => false);
+const isMerging = (dir: string) => ok(gitNow(dir, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']));
+const entries = async (dir: string) =>
+  parseStatus(await gitNow(dir, ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all']));
+
+export const status = (dir: string): Promise<GitStatus> =>
+  queued(dir, async () => ({ ...(await entries(dir)), merging: await isMerging(dir) }));
+
+export const show = (dir: string, rel: string, side: 'head' | 'index'): Promise<ShowResult> =>
+  queued(dir, async () => {
+    const obj = `${side === 'head' ? 'HEAD' : ':0'}:${rel}`;
+    let size: number;
+    try {
+      size = Number(await gitNow(dir, ['cat-file', '-s', obj]));
+    } catch {
+      return { kind: 'missing' };
+    }
+    if (size > MAX_SHOW) return { kind: 'large', size };
+    const bytes = await gitNowBuffer(dir, ['cat-file', 'blob', obj]);
+    if (bytes.subarray(0, SNIFF).includes(0)) return { kind: 'binary' };
+    return { kind: 'text', text: new TextDecoder().decode(bytes) };
+  });
+
+/** Stages additions, changes and deletions; `[]` stages everything. */
+export const stage = (dir: string, rels: string[]): Promise<void> =>
+  queued(dir, async () => {
+    await (rels.length ? withSpec(dir, ['add', '-A'], rels) : gitNow(dir, ['add', '-A']));
+  });
+
+/** `[]` unstages everything. Works before the first commit, and a staged rename is undone on both paths. */
+export const unstage = (dir: string, rels: string[]): Promise<void> =>
+  queued(dir, async () => {
+    const all = !rels.length;
+    const list = all ? ['.'] : [...rels];
+    if (!all) {
+      const picked = new Set(rels);
+      for (const e of (await entries(dir)).entries) if (e.orig && picked.has(e.rel)) list.push(e.orig);
+    }
+    const hasHead = await ok(gitNow(dir, ['rev-parse', '-q', '--verify', 'HEAD']));
+    await withSpec(dir, hasHead ? ['restore', '--staged'] : ['rm', '--cached', '-r', '-q', '--ignore-unmatch'], list);
+  });
+
+/**
+ * Throws away worktree changes: untracked files go to `trash`, tracked ones are restored from the index. Only entries
+ * in the Changes group count (`[]` is all of them); anything else in `rels` is ignored.
+ */
+export const discard = (dir: string, rels: string[], trash: (abs: string) => Promise<void>): Promise<void> =>
+  queued(dir, async () => {
+    const want = new Set(rels);
+    const pick = groups((await entries(dir)).entries).changes.filter((e) => !want.size || want.has(e.rel));
+    for (const e of pick) if (e.x === '?') await trash(resolveInside(dir, e.rel));
+    const tracked = pick.filter((e) => e.x !== '?').map((e) => e.rel);
+    if (tracked.length) await withSpec(dir, ['restore', '--worktree'], tracked);
+  });
+
+/** Commits the index (`all`: after `add -A`). An empty message is only allowed while merging: Git's own is used. */
+export const commit = (dir: string, message: string, all: boolean): Promise<void> =>
+  queued(dir, async () => {
+    const text = message.trim();
+    if (!text && !(await isMerging(dir))) throw new Error('Write a commit message');
+    if (all) await gitNow(dir, ['add', '-A']);
+    await (text ? gitNow(dir, ['commit', '-F', '-'], { input: text }) : gitNow(dir, ['commit', '--no-edit']));
+  });
+
+export const mergeAbort = (dir: string): Promise<void> =>
+  queued(dir, async () => {
+    await gitNow(dir, ['merge', '--abort']);
+  });
