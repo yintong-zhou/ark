@@ -36,7 +36,15 @@ const entries = async (dir: string) =>
   );
 
 export const status = (dir: string): Promise<GitStatus> =>
-  inRepo(dir, async () => ({ ...(await entries(dir)), merging: await isMerging(dir) }));
+  inRepo(dir, async () => {
+    const s: GitStatus = { ...(await entries(dir)), merging: await isMerging(dir) };
+    if (s.merging) {
+      // The branch being merged, for the banner; without a name the banner just says "Merging".
+      const name = await gitNow(dir, ['name-rev', '--name-only', 'MERGE_HEAD']).then((o) => o.trim(), () => '');
+      if (name) s.mergeHead = name;
+    }
+    return s;
+  });
 
 export const show = (dir: string, rel: string, side: 'head' | 'index'): Promise<ShowResult> =>
   inRepo(dir, async () => {

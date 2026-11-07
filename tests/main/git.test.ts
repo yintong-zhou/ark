@@ -224,6 +224,7 @@ test('a merge conflict shows as conflict and merging; empty message commits with
   expect(() => sh(dir, 'merge', 'other')).toThrow();
   const s = await status(dir);
   expect(s.merging).toBe(true);
+  expect(s.mergeHead).toBe('other');
   expect(s.entries).toMatchObject([{ rel: 'a.txt', conflict: true }]);
   expect(groups(s.entries).conflicts).toHaveLength(1);
   await expect(commit(dir, '', false)).rejects.toThrow(); // still unresolved: Git refuses

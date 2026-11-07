@@ -11,6 +11,8 @@ export type GitStatus = {
   ahead: number;
   behind: number;
   merging: boolean;
+  /** While merging: the branch being merged, when Git can name it. */
+  mergeHead?: string;
   entries: GitEntry[];
   truncated: boolean;
 };

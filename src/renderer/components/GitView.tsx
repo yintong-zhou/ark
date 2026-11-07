@@ -29,19 +29,21 @@ type Act = (call: () => Promise<GitStatus>) => void;
 export function GitView({ root, busyThread, onOpenFile, attempt }: Props) {
   const { status, error, busy } = useGit(root, true);
   const [message, setMessage] = useState('');
-  if (!status) return <p className="px-1 text-meta text-muted">{error ?? 'Loading…'}</p>;
+  if (!status) return <p className="px-[4px] text-meta text-muted">{error ?? 'Loading…'}</p>;
 
   const git = window.ark.git;
   const locked = busyThread || busy; // one action at a time
   const run: Act = (call) => void attempt(() => act(root, call));
-  const discard = (rels: string[], what: string, untracked: boolean) => {
-    if (confirm(untracked ? `Move ${what} to the Recycle Bin?` : `Discard changes to ${what}? This can't be undone.`)) run(() => git.discard(root, rels));
+  const discard = (rels: string[], question: string) => {
+    if (confirm(question)) run(() => git.discard(root, rels));
   };
 
   const { conflicts, staged, changes } = groups(status.entries);
-  // With staged changes Commit takes those; with none it stages everything, never while a conflict is open.
-  const all = staged.length === 0 && conflicts.length === 0;
-  const canCommit = !locked && (staged.length > 0 || (all && changes.length > 0)) && (status.merging || message.trim() !== '');
+  // Nothing commits while a conflict is open. A merge commits its index as is, even with no diff left and no message
+  // (Git's own then); otherwise Commit takes the staged changes, or with none stages everything (Commit all).
+  const all = !status.merging && staged.length === 0 && conflicts.length === 0;
+  const canCommit =
+    !locked && conflicts.length === 0 && (status.merging || (staged.length + changes.length > 0 && message.trim() !== ''));
   const commit = () => {
     if (!canCommit) return;
     void attempt(async () => {
@@ -65,7 +67,7 @@ export function GitView({ root, busyThread, onOpenFile, attempt }: Props) {
             </button>
           )}
           {side === 'changes' && (
-            <button title="Discard changes" aria-label={`Discard ${e.rel}`} disabled={locked} onClick={() => discard([e.rel], nameOf(e.rel), e.x === '?')} className={ACTION}>
+            <button title="Discard changes" aria-label={`Discard ${e.rel}`} disabled={locked} onClick={() => discard([e.rel], e.x === '?' ? `Move ${nameOf(e.rel)} to the Recycle Bin?` : `Discard changes to ${nameOf(e.rel)}? This can't be undone.`)} className={ACTION}>
               <DiscardIcon />
             </button>
           )}
@@ -88,7 +90,7 @@ export function GitView({ root, busyThread, onOpenFile, attempt }: Props) {
     list.length > 0 && (
       <section key={side}>
         <div className="group flex items-center gap-[4px] pb-[4px] pl-[4px] pr-1 pt-2">
-          <h3 className="section flex-1 font-body font-normal text-muted">
+          <h3 className="section flex-1">
             {title} <span className="text-meta">{list.length}</span>
           </h3>
           <span className={REVEAL}>{actions}</span>
@@ -132,7 +134,7 @@ export function GitView({ root, busyThread, onOpenFile, attempt }: Props) {
       <p className="px-[4px] text-meta text-muted">Runs without Git hooks. Use the terminal to run them.</p>
       {status.merging && (
         <div className="flex flex-col gap-1 rounded-sm bg-raised p-1">
-          <p className="text-meta text-secondary">Merging {status.branch ?? 'HEAD'}. Fix the conflicts, stage them, then commit.</p>
+          <p className="text-meta text-secondary">{status.mergeHead ? `Merging ${status.mergeHead}.` : 'Merging.'} Fix the conflicts, stage them, then commit.</p>
           <button onClick={() => run(() => git.mergeAbort(root))} disabled={locked} className={`${BUTTON_INSET} self-start`}>Abort merge</button>
         </div>
       )}
@@ -145,7 +147,7 @@ export function GitView({ root, busyThread, onOpenFile, attempt }: Props) {
           </button>,
         )}
         {group('Changes', changes, 'changes', <>
-          <button title="Discard all" aria-label="Discard all" disabled={locked} onClick={() => discard([], `${changes.length} files`, false)} className={ACTION}>
+          <button title="Discard all" aria-label="Discard all" disabled={locked} onClick={() => discard([], `Discard changes to ${changes.length} files? New files go to the Recycle Bin; the rest can't be undone.`)} className={ACTION}>
             <DiscardIcon />
           </button>
           {stageAll(changes)}
