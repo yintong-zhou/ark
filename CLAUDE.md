@@ -15,7 +15,9 @@ behavior in `README.md`.
 ## Layout
 
 - `src/main/services/`: app logic. `adapters/` (agent detection and usage), `engines/` (Claude/Codex sessions,
-  isolation, project rules), `threads/` (conductor, protocol, build rules, workspace/worktree, store).
+  isolation, project rules), `threads/` (conductor, protocol, build rules, workspace/worktree, store), `files/`
+  (explorer and editor: path guard, file operations, watcher).
+- `src/renderer/editor/`, `src/renderer/files/`: module-level stores for open tabs (Monaco, loaded lazily) and the file tree.
 - `src/main/ipc/index.ts`: IPC handlers. `src/preload/index.ts`: the `contextBridge` API.
 - `src/shared/`: types and pure logic used by both main and renderer.
 - `src/renderer/`: React UI (`pages/`, `components/`, `hooks/`).
@@ -29,6 +31,8 @@ behavior in `README.md`.
 - Agents are isolated: each sees only its own skills; the user's memory, plugins and MCP servers are left out. Don't weaken `engines/isolation.ts`.
 - Agents are read-only by default. Only the developer builds, inside a Git worktree `ark/<title>-<id>`; risky actions need an approval card.
 - Ark's own Git runs without project hooks. Keep that.
+- The editor writes only inside a project folder or a thread worktree, when the user saves; the renderer sends a root and a
+  relative path, and main checks every path (`services/files/guard.ts`). Deletes go to the Recycle Bin.
 - User data lives in `%APPDATA%\ark` (`agents`, `threads`, `worktrees`, `backups`).
 - Codex skills are passed as a list in the instructions, not via native skill roots (codex-cli 0.132.0 lacks them).
 - UI text is English. Colors and fonts come from `brand-guidelines.md`.

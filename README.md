@@ -113,6 +113,18 @@ Live-tested with codex-cli 0.167.0; 0.132.0 cannot talk to the current model ser
 Windows sandbox (`windows.sandbox = "unelevated"`, no admin rights; without it Codex runs commands unsandboxed on
 Windows) and refuses to start a Codex agent if a read-only command can still write.
 
+## Files and editor
+
+- **Files**: the project sidebar switches between **Threads** and **Files**. Files shows the project folder as a tree,
+  or the open thread's build worktree once it has one. Right-click for new file, new folder, rename, delete (to the
+  Recycle Bin), reveal in Explorer and copy path.
+- **Editor**: files open in tabs next to the thread, in Monaco (the editor of VS Code): highlighting, find and replace,
+  multiple cursors. Ctrl+S saves, Ctrl+W closes the tab. The team panel shows while the thread tab is active.
+- **Agents writing the same file**: an open file with no unsaved edits reloads when it changes on disk. With unsaved
+  edits, a bar asks to **Reload** or **Keep mine**; a save never overwrites a newer version on disk without that click.
+  Closing Ark with unsaved files asks first.
+- Binary files and files over 5 MB are not opened; a file that is not UTF-8 opens read-only.
+
 ## Run it
 
 Requirements: Windows, Node.js 22 or newer.
