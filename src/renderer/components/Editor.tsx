@@ -47,7 +47,10 @@ export function Editor({ projectId, doc }: { projectId: string; doc: Doc }) {
     ed.setModel(model);
     if (doc.view) ed.restoreViewState(doc.view);
     ed.focus();
-    return () => remember(key, ed.saveViewState());
+    return () => {
+      const v = ed.saveViewState(); // null once the editor is disposed (unmount): keep what was remembered then
+      if (v) remember(key, v);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- doc.view is read once, on switching in
   }, [ed, model, key]);
   useEffect(() => ed?.updateOptions({ readOnly: doc.tab.readonly }), [ed, doc.tab.readonly]);

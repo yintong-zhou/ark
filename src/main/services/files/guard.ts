@@ -11,7 +11,14 @@ export function normRel(v: unknown): string {
   return rel;
 }
 
-const same = (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+/** A rel path that names an entry, never the root: what write, create, rename and delete take. */
+export function normEntry(v: unknown): string {
+  const rel = normRel(v);
+  if (!rel) throw new Error('Invalid path');
+  return rel;
+}
+
+const same =(a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 
 /**
  * The absolute path of `rel` under `root`, refused when its real location (symlinks and junctions followed) is

@@ -137,7 +137,6 @@ export interface ArkApi {
     /** `key` is rootKey(root); `rels` null means anything may have changed. */
     onChanged(cb: (key: string, rels: string[] | null) => void): () => void;
   };
-  editor: { setDirty(count: number): void };
 }
 
 export type TokenCount = { input: number; cached: number; output: number };

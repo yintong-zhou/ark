@@ -94,7 +94,6 @@ const api: ArkApi = {
       };
     },
   },
-  editor: { setDirty: (count) => ipcRenderer.send('editor:dirty', count) },
 };
 
 contextBridge.exposeInMainWorld('ark', api);

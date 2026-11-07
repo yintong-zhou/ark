@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { joinRel, parentOf, rootKey } from '@shared/files';
 import type { Project, Thread } from '@shared/thread';
-import { normRel, resolveInside, rootDir, rootRef } from '../../src/main/services/files/guard';
+import { normEntry, normRel, resolveInside, rootDir, rootRef } from '../../src/main/services/files/guard';
 
 let root: string;
 let outside: string;
@@ -100,4 +100,9 @@ test('parentOf, joinRel and rootKey', () => {
   expect(joinRel('', 'x')).toBe('x');
   expect(joinRel('a', 'x')).toBe('a/x');
   expect(rootKey({ kind: 'thread', id: ID })).toBe(`thread:${ID}`);
+});
+
+test('normEntry is normRel that refuses the root itself', () => {
+  expect(normEntry('src\\a.ts')).toBe('src/a.ts');
+  for (const bad of ['', '/', '\\', '../x']) expect(() => normEntry(bad), String(bad)).toThrow('Invalid path');
 });

@@ -26,7 +26,8 @@ export function diskChanged(tab: FileTab, disk: { mtimeMs: number } | null): { t
   if (!disk) return { tab: tab.bar === 'deleted' ? tab : { ...tab, bar: 'deleted', mtimeMs: null }, reload: false };
   if (disk.mtimeMs === tab.mtimeMs) return { tab, reload: false };
   if (!tab.dirty) return { tab: { ...tab, bar: undefined }, reload: true };
-  return { tab: { ...tab, bar: 'changed' }, reload: false };
+  // A Keep mine chosen against an older version does not cover this newer one.
+  return { tab: { ...tab, bar: 'changed', force: false }, reload: false };
 }
 
 export const keepMine = (tab: FileTab): FileTab => ({ ...tab, bar: undefined, force: true });

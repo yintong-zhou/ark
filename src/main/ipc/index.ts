@@ -11,7 +11,7 @@ import type { AgentRunner } from '../services/agent-runner';
 import { importAgent, importableAgents, type Catalog } from '../services/catalog';
 import { engineStatus, mergeEngines, readEngines, validateEngines, writeEngines } from '../services/engines/config';
 import { run } from '../services/exec';
-import { normRel, resolveInside, rootDir, rootRef } from '../services/files/guard';
+import { normEntry, normRel, resolveInside, rootDir, rootRef } from '../services/files/guard';
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
 import { RootWatcher } from '../services/files/watch';
 import type { HistoryStore } from '../services/history';
@@ -115,10 +115,7 @@ function projectDir(v: unknown): string {
   return v;
 }
 
-/** Registers every handler; returns what main's window code needs back (the unsaved-files count for the quit warning). */
-export function registerIpc({ win, usage, history, statusline, userData, catalog, runner, store, conductor, skills, claudeConfigDir, tempDir }: Deps): {
-  dirtyCount: () => number;
-} {
+export function registerIpc({ win, usage, history, statusline, userData, catalog, runner, store, conductor, skills, claudeConfigDir, tempDir }: Deps): void {
   // Only Ark's own window may call in; payloads are validated per channel.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (e: IpcMainInvokeEvent, ...args: unknown[]) => {
@@ -185,7 +182,6 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     }
     chats.clear();
     watcher.closeAll();
-    dirty = 0;
   });
   handle('chat:start', async (id, dir) => {
     const started = await runner.start(agentId(id), projectDir(dir));
@@ -249,11 +245,11 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('files:write', (r, rel, text, base, bom) => {
     if (typeof text !== 'string' || text.length > 50_000_000) throw new Error('Invalid text');
     if (base !== null && (typeof base !== 'number' || !Number.isFinite(base))) throw new Error('Invalid version');
-    return writeText(dirOf(r), normRel(rel), text, base, bool(bom));
+    return writeText(dirOf(r), normEntry(rel), text, base, bool(bom));
   });
-  handle('files:create', (r, rel, k) => createEntry(dirOf(r), normRel(rel), kind(k)));
-  handle('files:rename', (r, from, to) => renameEntry(dirOf(r), normRel(from), normRel(to)));
-  handle('files:remove', (r, rel) => trashEntry(dirOf(r), normRel(rel), (abs) => shell.trashItem(abs)));
+  handle('files:create', (r, rel, k) => createEntry(dirOf(r), normEntry(rel), kind(k)));
+  handle('files:rename', (r, from, to) => renameEntry(dirOf(r), normEntry(from), normEntry(to)));
+  handle('files:remove', (r, rel) => trashEntry(dirOf(r), normEntry(rel), (abs) => shell.trashItem(abs)));
   handle('files:reveal', (r, rel) => shell.showItemInFolder(resolveInside(dirOf(r), normRel(rel))));
   const watcher = new RootWatcher((key, rels) => {
     if (!win.isDestroyed()) win.webContents.send('files:changed', key, rels);
@@ -265,18 +261,10 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('files:unwatch', (r) => watcher.unwatch(rootKey(rootRef(r))));
   app.on('before-quit', () => watcher.closeAll());
 
-  // How many editor tabs hold unsaved edits, for the warning when the window closes.
-  let dirty = 0;
-  ipcMain.on('editor:dirty', (e, n) => {
-    if (e.sender !== win.webContents) return;
-    if (typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 10_000) dirty = n;
-  });
-
   usage.onChanged((s) => {
     if (!win.isDestroyed()) win.webContents.send('usage:changed', s);
   });
   runner.onEvent((id, e) => {
     if (!win.isDestroyed()) win.webContents.send('chat:event', id, e);
   });
-  return { dirtyCount: () => dirty };
 }

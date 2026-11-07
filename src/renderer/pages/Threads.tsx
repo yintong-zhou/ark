@@ -173,7 +173,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
           <TabStrip projectId={project.id} tabs={tabs} label={draft ? 'New thread' : thread ? `# ${thread.title}` : project.name} />
         )}
         {project && fileDoc ? (
-          <Editor projectId={project.id} doc={fileDoc} />
+          <Editor key={project.id} projectId={project.id} doc={fileDoc} />
         ) : !project ? (
           <>
             <PaneHeader title="Projects" />

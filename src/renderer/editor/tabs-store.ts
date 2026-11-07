@@ -31,14 +31,12 @@ const EMPTY: TabsView = { docs: [], active: null };
 function emit() {
   snaps.clear();
   listeners.forEach((l) => l());
-  reportDirty();
 }
 
-let lastDirty = 0;
-function reportDirty() {
-  const n = [...docs.values()].filter((d) => d.tab.dirty).length;
-  if (n !== lastDirty) window.ark.editor.setDirty((lastDirty = n));
-}
+// Unsaved tabs hold the page: closing the window or reloading it asks first (main's will-prevent-unload).
+window.addEventListener('beforeunload', (e) => {
+  if ([...docs.values()].some((d) => d.tab.dirty)) e.preventDefault();
+});
 
 const update = (key: string, change: (d: Doc) => Doc) => {
   const d = docs.get(key);
@@ -83,6 +81,7 @@ async function fill(d: Doc, r: ReadResult): Promise<Doc> {
 }
 
 export async function open(projectId: string, root: RootRef, rel: string): Promise<void> {
+  listen();
   const key = tabKey(root, rel);
   if (!docs.has(key)) {
     const r = await window.ark.files.read(root, rel);
@@ -118,7 +117,17 @@ export function close(projectId: string, key: string): void {
   emit();
 }
 
-export async function save(key: string): Promise<void> {
+/** Saves run one after another per file: a second Ctrl+S waits for the first, so it sends the version that one wrote. */
+const saving = new Map<string, Promise<void>>();
+
+export function save(key: string): Promise<void> {
+  const next = (saving.get(key) ?? Promise.resolve()).then(() => saveNow(key));
+  saving.set(key, next);
+  void next.finally(() => saving.get(key) === next && saving.delete(key));
+  return next;
+}
+
+async function saveNow(key: string): Promise<void> {
   const d = docs.get(key);
   if (!d?.model || d.tab.readonly) return;
   const version = d.model.getAlternativeVersionId();
@@ -135,16 +144,24 @@ export async function save(key: string): Promise<void> {
   }
 }
 
-export async function reload(key: string): Promise<void> {
+/**
+ * Loads the disk version into the tab. `auto` is the watcher's reload of a clean tab: if the user typed while the file
+ * was being read, their edits stay and the tab gets the changed bar instead. The Reload button replaces on purpose.
+ */
+export async function reload(key: string, auto = false): Promise<void> {
   const d = docs.get(key);
   if (!d) return;
+  const before = d.model?.getAlternativeVersionId();
   try {
     const r = await window.ark.files.read(d.tab.root, d.tab.rel);
-    const filled = await fill(docs.get(key) ?? d, r);
-    if (docs.has(key)) {
-      docs.set(key, filled);
-      emit();
+    const cur = docs.get(key);
+    if (!cur) return;
+    if (auto && cur.model && cur.model.getAlternativeVersionId() !== before) {
+      setTab(key, { ...cur.tab, bar: 'changed', force: false });
+      return;
     }
+    docs.set(key, await fill(cur, r));
+    emit();
   } catch (e) {
     update(key, (cur) => ({ ...cur, error: `Couldn't reload: ${readable(e)}` }));
   }
@@ -162,8 +179,8 @@ export const remember = (key: string, view: editor.ICodeEditorViewState | null):
 };
 
 let subscribed = false;
-function subscribe(l: () => void) {
-  listeners.add(l);
+/** One watcher subscription for every open file, made with the first tab or the first component, whichever comes first. */
+function listen() {
   if (!subscribed) {
     subscribed = true;
     window.ark.files.onChanged((rk, rels) => {
@@ -174,7 +191,7 @@ function subscribe(l: () => void) {
             const cur = docs.get(d.tab.key);
             if (!cur) return;
             const r = diskChanged(cur.tab, disk);
-            if (r.reload) void reload(cur.tab.key);
+            if (r.reload) void reload(cur.tab.key, true);
             else if (r.tab !== cur.tab) setTab(cur.tab.key, r.tab);
           },
           () => {}, // the root itself is gone: the next save reports it
@@ -182,18 +199,26 @@ function subscribe(l: () => void) {
       }
     });
   }
+}
+
+function subscribe(l: () => void) {
+  listen();
+  listeners.add(l);
   return () => listeners.delete(l);
 }
 
+/** A project's tabs as they are now; the same object until something changes. */
+export function tabsOf(projectId: string | undefined): TabsView {
+  if (!projectId) return EMPTY;
+  let s = snaps.get(projectId);
+  if (!s) {
+    const o = of(projectId);
+    s = { docs: o.keys.map((k) => docs.get(k)).filter((d): d is Doc => !!d), active: o.active };
+    snaps.set(projectId, s);
+  }
+  return s;
+}
+
 export function useTabs(projectId: string | undefined): TabsView {
-  return useSyncExternalStore(subscribe, () => {
-    if (!projectId) return EMPTY;
-    let s = snaps.get(projectId);
-    if (!s) {
-      const o = of(projectId);
-      s = { docs: o.keys.map((k) => docs.get(k)).filter((d): d is Doc => !!d), active: o.active };
-      snaps.set(projectId, s);
-    }
-    return s;
-  });
+  return useSyncExternalStore(subscribe, () => tabsOf(projectId));
 }

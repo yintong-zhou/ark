@@ -176,7 +176,9 @@ The other operations:
 
 ### 6.5 Unsaved edits at quit
 
-The renderer reports how many tabs are dirty with `editor:dirty(count)`. On the window's `close`, main shows a native dialog when the count is above 0: "N files have unsaved changes", with **Quit anyway** and **Cancel**.
+While any tab is dirty, the renderer's `beforeunload` refuses to unload the page. Main's `will-prevent-unload` then shows a native dialog: "Some files have unsaved changes", with **Discard changes** and **Cancel**. This covers closing the window and a reload (Ctrl+R) the same way.
+
+(Changed after the final review: the first version counted dirty tabs over IPC and only guarded `close`, so a reload dropped edits silently.)
 
 ## 7. External changes vs unsaved edits
 

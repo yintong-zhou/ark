@@ -53,6 +53,13 @@ test('a deleted file that comes back while the buffer is dirty never saves over 
   expect(saveBase(keepMine(back))).toBeNull();
 });
 
+test('a newer disk change after Keep mine disarms it: the next save conflicts again', () => {
+  const kept = keepMine(diskChanged({ ...base, dirty: true }, { mtimeMs: 200 }).tab);
+  const again = diskChanged(kept, { mtimeMs: 300 }).tab;
+  expect(again.bar).toBe('changed');
+  expect(saveBase(again)).not.toBeNull();
+});
+
 test('keepMine clears the bar and forces the next save', () => {
   expect(keepMine({ ...base, bar: 'changed', dirty: true })).toEqual({ ...base, dirty: true, force: true });
 });

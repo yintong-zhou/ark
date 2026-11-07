@@ -130,6 +130,26 @@ test('trashEntry hands the absolute path to the trash', async () => {
   expect(trash).toHaveBeenCalledWith(join(dir, 'a.txt'));
 });
 
+test('a save never follows a planted <file>.tmp link out of the folder, and leaves a real .tmp alone', () => {
+  put('a.ts', 'old');
+  put('b.ts', 'old');
+  put('b.ts.tmp', 'my own notes');
+  let linked = true;
+  try {
+    symlinkSync(join(outside, 'x'), join(dir, 'a.ts.tmp'), 'file');
+  } catch {
+    linked = false; // file symlinks need Developer Mode on Windows; the .tmp half still runs
+  }
+  if (linked) {
+    writeText(dir, 'a.ts', 'PWNED', null, false);
+    expect(readFileSync(join(outside, 'x'), 'utf8')).toBe('secret');
+    expect(readFileSync(join(dir, 'a.ts'), 'utf8')).toBe('PWNED');
+  }
+  writeText(dir, 'b.ts', 'new', null, false);
+  expect(readFileSync(join(dir, 'b.ts.tmp'), 'utf8')).toBe('my own notes');
+  expect(readFileSync(join(dir, 'b.ts'), 'utf8')).toBe('new');
+});
+
 test('every operation refuses a path through a junction that leaves the folder', async () => {
   expect(() => listDir(dir, 'out')).toThrow('outside');
   expect(() => readText(dir, 'out/x')).toThrow('outside');

@@ -126,7 +126,7 @@ app.whenReady().then(() => {
     win.focus();
   });
   // Handlers are registered synchronously, before the page can call them; the paths resolve in the background.
-  const ipc = registerIpc({
+  registerIpc({
     win,
     usage,
     history,
@@ -140,18 +140,19 @@ app.whenReady().then(() => {
     claudeConfigDir: () => claudeConfigDir,
     tempDir: app.getPath('temp'),
   });
-  // Closing the window with unsaved editor tabs asks first; the edits live only in the renderer.
-  win.on('close', (e) => {
-    const n = ipc.dirtyCount();
-    if (n === 0) return;
+  // Unsaved editor tabs make the page refuse to unload (beforeunload); closing the window or reloading (Ctrl+R) asks
+  // here first. The edits live only in the renderer, so leaving drops them.
+  win.webContents.on('will-prevent-unload', (e) => {
     const answer = dialog.showMessageBoxSync(win, {
       type: 'warning',
-      buttons: ['Quit anyway', 'Cancel'],
+      buttons: ['Discard changes', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
-      message: `${n} file${n === 1 ? ' has' : 's have'} unsaved changes`,
+      message: 'Some files have unsaved changes',
+      detail: 'They will be lost.',
+      noLink: true,
     });
-    if (answer === 1) e.preventDefault();
+    if (answer === 0) e.preventDefault(); // preventDefault here lets the page go
   });
   app.on('before-quit', () => {
     // Engines first, and one failure must not skip the other.
