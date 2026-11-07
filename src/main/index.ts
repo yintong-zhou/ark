@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -126,7 +126,7 @@ app.whenReady().then(() => {
     win.focus();
   });
   // Handlers are registered synchronously, before the page can call them; the paths resolve in the background.
-  registerIpc({
+  const ipc = registerIpc({
     win,
     usage,
     history,
@@ -139,6 +139,19 @@ app.whenReady().then(() => {
     skills,
     claudeConfigDir: () => claudeConfigDir,
     tempDir: app.getPath('temp'),
+  });
+  // Closing the window with unsaved editor tabs asks first; the edits live only in the renderer.
+  win.on('close', (e) => {
+    const n = ipc.dirtyCount();
+    if (n === 0) return;
+    const answer = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['Quit anyway', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: `${n} file${n === 1 ? ' has' : 's have'} unsaved changes`,
+    });
+    if (answer === 1) e.preventDefault();
   });
   app.on('before-quit', () => {
     // Engines first, and one failure must not skip the other.

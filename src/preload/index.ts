@@ -75,6 +75,26 @@ const api: ArkApi = {
       };
     },
   },
+  files: {
+    list: (root, rel) => ipcRenderer.invoke('files:list', root, rel),
+    read: (root, rel) => ipcRenderer.invoke('files:read', root, rel),
+    stat: (root, rel) => ipcRenderer.invoke('files:stat', root, rel),
+    write: (root, rel, text, base, bom) => ipcRenderer.invoke('files:write', root, rel, text, base, bom),
+    create: (root, rel, kind) => ipcRenderer.invoke('files:create', root, rel, kind),
+    rename: (root, from, to) => ipcRenderer.invoke('files:rename', root, from, to),
+    remove: (root, rel) => ipcRenderer.invoke('files:remove', root, rel),
+    reveal: (root, rel) => ipcRenderer.invoke('files:reveal', root, rel),
+    watch: (root) => ipcRenderer.invoke('files:watch', root),
+    unwatch: (root) => ipcRenderer.invoke('files:unwatch', root),
+    onChanged: (cb) => {
+      const listener = (_e: unknown, key: string, rels: string[] | null) => cb(key, rels);
+      ipcRenderer.on('files:changed', listener);
+      return () => {
+        ipcRenderer.removeListener('files:changed', listener);
+      };
+    },
+  },
+  editor: { setDirty: (count) => ipcRenderer.send('editor:dirty', count) },
 };
 
 contextBridge.exposeInMainWorld('ark', api);

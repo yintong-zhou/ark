@@ -1,5 +1,6 @@
 import type { AgentDef, EngineId, Tier } from './agent-file';
 import type { ImageInput, Upload } from './attachments';
+import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
 import type { Project, Reaction, Thread, ThreadMessage, ThreadUpdate } from './thread';
 
 // Common model shared by main, preload and renderer.
@@ -119,6 +120,24 @@ export interface ArkApi {
     pause(id: string): Promise<void>;
     onUpdate(cb: (u: ThreadUpdate) => void): () => void;
   };
+  /** A project folder or a thread worktree; paths are '/'-separated and relative to it. */
+  files: {
+    list(root: RootRef, rel: string): Promise<DirListing>;
+    read(root: RootRef, rel: string): Promise<ReadResult>;
+    stat(root: RootRef, rel: string): Promise<{ mtimeMs: number } | null>;
+    /** Refused with { conflict: true } when the file changed since `base`; a null base overwrites. */
+    write(root: RootRef, rel: string, text: string, base: number | null, bom: boolean): Promise<WriteResult>;
+    create(root: RootRef, rel: string, kind: 'file' | 'dir'): Promise<void>;
+    rename(root: RootRef, from: string, to: string): Promise<void>;
+    /** Moves to the Recycle Bin. */
+    remove(root: RootRef, rel: string): Promise<void>;
+    reveal(root: RootRef, rel: string): Promise<void>;
+    watch(root: RootRef): Promise<void>;
+    unwatch(root: RootRef): Promise<void>;
+    /** `key` is rootKey(root); `rels` null means anything may have changed. */
+    onChanged(cb: (key: string, rels: string[] | null) => void): () => void;
+  };
+  editor: { setDirty(count: number): void };
 }
 
 export type TokenCount = { input: number; cached: number; output: number };
