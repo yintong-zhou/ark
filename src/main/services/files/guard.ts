@@ -49,8 +49,10 @@ export function rootRef(v: unknown): RootRef {
   return { kind: o.kind, id: o.id };
 }
 
-/** The folder a root names: the project's dir, or the thread's worktree while it exists. */
-export function rootDir(ref: RootRef, store: { projects(): Project[]; get(id: string): Thread | undefined }): string {
+export type RootStore = { projects(): Project[]; get(id: string): Thread | undefined };
+
+/** The folder a root names: the project's dir, or the thread's worktree while it exists (and wasn't removed). */
+export function rootDir(ref: RootRef, store: RootStore): string {
   if (ref.kind === 'project') {
     const p = store.projects().find((x) => x.id === ref.id);
     if (!p) throw new Error('Unknown project');
@@ -58,7 +60,7 @@ export function rootDir(ref: RootRef, store: { projects(): Project[]; get(id: st
   }
   const t = store.get(ref.id);
   if (!t) throw new Error('Unknown thread');
-  const wt = t.build?.worktree;
+  const wt = t.build?.removed ? undefined : t.build?.worktree; // a folder at that path now isn't the worktree any more
   let ok = false;
   try {
     ok = !!wt && statSync(wt).isDirectory();

@@ -11,13 +11,18 @@ import {
   discard,
   fetch,
   mergeAbort,
+  mergeBranch,
+  pruneWorktrees,
   pull,
   push,
+  removeWorktree,
   show,
   stage,
   status,
   switchBranch,
+  threadBranch,
   unstage,
+  worktrees,
 } from '../../src/main/services/git/repo';
 import { gitNow, queued } from '../../src/main/services/git/run';
 import { groups } from '../../src/shared/git';
@@ -581,4 +586,114 @@ test('unstage all unstages every staged file', async () => {
   expect(await rows(dir)).toEqual(['M. a.txt', 'M. b.txt']);
   await unstage(dir, []);
   expect(await rows(dir)).toEqual(['.M a.txt', '.M b.txt']);
+});
+
+/** A worktree of `dir` on a new branch `name`, in its own temp folder; returns its path. */
+function addWorktree(dir: string, name: string): string {
+  const parent = mkdtempSync(join(tmpdir(), 'ark-git-wtp-'));
+  dirs.push(parent);
+  const wt = join(parent, name);
+  sh(dir, 'worktree', 'add', '-q', '-b', name, wt);
+  return wt;
+}
+
+test('worktrees lists the main one first and removeWorktree removes a clean one', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  const list = await worktrees(dir);
+  expect(list).toHaveLength(2);
+  expect(list[0]).toMatchObject({ branch: 'main', detached: false });
+  expect(list[1]).toMatchObject({ branch: 'wt', locked: false, prunable: false });
+  await removeWorktree(dir, wt.replace(/\//g, sep)); // backslashes on Windows: git lists the path with forward slashes
+  expect(await worktrees(dir)).toHaveLength(1);
+  expect(existsSync(wt)).toBe(false);
+  expect((await branches(dir)).local.map((b) => b.name)).toContain('wt');
+});
+
+test('removeWorktree refuses the main worktree and unknown paths', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  for (const from of [dir, wt]) {
+    await expect(removeWorktree(from, dir)).rejects.toThrow("The main worktree can't be removed");
+    await expect(removeWorktree(from, join(dir, 'app'))).rejects.toThrow('Unknown worktree');
+  }
+  expect(await worktrees(dir)).toHaveLength(2);
+  expect(existsSync(wt)).toBe(true);
+});
+
+test('removeWorktree refuses a worktree with changes', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  put(wt, 'new.txt', 'x\n');
+  await expect(removeWorktree(dir, wt)).rejects.toThrow();
+  expect(existsSync(join(wt, 'new.txt'))).toBe(true);
+  expect(await worktrees(dir)).toHaveLength(2);
+});
+
+test('pruneWorktrees forgets a worktree whose folder is gone', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  rmSync(wt, { recursive: true, force: true });
+  expect((await worktrees(dir))[1].prunable).toBe(true);
+  await pruneWorktrees(dir);
+  expect(await worktrees(dir)).toHaveLength(1);
+});
+
+/** A branch `name` off HEAD with one commit per file; HEAD is back on main. */
+function branchWith(dir: string, name: string, files: Record<string, string>): void {
+  sh(dir, 'switch', '-q', '-c', name);
+  for (const [rel, text] of Object.entries(files)) commitFile(dir, rel, text);
+  sh(dir, 'switch', '-q', 'main');
+}
+
+test('mergeBranch merges with a merge commit', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  branchWith(dir, 'feat', { 'f.txt': 'f\n' });
+  expect(await mergeBranch(dir, 'feat')).toBe('merged'); // a fast-forward was possible: --no-ff still makes a commit
+  expect(sh(dir, 'rev-list', '--parents', '-1', 'HEAD').trim().split(' ')).toHaveLength(3); // the commit and its two parents
+  expect(readFileSync(join(dir, 'f.txt'), 'utf8')).toBe('f\n');
+  expect(sh(dir, 'log', '-1', '--format=%s').trim()).toBe("Merge branch 'feat' into main");
+});
+
+test('mergeBranch leaves a conflicting merge in progress', async () => {
+  const dir = committed({ 'a.txt': 'base\n' });
+  branchWith(dir, 'other', { 'a.txt': 'other\n' });
+  commitFile(dir, 'a.txt', 'main\n');
+  expect(await mergeBranch(dir, 'other')).toBe('conflict');
+  const s = await status(dir);
+  expect(s.merging).toBe(true);
+  expect(s.entries).toMatchObject([{ rel: 'a.txt', conflict: true }]);
+});
+
+test('mergeBranch refuses unknown branches and a detached HEAD, and rethrows failures that are not conflicts', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  branchWith(dir, 'feat', { 'f.txt': 'f\n' });
+  await expect(mergeBranch(dir, 'nope')).rejects.toThrow('Unknown branch');
+  put(dir, 'f.txt', 'untracked, in the way of the merge\n');
+  await expect(mergeBranch(dir, 'feat')).rejects.toThrow(); // git refuses before merging: nothing is in progress
+  expect((await status(dir)).merging).toBe(false);
+  rmSync(join(dir, 'f.txt'));
+  sh(dir, 'checkout', '-q', '--detach');
+  await expect(mergeBranch(dir, 'feat')).rejects.toThrow('Check out a branch in the project first');
+});
+
+test('threadBranch counts commits to merge', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  branchWith(dir, 'feat', { 'f1.txt': '1\n', 'f2.txt': '2\n' });
+  expect(await threadBranch(dir, 'feat')).toEqual({ branch: 'feat', into: 'main', ahead: 2 });
+  await expect(threadBranch(dir, 'nope')).rejects.toThrow('Unknown branch');
+  sh(dir, 'checkout', '-q', '--detach');
+  expect(await threadBranch(dir, 'feat')).toEqual({ branch: 'feat', into: null, ahead: 0 });
+});
+
+test('mergeBranch and threadBranch take the branch itself, not a tag or an option of the same name', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  sh(dir, 'tag', 'feat'); // at main's commit: a plain `git merge feat` would pick the tag and merge nothing
+  branchWith(dir, 'feat', { 'f.txt': 'f\n' });
+  sh(dir, 'update-ref', 'refs/heads/-x', 'refs/heads/feat'); // `git branch` refuses the name; update-ref and a clone do not
+  expect(await threadBranch(dir, 'feat')).toEqual({ branch: 'feat', into: 'main', ahead: 1 });
+  expect(await mergeBranch(dir, 'feat')).toBe('merged');
+  expect(readFileSync(join(dir, 'f.txt'), 'utf8')).toBe('f\n');
+  expect(await threadBranch(dir, '-x')).toEqual({ branch: '-x', into: 'main', ahead: 0 });
+  expect(await mergeBranch(dir, '-x')).toBe('merged');
 });

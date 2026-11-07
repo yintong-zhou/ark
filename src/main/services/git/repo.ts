@@ -1,8 +1,20 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { groups, parseRefs, parseStatus, REFS_FORMAT, type GitBranches, type GitStatus, type ShowResult } from '@shared/git';
+import {
+  groups,
+  parseRefs,
+  parseStatus,
+  parseWorktrees,
+  REFS_FORMAT,
+  type GitBranches,
+  type GitStatus,
+  type GitWorktree,
+  type ShowResult,
+  type ThreadBranch,
+} from '@shared/git';
 import { resolveInside } from '../files/guard';
 import { gitNow, gitNowBuffer, queued } from './run';
+import { samePath } from './rules';
 
 /**
  * The Git view's operations on one folder, which must be a repository's top folder. Each is one place in the folder's
@@ -188,4 +200,64 @@ export const push = (dir: string): Promise<void> =>
     }
     if (!(await gitNow(dir, ['remote'])).split(/\r?\n/).includes('origin')) throw new Error('No remote named origin. Add one from the terminal to push.');
     await gitNow(dir, ['push', '-u', 'origin', 'HEAD'], SYNC); // HEAD, not the name: it may start with `-`
+  });
+
+const listWorktrees = async (dir: string): Promise<GitWorktree[]> =>
+  parseWorktrees(await gitNow(dir, ['worktree', 'list', '--porcelain', '-z']));
+
+/** The main worktree first, then the linked ones. */
+export const worktrees = (dir: string): Promise<GitWorktree[]> => inRepo(dir, () => listWorktrees(dir));
+
+/** Removes a linked worktree, never with `--force`: git refuses one with changes. `path` may be spelled either way (`C:/x`, `C:\x`). */
+export const removeWorktree = (dir: string, path: string): Promise<void> =>
+  inRepo(dir, async () => {
+    const list = await listWorktrees(dir);
+    const i = list.findIndex((w) => samePath(w.path, path));
+    if (i < 0) throw new Error('Unknown worktree');
+    if (i === 0) throw new Error("The main worktree can't be removed");
+    await gitNow(dir, ['worktree', 'remove', list[i].path]); // git's own spelling, and an absolute path can't look like an option
+  });
+
+/** Forgets worktrees whose folders are gone. */
+export const pruneWorktrees = (dir: string): Promise<void> =>
+  inRepo(dir, async () => {
+    await gitNow(dir, ['worktree', 'prune']);
+  });
+
+/** The branch HEAD is on (null when detached). From the full ref: `--short` turns a branch that shares a tag's name into `heads/<name>`. */
+const headBranch = (dir: string): Promise<string | null> =>
+  gitNow(dir, ['symbolic-ref', '-q', 'HEAD']).then((o) => o.trim().replace(/^refs\/heads\//, '') || null, () => null);
+
+const mustBeLocal = async (dir: string, branch: string) => {
+  if (!(await refs(dir)).local.some((l) => l.name === branch)) throw new Error('Unknown branch');
+};
+
+/** Where a thread's branch would merge to (the branch the project is on) and how many commits it is ahead of it. */
+export const threadBranch = (dir: string, branch: string): Promise<ThreadBranch> =>
+  inRepo(dir, async () => {
+    await mustBeLocal(dir, branch);
+    const into = await headBranch(dir);
+    // Full refs: a tag with the same name must not stand in for a branch, and a name can't be read as an option.
+    const ahead = into ? Number((await gitNow(dir, ['rev-list', '--count', `refs/heads/${into}..refs/heads/${branch}`])).trim()) : 0;
+    return { branch, into, ahead };
+  });
+
+/**
+ * Merges a local branch into the one HEAD is on, always with a merge commit. A conflict leaves the merge in progress
+ * for the Git view to resolve; any other failure (local changes in the way, say) changes nothing and is rethrown.
+ */
+export const mergeBranch = (dir: string, branch: string): Promise<'merged' | 'conflict'> =>
+  inRepo(dir, async () => {
+    await mustBeLocal(dir, branch);
+    const into = await headBranch(dir);
+    if (!into) throw new Error('Check out a branch in the project first');
+    try {
+      // The full ref, so a tag with the same name is never merged instead; given that way git would title the commit
+      // "Merge branch 'refs/heads/x'", so the title is ours.
+      await gitNow(dir, ['merge', '--no-ff', '--no-edit', '-m', `Merge branch '${branch}' into ${into}`, `refs/heads/${branch}`]);
+      return 'merged';
+    } catch (e) {
+      if (await isMerging(dir)) return 'conflict';
+      throw e;
+    }
   });

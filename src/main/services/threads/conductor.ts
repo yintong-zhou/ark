@@ -218,6 +218,12 @@ export class Conductor {
     this.save({ ...t, status: 'idle', speaking: undefined }, []);
   }
 
+  /** The thread's worktree was removed: its folder is never offered again. Does nothing when the thread has no build. */
+  worktreeRemoved(threadId: string): void {
+    const t = this.thread(threadId);
+    if (t.build) this.save({ ...t, build: { ...t.build, removed: true } }, []);
+  }
+
   stopAll(): void {
     for (const [id, n] of this.generation) this.generation.set(id, n + 1);
     this.interrupts.clear();

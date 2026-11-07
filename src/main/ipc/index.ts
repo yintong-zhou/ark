@@ -5,7 +5,6 @@ import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
 import { checkUploads, kindOf, type Upload } from '@shared/attachments';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
 import { rootKey, UUID_RE } from '@shared/files';
-import { GIT_BUSY } from '@shared/git';
 import type { ShellOption } from '@shared/terminal';
 import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
@@ -17,6 +16,7 @@ import { normEntry, normRel, normRels, resolveInside, rootDir, rootRef } from '.
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
 import { RootWatcher } from '../services/files/watch';
 import * as git from '../services/git/repo';
+import { gitRoot } from '../services/git/rules';
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
 import { readView, writeView } from '../services/settings';
@@ -269,16 +269,8 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('files:unwatch', (r) => watcher.unwatch(rootKey(rootRef(r))));
   app.on('before-quit', () => watcher.closeAll());
 
-  // Git: the same roots as files. A thread's worktree belongs to the developer while its turn runs, so the write
-  // actions (not status or show) wait for it; the Git view shows a note and disables them.
-  const gitDir = (r: unknown, write = false) => {
-    const ref = rootRef(r);
-    const dir = rootDir(ref, store);
-    if (write && ref.kind === 'thread' && store.get(ref.id)?.status === 'running') {
-      throw new Error(GIT_BUSY);
-    }
-    return dir;
-  };
+  // Git: the same roots as files; the write actions wait for a running thread (see gitRoot).
+  const gitDir = (r: unknown, write = false) => gitRoot(rootRef(r), store, write);
   handle('git:status', (r) => git.status(gitDir(r)));
   handle('git:show', (r, rel, side) => {
     const dir = gitDir(r);

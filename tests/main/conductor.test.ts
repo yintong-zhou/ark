@@ -1153,3 +1153,31 @@ test('an auto agent that cannot move to Codex keeps its session', async () => {
   await idle();
   expect(plannerStarts()).toBe(1);
 });
+
+test('worktreeRemoved marks the build and emits', async () => {
+  const { id } = await planned();
+  runner.reply('developer', 'Built.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  runner.reply('project-manager', 'Done.');
+  await c.startDeveloper(id);
+  await idle();
+  expect(thread(id).phase).toBe('done');
+  expect(thread(id).build?.removed).toBeUndefined();
+  const updates: Thread[] = [];
+  c.onUpdate((u) => updates.push(u.thread));
+  c.worktreeRemoved(id);
+  expect(thread(id).build?.removed).toBe(true);
+  expect(thread(id).build?.worktree).toBeTruthy(); // the path stays: the thread still names where it was
+  expect(updates).toHaveLength(1);
+  expect(updates[0].build?.removed).toBe(true);
+});
+
+test('worktreeRemoved does nothing for a thread without a build', async () => {
+  const t = await planning();
+  const updates: Thread[] = [];
+  c.onUpdate((u) => updates.push(u.thread));
+  c.worktreeRemoved(t.id);
+  expect(thread(t.id).build).toBeUndefined();
+  expect(updates).toHaveLength(0);
+});

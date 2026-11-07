@@ -73,7 +73,7 @@ const store = (projects: Project[], threads: Thread[]) => ({
   projects: () => projects,
   get: (id: string) => threads.find((t) => t.id === id),
 });
-const thread = (build?: { worktree: string }) =>
+const thread = (build?: { worktree: string; removed?: true }) =>
   ({ id: ID2, projectId: ID, title: 't', createdAt: 0, phase: 'build', status: 'idle', build }) as unknown as Thread;
 
 test('rootDir returns a project folder', () => {
@@ -87,6 +87,11 @@ test('rootDir returns an existing thread worktree', () => {
 test('rootDir refuses a thread without a worktree, or whose worktree is gone', () => {
   expect(() => rootDir({ kind: 'thread', id: ID2 }, store([], [thread()]))).toThrow('Worktree not found');
   expect(() => rootDir({ kind: 'thread', id: ID2 }, store([], [thread({ worktree: join(root, 'gone') })]))).toThrow('Worktree not found');
+});
+
+test('rootDir refuses a removed worktree', () => {
+  // the folder exists (git can leave one behind), but the worktree was removed through Ark
+  expect(() => rootDir({ kind: 'thread', id: ID2 }, store([], [thread({ worktree: root, removed: true })]))).toThrow('Worktree not found');
 });
 
 test('rootDir refuses unknown ids', () => {
