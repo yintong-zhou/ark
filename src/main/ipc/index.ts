@@ -12,9 +12,10 @@ import type { AgentRunner } from '../services/agent-runner';
 import { importAgent, importableAgents, type Catalog } from '../services/catalog';
 import { engineStatus, mergeEngines, readEngines, validateEngines, writeEngines } from '../services/engines/config';
 import { run } from '../services/exec';
-import { normEntry, normRel, resolveInside, rootDir, rootRef } from '../services/files/guard';
+import { normEntry, normRel, normRels, resolveInside, rootDir, rootRef } from '../services/files/guard';
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
 import { RootWatcher } from '../services/files/watch';
+import * as git from '../services/git/repo';
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
 import { readView, writeView } from '../services/settings';
@@ -266,6 +267,49 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
   handle('files:unwatch', (r) => watcher.unwatch(rootKey(rootRef(r))));
   app.on('before-quit', () => watcher.closeAll());
+
+  // Git: the same roots as files. A thread's worktree belongs to the developer while its turn runs, so the write
+  // actions (not status or show) wait for it; the Git view shows a note and disables them.
+  const gitDir = (r: unknown, write = false) => {
+    const ref = rootRef(r);
+    const dir = rootDir(ref, store);
+    if (write && ref.kind === 'thread' && store.get(ref.id)?.status === 'running') {
+      throw new Error('The team is working in this worktree. Git actions wait for the turn to end.');
+    }
+    return dir;
+  };
+  handle('git:status', (r) => git.status(gitDir(r)));
+  handle('git:show', (r, rel, side) => {
+    const dir = gitDir(r);
+    if (side !== 'head' && side !== 'index') throw new Error('Invalid side');
+    return git.show(dir, normEntry(rel), side);
+  });
+  handle('git:stage', async (r, rels) => {
+    const dir = gitDir(r, true);
+    await git.stage(dir, normRels(rels));
+    return git.status(dir);
+  });
+  handle('git:unstage', async (r, rels) => {
+    const dir = gitDir(r, true);
+    await git.unstage(dir, normRels(rels));
+    return git.status(dir);
+  });
+  handle('git:discard', async (r, rels) => {
+    const dir = gitDir(r, true);
+    await git.discard(dir, normRels(rels), (abs) => shell.trashItem(abs));
+    return git.status(dir);
+  });
+  handle('git:commit', async (r, message, all) => {
+    const dir = gitDir(r, true);
+    if (typeof message !== 'string' || message.length > 100_000) throw new Error('Invalid message');
+    await git.commit(dir, message, bool(all));
+    return git.status(dir);
+  });
+  handle('git:merge-abort', async (r) => {
+    const dir = gitDir(r, true);
+    await git.mergeAbort(dir);
+    return git.status(dir);
+  });
 
   // Terminals: node-pty loads on the first one, so a broken native module is an error in the panel, not a dead app.
   let shellList: Promise<Shell[]> | undefined; // PATH doesn't change under a running app

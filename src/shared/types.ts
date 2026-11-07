@@ -1,6 +1,7 @@
 import type { AgentDef, EngineId, Tier } from './agent-file';
 import type { ImageInput, Upload } from './attachments';
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
+import type { GitStatus, ShowResult } from './git';
 import type { ShellId, ShellOption } from './terminal';
 import type { Project, Reaction, Thread, ThreadMessage, ThreadUpdate } from './thread';
 
@@ -137,6 +138,21 @@ export interface ArkApi {
     unwatch(root: RootRef): Promise<void>;
     /** `key` is rootKey(root); `rels` null means anything may have changed. */
     onChanged(cb: (key: string, rels: string[] | null) => void): () => void;
+  };
+  /**
+   * Git on a root's folder, which must be a repository's top folder. Every action returns the fresh status. An empty
+   * `rels` means all. Write actions are refused while the root's thread is running.
+   */
+  git: {
+    status(root: RootRef): Promise<GitStatus>;
+    show(root: RootRef, rel: string, side: 'head' | 'index'): Promise<ShowResult>;
+    stage(root: RootRef, rels: string[]): Promise<GitStatus>;
+    unstage(root: RootRef, rels: string[]): Promise<GitStatus>;
+    /** Restores tracked files; untracked ones go to the Recycle Bin. */
+    discard(root: RootRef, rels: string[]): Promise<GitStatus>;
+    /** `all` stages everything first. */
+    commit(root: RootRef, message: string, all: boolean): Promise<GitStatus>;
+    mergeAbort(root: RootRef): Promise<GitStatus>;
   };
   /** The user's shells in the bottom panel; output and exits arrive by terminal id. */
   terminal: {

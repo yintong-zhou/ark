@@ -18,6 +18,12 @@ export function normEntry(v: unknown): string {
   return rel;
 }
 
+/** A list of entries (at most 5000): what the Git actions take. An empty list is valid; Git reads it as "all". */
+export function normRels(v: unknown): string[] {
+  if (!Array.isArray(v) || v.length > 5000) throw new Error('Invalid path');
+  return v.map(normEntry);
+}
+
 const same =(a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 
 /**

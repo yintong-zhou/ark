@@ -94,6 +94,15 @@ const api: ArkApi = {
       };
     },
   },
+  git: {
+    status: (root) => ipcRenderer.invoke('git:status', root),
+    show: (root, rel, side) => ipcRenderer.invoke('git:show', root, rel, side),
+    stage: (root, rels) => ipcRenderer.invoke('git:stage', root, rels),
+    unstage: (root, rels) => ipcRenderer.invoke('git:unstage', root, rels),
+    discard: (root, rels) => ipcRenderer.invoke('git:discard', root, rels),
+    commit: (root, message, all) => ipcRenderer.invoke('git:commit', root, message, all),
+    mergeAbort: (root) => ipcRenderer.invoke('git:merge-abort', root),
+  },
   terminal: {
     shells: () => ipcRenderer.invoke('terminal:shells'),
     create: (root, shell, cols, rows) => ipcRenderer.invoke('terminal:create', root, shell, cols, rows),

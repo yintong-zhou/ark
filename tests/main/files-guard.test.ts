@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { joinRel, parentOf, rootKey } from '@shared/files';
 import type { Project, Thread } from '@shared/thread';
-import { normEntry, normRel, resolveInside, rootDir, rootRef } from '../../src/main/services/files/guard';
+import { normEntry, normRel, normRels, resolveInside, rootDir, rootRef } from '../../src/main/services/files/guard';
 
 let root: string;
 let outside: string;
@@ -105,4 +105,11 @@ test('parentOf, joinRel and rootKey', () => {
 test('normEntry is normRel that refuses the root itself', () => {
   expect(normEntry('src\\a.ts')).toBe('src/a.ts');
   for (const bad of ['', '/', '\\', '../x']) expect(() => normEntry(bad), String(bad)).toThrow('Invalid path');
+});
+
+test('normRels takes a list of entries and refuses the rest', () => {
+  expect(normRels(['a', 'b\\c'])).toEqual(['a', 'b/c']);
+  expect(normRels([])).toEqual([]);
+  const bad = ['a', [1], ['..\\x'], [''], ['a\0b'], Array<string>(5001).fill('a')];
+  for (const v of bad) expect(() => normRels(v), JSON.stringify(v).slice(0, 40)).toThrow('Invalid path');
 });
