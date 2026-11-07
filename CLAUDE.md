@@ -18,6 +18,7 @@ behavior in `README.md`.
   isolation, project rules), `threads/` (conductor, protocol, build rules, workspace/worktree, store), `files/`
   (explorer and editor: path guard, file operations, watcher).
 - `src/renderer/editor/`, `src/renderer/files/`: module-level stores for open tabs (Monaco, loaded lazily) and the file tree.
+- `src/main/services/terminals.ts`, `src/renderer/terminal/`: the user's terminals (node-pty in main, xterm loaded lazily).
 - `src/main/ipc/index.ts`: IPC handlers. `src/preload/index.ts`: the `contextBridge` API.
 - `src/shared/`: types and pure logic used by both main and renderer.
 - `src/renderer/`: React UI (`pages/`, `components/`, `hooks/`).
@@ -33,6 +34,8 @@ behavior in `README.md`.
 - Ark's own Git runs without project hooks. Keep that.
 - The editor writes only inside a project folder or a thread worktree, when the user saves; the renderer sends a root and a
   relative path, and main checks every path (`services/files/guard.ts`). Deletes go to the Recycle Bin.
+- The terminal is the user's own shell, not an agent: it gets the user's env minus `ELECTRON_*` (not `cleanEnv`) and is
+  not isolated. All PTYs die on reload and quit. node-pty stays out of the asar (`electron-builder.yml`); never rebuild it.
 - User data lives in `%APPDATA%\ark` (`agents`, `threads`, `worktrees`, `backups`).
 - Codex skills are passed as a list in the instructions, not via native skill roots (codex-cli 0.132.0 lacks them).
 - UI text is English. Colors and fonts come from `brand-guidelines.md`.

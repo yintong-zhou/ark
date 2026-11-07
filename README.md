@@ -125,6 +125,15 @@ Windows) and refuses to start a Codex agent if a read-only command can still wri
   Closing Ark with unsaved files asks first.
 - Binary files and files over 5 MB are not opened; a file that is not UTF-8 opens read-only.
 
+## Terminal
+
+- **Ctrl+`** (the key left of 1) or the button at the right of the tab strip opens a panel under the thread or file,
+  so you can chat and run commands side by side. Drag its top edge to resize it.
+- **+** starts PowerShell, Command Prompt or Git Bash (when Git for Windows is installed). A new terminal opens in the
+  project folder, or in the thread's worktree when the Files view shows it.
+- Ctrl+C copies when text is selected, otherwise it stops the running command; Ctrl+V pastes.
+- Terminals keep running while you visit Usage or Agents. Reloading or closing Ark ends them.
+
 ## Run it
 
 Requirements: Windows, Node.js 22 or newer.
