@@ -134,7 +134,8 @@ export const switchBranch = (dir: string, name: string, track: boolean): Promise
   inRepo(dir, async () => {
     const b = await refs(dir);
     if (!(track ? b.remote.includes(name) : b.local.some((l) => l.name === name))) throw new Error('Unknown branch');
-    await gitNow(dir, track ? ['switch', '--track', name] : ['switch', name]);
+    // `--`: a listed branch can still start with `-` (made by update-ref, or cloned from such a repo).
+    await gitNow(dir, track ? ['switch', '--track', '--', name] : ['switch', '--', name]);
   });
 
 export const createBranch = (dir: string, name: string): Promise<void> =>
@@ -186,5 +187,5 @@ export const push = (dir: string): Promise<void> =>
       return;
     }
     if (!(await gitNow(dir, ['remote'])).split(/\r?\n/).includes('origin')) throw new Error('No remote named origin. Add one from the terminal to push.');
-    await gitNow(dir, ['push', '-u', 'origin', s.branch], SYNC);
+    await gitNow(dir, ['push', '-u', 'origin', 'HEAD'], SYNC); // HEAD, not the name: it may start with `-`
   });

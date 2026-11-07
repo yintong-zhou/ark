@@ -21,7 +21,8 @@ function exec(dir: string, args: string[], opts: Opts, encoding: 'utf8' | 'buffe
       ['-c', `core.hooksPath=${NO_HOOKS}`, ...args],
       {
         cwd: dir,
-        env: { ...process.env, GIT_LITERAL_PATHSPECS: '1', GIT_TERMINAL_PROMPT: '0', ...opts.env },
+        // LC_ALL=C: Git's messages stay English even with a translation installed, because callers match some of them.
+        env: { ...process.env, LC_ALL: 'C', GIT_LITERAL_PATHSPECS: '1', GIT_TERMINAL_PROMPT: '0', ...opts.env },
         windowsHide: true,
         encoding,
         maxBuffer: MAX_BUFFER,

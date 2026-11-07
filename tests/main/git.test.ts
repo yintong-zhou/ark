@@ -553,6 +553,26 @@ test('push without origin names the missing remote', async () => {
   await expect(push(dir)).rejects.toThrow('Check out a branch in the project first');
 });
 
+test('a branch named like an option switches and pushes as a plain name', async () => {
+  const { dir } = withOrigin();
+  sh(dir, 'update-ref', 'refs/heads/-x', 'HEAD'); // `git branch` refuses the name; update-ref and a clone do not
+  expect((await branches(dir)).local.map((b) => b.name)).toContain('-x');
+  await switchBranch(dir, '-x', false);
+  expect((await status(dir)).branch).toBe('-x');
+  await push(dir); // no upstream yet
+  expect((await status(dir)).upstream).toBe('origin/-x');
+});
+
+test('git runs with LC_ALL=C whatever the user has set', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  vi.stubEnv('LC_ALL', 'it_IT.UTF-8');
+  try {
+    expect((await gitNow(dir, ['-c', 'alias.lc=!echo $LC_ALL', 'lc'])).trim()).toBe('C');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 test('unstage all unstages every staged file', async () => {
   const dir = committed({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
   put(dir, 'a.txt', 'a2\n');
