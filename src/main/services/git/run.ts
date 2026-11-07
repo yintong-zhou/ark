@@ -36,7 +36,7 @@ function exec(dir: string, args: string[], opts: Opts, encoding: 'utf8' | 'buffe
   });
 }
 
-/** Git without the queue. Only for use inside `queued`, where a gitRun would wait for its own caller. */
+/** Git without the queue. Only for use inside `queued` (repo.ts's `inRepo`), where queueing again would wait for its own caller. */
 export const gitNow = (dir: string, args: string[], opts: Opts = {}): Promise<string> =>
   exec(dir, args, opts, 'utf8') as Promise<string>;
 
@@ -55,10 +55,3 @@ export function queued<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   });
   return run;
 }
-
-/** One git call, one place in the folder's queue. */
-export const gitRun = (dir: string, args: string[], opts: Opts = {}): Promise<string> =>
-  queued(dir, () => gitNow(dir, args, opts));
-
-/** Like gitRun, stdout as bytes. */
-export const gitBuffer = (dir: string, args: string[]): Promise<Buffer> => queued(dir, () => gitNowBuffer(dir, args));

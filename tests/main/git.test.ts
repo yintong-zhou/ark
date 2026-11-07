@@ -3,7 +3,22 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, w
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { commit, discard, mergeAbort, show, stage, status, unstage } from '../../src/main/services/git/repo';
+import {
+  branches,
+  commit,
+  createBranch,
+  deleteBranch,
+  discard,
+  fetch,
+  mergeAbort,
+  pull,
+  push,
+  show,
+  stage,
+  status,
+  switchBranch,
+  unstage,
+} from '../../src/main/services/git/repo';
 import { gitNow, queued } from '../../src/main/services/git/run';
 import { groups } from '../../src/shared/git';
 
@@ -412,4 +427,138 @@ test('the queue key ignores case and how the path is spelled', async () => {
   const other = queued(join(base, 'repo') + sep + '.' + sep, async () => void order.push('second'));
   await Promise.all([slow, other]);
   expect(order).toEqual(['first', 'second']);
+});
+
+/** A `committed()` repo whose `origin` is a local bare repo that already holds `main`: push and pull never touch the network. */
+function withOrigin(): { dir: string; bare: string } {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const bare = mkdtempSync(join(tmpdir(), 'ark-git-bare-'));
+  dirs.push(bare);
+  sh(bare, 'init', '-q', '--bare', '-b', 'main');
+  sh(dir, 'remote', 'add', 'origin', bare);
+  sh(dir, 'push', '-q', '-u', 'origin', 'main');
+  return { dir, bare };
+}
+
+/** A second working copy of the bare repo: where "someone else" makes commits. */
+function cloneOf(bare: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'ark-git-clone-'));
+  dirs.push(dir);
+  sh(dir, 'clone', '-q', '-b', 'main', bare, '.');
+  for (const [k, v] of [['user.name', 'Other'], ['user.email', 'o@example.com'], ['commit.gpgsign', 'false'], ['core.autocrlf', 'false']]) sh(dir, 'config', k, v);
+  return dir;
+}
+
+/** Commits `rel` in `dir` and returns the new commit's id. */
+function commitFile(dir: string, rel: string, text: string): string {
+  put(dir, rel, text);
+  sh(dir, 'add', '-A');
+  sh(dir, 'commit', '-q', '-m', `change ${rel}`);
+  return sh(dir, 'rev-parse', 'HEAD').trim();
+}
+
+test('branches lists local with track counts and remote-only branches', async () => {
+  const { dir, bare } = withOrigin();
+  const other = cloneOf(bare);
+  sh(other, 'switch', '-q', '-c', 'feat');
+  commitFile(other, 'f.txt', 'f\n');
+  sh(other, 'push', '-q', 'origin', 'feat');
+  commitFile(dir, 'a.txt', 'a2\n'); // one commit ahead of origin/main
+  sh(dir, 'branch', 'side');
+  await fetch(dir);
+  const b = await branches(dir);
+  expect(b.remote).toEqual(['origin/feat']); // origin/main has a local twin
+  expect(b.local[0]).toEqual({ name: 'main', current: true, upstream: 'origin/main', ahead: 1, behind: 0 });
+  expect(b.local[1]).toEqual({ name: 'side', current: false, ahead: 0, behind: 0 });
+});
+
+test('createBranch switches to the new branch and refuses bad names', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  await createBranch(dir, 'x/y');
+  expect((await status(dir)).branch).toBe('x/y');
+  for (const bad of ['-x', 'a..b', 'a b', '@{-1}', '']) await expect(createBranch(dir, bad)).rejects.toThrow('Invalid branch name');
+  expect((await status(dir)).branch).toBe('x/y');
+});
+
+test('switchBranch refuses names not in the list', async () => {
+  const { dir, bare } = withOrigin();
+  const other = cloneOf(bare);
+  sh(other, 'switch', '-q', '-c', 'feat');
+  commitFile(other, 'f.txt', 'f\n');
+  sh(other, 'push', '-q', 'origin', 'feat');
+  sh(dir, 'branch', 'side');
+  await fetch(dir);
+  await expect(switchBranch(dir, 'nope', false)).rejects.toThrow('Unknown branch');
+  await expect(switchBranch(dir, 'origin/feat', false)).rejects.toThrow('Unknown branch'); // a remote name, but track is off
+  await expect(switchBranch(dir, 'side', true)).rejects.toThrow('Unknown branch'); // a local name, but track is on
+  expect((await status(dir)).branch).toBe('main');
+  await switchBranch(dir, 'side', false);
+  expect((await status(dir)).branch).toBe('side');
+  await switchBranch(dir, 'origin/feat', true);
+  expect((await status(dir)).branch).toBe('feat');
+  expect(sh(dir, 'rev-parse', '--abbrev-ref', 'feat@{upstream}').trim()).toBe('origin/feat');
+});
+
+test('deleteBranch reports unmerged and keeps the branch until forced', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  sh(dir, 'switch', '-q', '-c', 'u');
+  commitFile(dir, 'u.txt', 'u\n');
+  sh(dir, 'switch', '-q', 'main');
+  const names = async () => (await branches(dir)).local.map((b) => b.name);
+  expect(await deleteBranch(dir, 'u', false)).toBe('unmerged');
+  expect(await names()).toContain('u');
+  expect(await deleteBranch(dir, 'u', true)).toBe('deleted');
+  expect(await names()).not.toContain('u');
+  await expect(deleteBranch(dir, 'main', true)).rejects.toThrow('Unknown branch'); // the current one
+  await expect(deleteBranch(dir, 'nope', false)).rejects.toThrow('Unknown branch');
+  sh(dir, 'branch', 'merged');
+  expect(await deleteBranch(dir, 'merged', false)).toBe('deleted');
+});
+
+test('push sets an upstream on first push and pull fast-forwards', async () => {
+  const { dir, bare } = withOrigin();
+  sh(dir, 'switch', '-q', '-c', 'topic');
+  commitFile(dir, 't.txt', 't\n');
+  expect((await status(dir)).upstream).toBeUndefined();
+  await push(dir);
+  expect((await status(dir)).upstream).toBe('origin/topic');
+  commitFile(dir, 't.txt', 't2\n');
+  await push(dir); // plain push now that there is an upstream
+  expect(sh(bare, 'rev-parse', 'topic').trim()).toBe(sh(dir, 'rev-parse', 'HEAD').trim());
+
+  const other = cloneOf(bare);
+  sh(other, 'switch', '-q', 'topic');
+  const theirs = commitFile(other, 'o.txt', 'o\n');
+  sh(other, 'push', '-q', 'origin', 'topic');
+  await pull(dir);
+  expect(sh(dir, 'rev-parse', 'HEAD').trim()).toBe(theirs);
+  expect(readFileSync(join(dir, 'o.txt'), 'utf8')).toBe('o\n');
+});
+
+test('pull refuses diverged branches with a readable message', async () => {
+  const { dir, bare } = withOrigin();
+  const other = cloneOf(bare);
+  commitFile(other, 'o.txt', 'o\n');
+  sh(other, 'push', '-q', 'origin', 'main');
+  const mine = commitFile(dir, 'm.txt', 'm\n');
+  await expect(pull(dir)).rejects.toThrow('The branches have diverged. Pull from the terminal to merge or rebase.');
+  expect(sh(dir, 'rev-parse', 'HEAD').trim()).toBe(mine);
+  expect((await status(dir)).merging).toBe(false);
+});
+
+test('push without origin names the missing remote', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  await expect(push(dir)).rejects.toThrow('No remote named origin. Add one from the terminal to push.');
+  sh(dir, 'checkout', '-q', '--detach');
+  await expect(push(dir)).rejects.toThrow('Check out a branch in the project first');
+});
+
+test('unstage all unstages every staged file', async () => {
+  const dir = committed({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
+  put(dir, 'a.txt', 'a2\n');
+  put(dir, 'b.txt', 'b2\n');
+  await stage(dir, []);
+  expect(await rows(dir)).toEqual(['M. a.txt', 'M. b.txt']);
+  await unstage(dir, []);
+  expect(await rows(dir)).toEqual(['.M a.txt', '.M b.txt']);
 });

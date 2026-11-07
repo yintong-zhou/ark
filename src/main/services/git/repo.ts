@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { groups, parseStatus, type GitStatus, type ShowResult } from '@shared/git';
+import { groups, parseRefs, parseStatus, REFS_FORMAT, type GitBranches, type GitStatus, type ShowResult } from '@shared/git';
 import { resolveInside } from '../files/guard';
 import { gitNow, gitNowBuffer, queued } from './run';
 
 /**
  * The Git view's operations on one folder, which must be a repository's top folder. Each is one place in the folder's
- * queue, so a status never sees a commit half done. Inside, git runs unqueued (gitNow): a gitRun there would wait for
- * its own caller.
+ * queue, so a status never sees a commit half done. Inside, git runs unqueued (gitNow): queueing again there would wait
+ * for its own caller.
  */
 
 const MAX_SHOW = 5 * 1024 * 1024;
@@ -74,12 +74,13 @@ export const stage = (dir: string, rels: string[]): Promise<void> =>
 export const unstage = (dir: string, rels: string[]): Promise<void> =>
   inRepo(dir, async () => {
     const all = !rels.length;
-    const es = (await entries(dir)).entries;
     let list = ['.'];
     // ponytail: with a conflict open, "all" is the staged group, so a status past the 5000-entry cap leaves the rest staged
-    if (!all || es.some((e) => e.conflict)) {
+    if (!all || (await gitNow(dir, ['ls-files', '-u'])).trim()) {
       const picked = new Set(rels);
-      list = groups(es).staged.filter((e) => all || picked.has(e.rel)).flatMap((e) => (e.orig ? [e.rel, e.orig] : [e.rel]));
+      list = groups((await entries(dir)).entries)
+        .staged.filter((e) => all || picked.has(e.rel))
+        .flatMap((e) => (e.orig ? [e.rel, e.orig] : [e.rel]));
       if (!list.length) return;
     }
     const hasHead = await ok(gitNow(dir, ['rev-parse', '-q', '--verify', 'HEAD']));
@@ -118,4 +119,72 @@ export const commit = (dir: string, message: string, all: boolean): Promise<void
 export const mergeAbort = (dir: string): Promise<void> =>
   inRepo(dir, async () => {
     await gitNow(dir, ['merge', '--abort']);
+  });
+
+const refs = async (dir: string): Promise<GitBranches> =>
+  parseRefs(await gitNow(dir, ['for-each-ref', `--format=${REFS_FORMAT}`, 'refs/heads', 'refs/remotes']));
+
+export const branches = (dir: string): Promise<GitBranches> => inRepo(dir, () => refs(dir));
+
+/**
+ * Switches to a branch named in the list: a local one, or (`track`) a remote-only one, which gets a local branch that
+ * tracks it. Any other name is refused, so the renderer can't put an option or a revision expression in the command.
+ */
+export const switchBranch = (dir: string, name: string, track: boolean): Promise<void> =>
+  inRepo(dir, async () => {
+    const b = await refs(dir);
+    if (!(track ? b.remote.includes(name) : b.local.some((l) => l.name === name))) throw new Error('Unknown branch');
+    await gitNow(dir, track ? ['switch', '--track', name] : ['switch', name]);
+  });
+
+export const createBranch = (dir: string, name: string): Promise<void> =>
+  inRepo(dir, async () => {
+    // `--branch` prints the name it accepted; `@{-1}` is accepted but prints another branch's name, so it must echo ours.
+    const accepted = name.startsWith('-') ? null : await gitNow(dir, ['check-ref-format', '--branch', name]).then((o) => o.trim(), () => null);
+    if (accepted !== name) throw new Error('Invalid branch name');
+    await gitNow(dir, ['switch', '-c', name]);
+  });
+
+/** Git's refusal to delete a branch whose commits are on no other branch comes back as `'unmerged'`, for a confirm. */
+export const deleteBranch = (dir: string, name: string, force: boolean): Promise<'deleted' | 'unmerged'> =>
+  inRepo(dir, async () => {
+    if (!(await refs(dir)).local.some((l) => l.name === name && !l.current)) throw new Error('Unknown branch');
+    try {
+      await gitNow(dir, ['branch', force ? '-D' : '-d', '--', name]);
+      return 'deleted';
+    } catch (e) {
+      if (/not fully merged/i.test((e as Error).message)) return 'unmerged';
+      throw e;
+    }
+  });
+
+const SYNC = { timeoutMs: 120_000 };
+
+export const fetch = (dir: string): Promise<void> =>
+  inRepo(dir, async () => {
+    await gitNow(dir, ['fetch', '--prune'], SYNC);
+  });
+
+/** Fast-forward only: a pull that would need a merge or a rebase changes nothing and says so. */
+export const pull = (dir: string): Promise<void> =>
+  inRepo(dir, async () => {
+    try {
+      await gitNow(dir, ['pull', '--ff-only'], SYNC);
+    } catch (e) {
+      if (/not possible to fast-forward|diverg/i.test((e as Error).message)) throw new Error('The branches have diverged. Pull from the terminal to merge or rebase.');
+      throw e;
+    }
+  });
+
+/** Plain `push` when the branch has an upstream; the first push of a branch goes to `origin` and sets it. */
+export const push = (dir: string): Promise<void> =>
+  inRepo(dir, async () => {
+    const s = await entries(dir);
+    if (!s.branch) throw new Error('Check out a branch in the project first');
+    if (s.upstream) {
+      await gitNow(dir, ['push'], SYNC);
+      return;
+    }
+    if (!(await gitNow(dir, ['remote'])).split(/\r?\n/).includes('origin')) throw new Error('No remote named origin. Add one from the terminal to push.');
+    await gitNow(dir, ['push', '-u', 'origin', s.branch], SYNC);
   });
