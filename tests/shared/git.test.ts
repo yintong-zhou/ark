@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { changedDirs, groups, letter, parseStatus, type GitEntry } from '@shared/git';
+import { changedDirs, groups, letter, parseRefs, parseStatus, parseWorktrees, type GitEntry } from '@shared/git';
 
 const e = (rel: string, x: string, y: string, conflict = false): GitEntry => ({ rel, x, y, conflict });
 
@@ -61,4 +61,33 @@ test('letter maps chars per side', () => {
 
 test('changedDirs lists every ancestor folder', () => {
   expect(changedDirs([e('a/b/c.ts', 'M', '.'), e('d.ts', '.', 'M')])).toEqual(new Set(['a', 'a/b']));
+});
+
+test('parseRefs: current first, track counts, remote HEAD and twins left out', () => {
+  const line = (...f: string[]) => f.join('\0');
+  const out = [
+    line('refs/heads/a', 'a', '', '', ' '),
+    line('refs/heads/main', 'main', 'origin/main', 'ahead 2, behind 1', '*'),
+    line('refs/heads/old', 'old', 'origin/old', 'gone', ' '),
+    line('refs/remotes/origin/HEAD', 'origin', '', '', ' '),
+    line('refs/remotes/origin/main', 'origin/main', '', '', ' '),
+    line('refs/remotes/origin/a', 'origin/a', '', '', ' '),
+    line('refs/remotes/origin/feat/x', 'origin/feat/x', '', '', ' '),
+  ].join('\n') + '\n';
+  expect(parseRefs(out)).toEqual({
+    local: [
+      { name: 'main', current: true, upstream: 'origin/main', ahead: 2, behind: 1 },
+      { name: 'a', current: false, ahead: 0, behind: 0 },
+      { name: 'old', current: false, upstream: 'origin/old', ahead: 0, behind: 0 },
+    ],
+    remote: ['origin/feat/x'],
+  });
+});
+
+test('parseWorktrees: main first, branch short name, detached and prunable', () => {
+  const out = 'worktree C:/r\0HEAD abc\0branch refs/heads/main\0\0worktree C:/w\0HEAD def\0detached\0prunable gitdir file points to non-existent location\0\0';
+  expect(parseWorktrees(out)).toEqual([
+    { path: 'C:/r', head: 'abc', branch: 'main', detached: false, locked: false, prunable: false },
+    { path: 'C:/w', head: 'def', detached: true, locked: false, prunable: true },
+  ]);
 });

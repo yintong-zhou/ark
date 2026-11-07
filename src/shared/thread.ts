@@ -24,7 +24,8 @@ export type BuildPhase = {
   open: number;       // findings in the current review round
   checks?: string[];  // scripts that passed at the last run; [] = no checks found; undefined = not run yet
 };
-export type Build = { worktree: string; branch: string; plan: string; phases: BuildPhase[]; current: number };
+/** `removed` is set once the worktree is removed and never cleared. */
+export type Build = { worktree: string; branch: string; plan: string; phases: BuildPhase[]; current: number; removed?: true };
 export type Control =
   | { kind: 'team'; picks: TeamPick[]; leftOut: string }
   | { kind: 'next'; agent: string; hard?: true }
