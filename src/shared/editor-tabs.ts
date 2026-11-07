@@ -31,8 +31,11 @@ export function diskChanged(tab: FileTab, disk: { mtimeMs: number } | null): { t
 
 export const keepMine = (tab: FileTab): FileTab => ({ ...tab, bar: undefined, force: true });
 
-/** The mtime a save must still find on disk, or null to write regardless. */
-export const saveBase = (tab: FileTab): number | null => (tab.force || tab.bar === 'deleted' ? null : tab.mtimeMs);
+/**
+ * The mtime a save must still find on disk, or null to write regardless. A buffer with no disk version (the file
+ * was deleted, then came back) gets -1, which no file matches: the save conflicts until the user picks a side.
+ */
+export const saveBase = (tab: FileTab): number | null => (tab.force || tab.bar === 'deleted' ? null : (tab.mtimeMs ?? -1));
 
 export function afterSave(tab: FileTab, r: WriteResult): FileTab {
   if (r.conflict) return { ...tab, bar: 'changed' };

@@ -1,14 +1,19 @@
 import { useState } from 'react';
+import { rootKey, type RootRef } from '@shared/files';
 import type { Project, Thread } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
 import { toUploads } from '../components/Attachments';
 import { Composer } from '../components/Composer';
+import { Editor } from '../components/Editor';
+import { FileTree } from '../components/FileTree';
 import { CloseIcon, PlusIcon } from '../components/Icons';
 import { Empty, PaneHeader } from '../components/Page';
 import { Main, Pill, Presence, Sidebar, SideLabel, SideRow } from '../components/Shell';
+import { TabStrip } from '../components/TabStrip';
 import { TeamPanel } from '../components/TeamPanel';
 import { ThreadView } from '../components/ThreadView';
 import { BUTTON, CTA, ICON_BUTTON } from '../components/ui';
+import { activate, open as openTab, useTabs } from '../editor/tabs-store';
 import type { useThreads } from '../hooks/useThreads';
 
 type Props = {
@@ -20,6 +25,10 @@ type Props = {
   attempt: (call: () => Promise<unknown>) => Promise<void>;
   onAddProject: () => void;
 };
+
+/** The sidebar view outlives this screen: back from Usage or Agents, the user finds Files where they left it. */
+let lastView: 'threads' | 'files' = 'threads';
+const keepView = (v: 'threads' | 'files') => (lastView = v);
 
 /** What a thread row says on the right. */
 const trail = (t: Thread) =>
@@ -37,6 +46,21 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const tags = [...new Set(mine.flatMap((t) => t.tags ?? []))];
   const only = filter && tags.includes(filter) ? filter : undefined;
   const listed = only ? mine.filter((t) => t.tags?.includes(only)) : mine;
+  const [view, setViewState] = useState(lastView);
+  const setView = (v: 'threads' | 'files') => setViewState(keepView(v));
+  // Files show the project, or the open thread's worktree once its build has one.
+  const worktree = thread?.build?.worktree;
+  const [rootSel, setRootSel] = useState<'project' | 'worktree'>('project');
+  const [rootFor, setRootFor] = useState(thread?.id);
+  if (rootFor !== thread?.id) {
+    setRootFor(thread?.id);
+    setRootSel('project');
+  }
+  const root: RootRef = worktree && rootSel === 'worktree' && thread ? { kind: 'thread', id: thread.id } : { kind: 'project', id: project?.id ?? '' };
+  const openFile = (r: RootRef, rel: string) => project && void attempt(() => openTab(project.id, r, rel));
+  const tabs = useTabs(project?.id);
+  const fileDoc = tabs.active ? tabs.docs.find((d) => d.tab.key === tabs.active) : undefined;
+  const showThread = () => project && activate(project.id, null);
 
   const start = async (files: File[]) => {
     const t = text.trim();
@@ -63,9 +87,45 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
           </div>
         )}
       >
-        {project ? (
+        {project && (
+          <div role="tablist" aria-label="Sidebar view" className="flex gap-[4px] px-1 pb-1">
+            {(['threads', 'files'] as const).map((v) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={`rounded-full px-1 text-meta ${view === v ? 'bg-neutral-light text-primary' : 'bg-raised text-muted hover:text-secondary'}`}
+              >
+                {v === 'threads' ? 'Threads' : 'Files'}
+              </button>
+            ))}
+          </div>
+        )}
+        {project && view === 'files' ? (
           <>
-            <SideRow lead={<PlusIcon />} selected={draft} onClick={() => onDraft(true)}>New thread</SideRow>
+            {worktree && (
+              <select
+                aria-label="Folder"
+                value={rootSel}
+                onChange={(e) => setRootSel(e.target.value as 'project' | 'worktree')}
+                className="mb-1 h-3 w-full rounded-xs bg-raised px-[4px] text-meta text-secondary"
+              >
+                <option value="project">Project</option>
+                <option value="worktree">Worktree · #{thread?.title}</option>
+              </select>
+            )}
+            <FileTree
+              key={rootKey(root)}
+              root={root}
+              name={root.kind === 'thread' ? `${thread?.title ?? ''} (worktree)` : project.name}
+              onOpen={(rel) => openFile(root, rel)}
+              attempt={attempt}
+            />
+          </>
+        ) : project ? (
+          <>
+            <SideRow lead={<PlusIcon />} selected={draft} onClick={() => (showThread(), onDraft(true))}>New thread</SideRow>
             <SideLabel>Threads</SideLabel>
             {tags.length > 0 && (
               <ul className="flex flex-wrap gap-[4px] px-1 pb-1">
@@ -93,6 +153,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 title={t.title}
                 onClick={() => {
                   onDraft(false);
+                  showThread();
                   void ws.select(t.id);
                 }}
               >
@@ -108,7 +169,12 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
 
       <Main>
         {(ws.error ?? problem) && <p role="alert" className="shrink-0 border-b border-divider px-3 py-1 text-muted">{ws.error ?? problem}</p>}
-        {!project ? (
+        {project && tabs.docs.length > 0 && (
+          <TabStrip projectId={project.id} tabs={tabs} label={draft ? 'New thread' : thread ? `# ${thread.title}` : project.name} />
+        )}
+        {project && fileDoc ? (
+          <Editor projectId={project.id} doc={fileDoc} />
+        ) : !project ? (
           <>
             <PaneHeader title="Projects" />
             <Empty glyph="📁" title="Add a project folder" action={<button onClick={onAddProject} className={CTA}>Add project</button>}>
@@ -155,7 +221,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         )}
       </Main>
 
-      {thread && <TeamPanel thread={thread} messages={ws.messages} agents={ws.agents} />}
+      {thread && !fileDoc && <TeamPanel thread={thread} messages={ws.messages} agents={ws.agents} />}
     </>
   );
 }

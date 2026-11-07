@@ -45,6 +45,14 @@ test('saveBase guards with the mtime, unless the user chose to keep theirs or th
   expect(saveBase(diskChanged(base, null).tab)).toBeNull();
 });
 
+test('a deleted file that comes back while the buffer is dirty never saves over it unasked', () => {
+  const gone = diskChanged({ ...base, dirty: true }, null).tab;
+  const back = diskChanged(gone, { mtimeMs: 500 }).tab;
+  expect(back.bar).toBe('changed');
+  expect(saveBase(back)).not.toBeNull();
+  expect(saveBase(keepMine(back))).toBeNull();
+});
+
 test('keepMine clears the bar and forces the next save', () => {
   expect(keepMine({ ...base, bar: 'changed', dirty: true })).toEqual({ ...base, dirty: true, force: true });
 });
