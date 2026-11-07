@@ -5,6 +5,7 @@ import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
 import { checkUploads, kindOf, type Upload } from '@shared/attachments';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
 import { rootKey, UUID_RE } from '@shared/files';
+import type { WorktreeRow } from '@shared/git';
 import type { ShellOption } from '@shared/terminal';
 import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
@@ -16,7 +17,7 @@ import { normEntry, normRel, normRels, resolveInside, rootDir, rootRef } from '.
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
 import { RootWatcher } from '../services/files/watch';
 import * as git from '../services/git/repo';
-import { gitRoot } from '../services/git/rules';
+import { checkMergeable, checkRemovable, gitRoot, worktreeThread } from '../services/git/rules';
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
 import { readView, writeView } from '../services/settings';
@@ -104,6 +105,17 @@ function reaction(v: unknown): Reaction {
 
 function bool(v: unknown): boolean {
   if (typeof v !== 'boolean') throw new Error('Invalid answer');
+  return v;
+}
+
+// A branch name or a worktree path from the renderer: main checks it against git's own lists, this only bounds it.
+function branchArg(v: unknown): string {
+  if (typeof v !== 'string' || v.length < 1 || v.length > 255 || v.includes('\0')) throw new Error('Invalid branch name');
+  return v;
+}
+
+function pathArg(v: unknown): string {
+  if (typeof v !== 'string' || v.length < 1 || v.length > 1024 || v.includes('\0')) throw new Error('Invalid path');
   return v;
 }
 
@@ -302,6 +314,74 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     const dir = gitDir(r, true);
     await git.mergeAbort(dir);
     return git.status(dir);
+  });
+
+  // Branches and sync: a switch, create, delete or sync on a thread's worktree waits for a running thread too.
+  handle('git:branches', (r) => git.branches(gitDir(r)));
+  handle('git:switch', async (r, name, track) => {
+    const dir = gitDir(r, true);
+    await git.switchBranch(dir, branchArg(name), bool(track));
+    return git.status(dir);
+  });
+  handle('git:create-branch', async (r, name) => {
+    const dir = gitDir(r, true);
+    await git.createBranch(dir, branchArg(name));
+    return git.status(dir);
+  });
+  handle('git:delete-branch', async (r, name, force) => {
+    const dir = gitDir(r, true);
+    const result = await git.deleteBranch(dir, branchArg(name), bool(force));
+    return { status: await git.status(dir), unmerged: result === 'unmerged' };
+  });
+  for (const [channel, sync] of [['git:fetch', git.fetch], ['git:pull', git.pull], ['git:push', git.push]] as const) {
+    handle(channel, async (r) => {
+      const dir = gitDir(r, true);
+      await sync(dir);
+      return git.status(dir);
+    });
+  }
+
+  // Worktrees and thread merge: named by project or thread id; main finds the folder and checks every path.
+  const projectFolder = (id: unknown) => rootDir({ kind: 'project', id: uuid(id, 'project') }, store);
+  const threadOf = (id: unknown) => {
+    const t = store.get(uuid(id, 'thread'));
+    if (!t) throw new Error('Unknown thread');
+    return t;
+  };
+  const worktreeRows = async (dir: string): Promise<WorktreeRow[]> => {
+    const threads = store.threads();
+    return (await git.worktrees(dir)).map((w) => {
+      const t = worktreeThread(threads, w.path);
+      return t ? { ...w, thread: { id: t.id, title: t.title, done: t.phase === 'done' && t.status !== 'running' } } : w;
+    });
+  };
+  handle('git:worktrees', (id) => worktreeRows(projectFolder(id)));
+  handle('git:remove-worktree', async (id, path) => {
+    const dir = projectFolder(id);
+    const p = pathArg(path);
+    const t = worktreeThread(store.threads(), p);
+    checkRemovable(t);
+    // The recursive watch holds the folder on Windows, so release it first.
+    if (t) watcher.unwatch(rootKey({ kind: 'thread', id: t.id }));
+    await git.removeWorktree(dir, p);
+    if (t) conductor.worktreeRemoved(t.id);
+    return worktreeRows(dir);
+  });
+  handle('git:prune-worktrees', async (id) => {
+    const dir = projectFolder(id);
+    await git.pruneWorktrees(dir);
+    return worktreeRows(dir);
+  });
+  handle('git:thread-branch', (id) => {
+    const t = threadOf(id);
+    return t.build ? git.threadBranch(projectFolder(t.projectId), t.build.branch) : null;
+  });
+  handle('git:merge-thread', async (id) => {
+    const t = threadOf(id);
+    const branch = checkMergeable(t);
+    const dir = projectFolder(t.projectId);
+    const merged = (await git.mergeBranch(dir, branch)) === 'merged';
+    return { merged, status: await git.status(dir) }; // the project's status: a conflict is resolved there
   });
 
   // Terminals: node-pty loads on the first one, so a broken native module is an error in the panel, not a dead app.

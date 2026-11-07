@@ -1,7 +1,7 @@
 import type { AgentDef, EngineId, Tier } from './agent-file';
 import type { ImageInput, Upload } from './attachments';
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
-import type { GitStatus, ShowResult } from './git';
+import type { GitBranches, GitStatus, ShowResult, ThreadBranch, WorktreeRow } from './git';
 import type { ShellId, ShellOption } from './terminal';
 import type { Project, Reaction, Thread, ThreadMessage, ThreadUpdate } from './thread';
 
@@ -153,6 +153,24 @@ export interface ArkApi {
     /** `all` stages everything first. */
     commit(root: RootRef, message: string, all: boolean): Promise<GitStatus>;
     mergeAbort(root: RootRef): Promise<GitStatus>;
+    branches(root: RootRef): Promise<GitBranches>;
+    /** `track` creates a local branch for a remote-only one (a name from `branches().remote`). */
+    switchBranch(root: RootRef, name: string, track: boolean): Promise<GitStatus>;
+    createBranch(root: RootRef, name: string): Promise<GitStatus>;
+    /** An unmerged branch is kept (`unmerged: true`) until `force`. */
+    deleteBranch(root: RootRef, name: string, force: boolean): Promise<{ status: GitStatus; unmerged: boolean }>;
+    fetch(root: RootRef): Promise<GitStatus>;
+    pull(root: RootRef): Promise<GitStatus>;
+    push(root: RootRef): Promise<GitStatus>;
+    /** A project's worktrees (the main one first), each marked with the thread that owns it. */
+    worktrees(projectId: string): Promise<WorktreeRow[]>;
+    /** `path` is one of `worktrees()`; a thread's worktree goes only once the thread is done. The branch stays. */
+    removeWorktree(projectId: string, path: string): Promise<WorktreeRow[]>;
+    pruneWorktrees(projectId: string): Promise<WorktreeRow[]>;
+    /** Null for a thread that has no build. */
+    threadBranch(threadId: string): Promise<ThreadBranch | null>;
+    /** Merges the thread's branch into the branch the project is on; `merged: false` leaves a conflict in the project. */
+    mergeThread(threadId: string): Promise<{ merged: boolean; status: GitStatus }>;
   };
   /** The user's shells in the bottom panel; output and exits arrive by terminal id. */
   terminal: {
