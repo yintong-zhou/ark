@@ -151,7 +151,7 @@ Windows) and refuses to start a Codex agent if a read-only command can still wri
   conflicted file opens in the editor instead.
 - **Letters**: changed files show a letter at the right, in the Git view and in the Files tree: `M` modified, `A`
   added, `D` deleted, `R` renamed, `U` untracked, `!` conflict. A folder with changes inside shows a dot.
-- **Merges**: while a merge is in progress, a banner reads "Merging <branch>. Fix the conflicts, stage them, then
+- **Merges**: while a merge is in progress, a banner reads "Merging `<branch>`. Fix the conflicts, stage them, then
   commit." with **Abort merge**. Once no conflicts are left, Commit works with an empty message and keeps Git's merge
   message.
 - **Branches**: click the branch name for the branch menu. Pick a branch to switch to it; one listed under **Remote**
@@ -162,10 +162,11 @@ Windows) and refuses to start a Codex agent if a read-only command can still wri
   The button spins while it runs (up to 2 minutes), and the folder's other Git actions wait for it.
 - **Worktrees**: on the project root, the **Worktrees** section lists the repository's worktrees, the main one first,
   each with its branch and folder, and the thread that owns it. **Show** opens that thread on its worktree. **Remove**
-  asks first and keeps the branch; a thread's worktree can go once the thread is done. **Prune** forgets worktrees whose
-  folders are gone.
+  asks first and keeps the branch; a thread's worktree can go once the thread is done. When another program holds the
+  folder (a terminal open in it, Explorer), the worktree is removed but its empty folder stays: close that program,
+  then delete the folder. **Prune** forgets worktrees whose folders are gone.
 - **Thread branch**: on a thread's worktree, this section shows `<branch> → <project branch>` and how many commits
-  are left to merge. **Merge into <branch>** merges them into the project's branch with a merge commit. On a conflict
+  are left to merge. **Merge into `<branch>`** merges them into the project's branch with a merge commit. On a conflict
   the view moves to the project root with the merge banner. **Remove worktree** removes the thread's folder once the
   thread is done; the branch stays, and the folder picker goes back to the project.
 - **No hooks**: Ark runs Git without the project's hooks, so pre-commit checks don't run. Use the terminal to run them.
