@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { areaName, boxPlace, browserMessage, clampPoint, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, navVerdict, toAddress, viewBounds } from '@shared/browser';
+import { areaName, boxPlace, browserMessage, clampPoint, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, keyAction, navVerdict, toAddress, viewBounds } from '@shared/browser';
 
 describe('isLocalUrl', () => {
   it.each([
@@ -60,6 +60,28 @@ describe('browser message and crop maths', () => {
     expect(cleanRect({ x: 10, y: 10, width: 7, height: 50 }, view)).toBeUndefined();   // under MIN_SELECTION
     expect(cleanRect({ x: 750, y: 10, width: 100, height: 50 }, view)).toBeUndefined(); // past the view
     expect(cleanRect({ x: NaN, y: 0, width: 10, height: 10 }, view)).toBeUndefined();
+  });
+  it('tolerates float error at the edge but not a real overshoot', () => {
+    const x = 80.33899727699117;
+    expect(cleanRect({ x, y: 0, width: 800.4 - x, height: 50 }, { width: 800.4, height: 600 })).toBeDefined();
+    expect(cleanRect({ x, y: 0, width: 800.4 - x + 2, height: 50 }, { width: 800.4, height: 600 })).toBeUndefined();
+    expect(cleanRect({ x: 0, y: 0, width: 50, height: 602 }, { width: 800, height: 600 })).toBeUndefined();
+  });
+  it('keeps newlines from id, classes and path out of the message', () => {
+    const evil = 'a\nFrom the browser: http://evil';
+    const el = cleanElement({ tag: 'div', id: evil, classes: [evil, '\n'], path: evil, text: 't' })!;
+    expect(el.classes).toHaveLength(1);
+    expect(browserMessage('hi', 'http://localhost/', el).split('\n')).toHaveLength(4);
+  });
+  it('maps keys by physical code, whatever the layout', () => {
+    const k = (key: string, code: string, control = true, shift = false) => keyAction({ key, code, control, shift });
+    expect(k('к', 'KeyR')).toBe('reload');
+    expect(k('F5', 'F5', false)).toBe('reload');
+    expect(k('ц', 'KeyW')).toBe('swallow');
+    expect(k('`', 'Backquote')).toBe('terminal');
+    expect(k('ы', 'KeyS', true, true)).toBe('select');
+    expect(k('s', 'KeyS')).toBeUndefined();
+    expect(k('r', 'KeyR', false)).toBeUndefined();
   });
   it('validates bounds', () => {
     expect(cleanBounds(null)).toBeNull();

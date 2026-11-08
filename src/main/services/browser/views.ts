@@ -5,6 +5,7 @@ import {
   cleanRect,
   imageBox,
   isLocalUrl,
+  keyAction,
   navVerdict,
   USER_GESTURE_MS,
   viewBounds,
@@ -235,18 +236,13 @@ export class BrowserViews {
     // A focused view takes the keyboard; without these, the default menu would reload or close Ark itself.
     wc.on('before-input-event', (ev, input) => {
       if (input.type !== 'keyDown') return;
-      const k = input.key.toLowerCase();
-      if ((input.control && k === 'r') || input.key === 'F5') {
-        ev.preventDefault();
-        wc.reload();
-      } else if (input.control && k === 'w') {
-        ev.preventDefault();
-      } else if (input.control && input.code === 'Backquote') {
-        ev.preventDefault();
-        key('terminal');
-      } else if (input.control && input.shift && k === 's') {
-        ev.preventDefault();
-        key('select');
+      const a = keyAction(input);
+      if (!a) return;
+      ev.preventDefault();
+      if (a === 'reload') wc.reload();
+      else if (a !== 'swallow') {
+        this.deps.win.webContents.focus(); // DOM focus alone leaves the keyboard with the page
+        key(a);
       }
     });
   }

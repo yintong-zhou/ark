@@ -15,6 +15,16 @@ export type BrowserState = {
 };
 /** Shortcuts the focused page hands back to Ark. */
 export type BrowserKey = 'terminal' | 'select';
+
+/** What a key pressed in the page does to Ark. Physical `code`, not the typed letter: layouts like Russian change `key`. */
+export function keyAction(i: { key: string; code: string; control: boolean; shift: boolean }): 'reload' | 'swallow' | BrowserKey | undefined {
+  if (i.key === 'F5' || i.code === 'F5' || (i.control && i.code === 'KeyR')) return 'reload';
+  if (!i.control) return undefined;
+  if (i.code === 'KeyW') return 'swallow';
+  if (i.code === 'Backquote') return 'terminal';
+  if (i.shift && i.code === 'KeyS') return 'select';
+  return undefined;
+}
 /** A crop of the last capture (PNG) and what the page says is under it. */
 export type Picked = { image: Uint8Array; element?: ElementInfo };
 
@@ -79,7 +89,9 @@ export function neutralize(s: string): string {
   return s.replace(/(^|\s)([#@])/gu, '$1⁠$2');
 }
 
-const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : undefined);
+/** One line: the page must not forge extra lines in a thread message. */
+const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
+const str = (v: unknown, max: number) => (typeof v === 'string' ? oneLine(v).slice(0, max) : undefined);
 
 /** Shape check and caps for what the page script reports about the clicked element. */
 export function cleanElement(v: unknown): ElementInfo | undefined {
@@ -90,11 +102,11 @@ export function cleanElement(v: unknown): ElementInfo | undefined {
   if (o.id !== undefined && typeof o.id !== 'string') return undefined;
   const id = str(o.id, 64);
   return {
-    tag: o.tag.slice(0, 32),
+    tag: oneLine(o.tag).slice(0, 32),
     ...(id ? { id } : {}),
-    classes: (o.classes as string[]).slice(0, 4).map((c) => c.slice(0, 64)),
-    path: o.path.split('>').slice(-5).join('>').slice(0, 300),
-    text: o.text.replace(/\s+/g, ' ').trim().slice(0, 120),
+    classes: (o.classes as string[]).map((c) => oneLine(c).slice(0, 64)).filter(Boolean).slice(0, 4),
+    path: oneLine(o.path.split('>').slice(-5).join('>')).slice(0, 300),
+    text: oneLine(o.text).slice(0, 120),
   };
 }
 
@@ -115,11 +127,11 @@ const asRect = (v: unknown): Rect | undefined => {
   return num(x) && num(y) && num(width) && num(height) ? { x, y, width, height } : undefined;
 };
 
-/** A selection from the page overlay: big enough and wholly inside the view. */
+/** A selection from the page overlay: big enough and wholly inside the view (0.5 px of float slack at the edge). */
 export function cleanRect(v: unknown, view: { width: number; height: number }): Rect | undefined {
   const r = asRect(v);
   if (!r || r.x < 0 || r.y < 0 || r.width < MIN_SELECTION || r.height < MIN_SELECTION) return undefined;
-  return r.x + r.width <= view.width && r.y + r.height <= view.height ? r : undefined;
+  return r.x + r.width <= view.width + 0.5 && r.y + r.height <= view.height + 0.5 ? r : undefined;
 }
 
 /** Where the renderer wants the view: null hides it, undefined is not a valid request. */
