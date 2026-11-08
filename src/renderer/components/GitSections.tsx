@@ -187,7 +187,15 @@ export function WorktreesSection({ projectId, attempt, onShowThread }: SectionPr
 
   const run = (call: () => Promise<WorktreeRow[]>) => {
     setBusy(true);
-    void attempt(async () => setRows(await call())).finally(() => setBusy(false));
+    void attempt(async () => {
+      try {
+        setRows(await call());
+      } catch (e) {
+        // a refusal can still have changed the list (a worktree removed but its folder held open): show it as it is
+        await git.worktrees(projectId).then(setRows, () => {});
+        throw e;
+      }
+    }).finally(() => setBusy(false));
   };
   const toggle = () => {
     setOpen(!open);
@@ -267,7 +275,9 @@ export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProp
     }).finally(() => setBusy(false));
   };
   const remove = () => {
-    if (confirmRemove(build.worktree, build.branch)) void attempt(() => git.removeWorktree(thread.projectId, build.worktree));
+    if (!confirmRemove(build.worktree, build.branch)) return;
+    setBusy(true);
+    void attempt(() => git.removeWorktree(thread.projectId, build.worktree)).finally(() => setBusy(false));
   };
 
   return (
