@@ -154,6 +154,20 @@ Windows) and refuses to start a Codex agent if a read-only command can still wri
 - **Merges**: while a merge is in progress, a banner reads "Merging <branch>. Fix the conflicts, stage them, then
   commit." with **Abort merge**. Once no conflicts are left, Commit works with an empty message and keeps Git's merge
   message.
+- **Branches**: click the branch name for the branch menu. Pick a branch to switch to it; one listed under **Remote**
+  gets a local branch that tracks it. **Create branch…** starts a branch from the current commit and switches to it.
+  **Delete branch…** asks first, and asks again if the branch isn't merged. With an upstream, the row shows `↑n ↓m`.
+- **Fetch, Pull and Push**: the buttons at the right of the branch row. Pull only fast-forwards: when the branches have
+  diverged, pull from the terminal to merge or rebase. A branch's first push goes to `origin` and sets its upstream.
+  The button spins while it runs (up to 2 minutes), and the folder's other Git actions wait for it.
+- **Worktrees**: on the project root, the **Worktrees** section lists the repository's worktrees, the main one first,
+  each with its branch and folder, and the thread that owns it. **Show** opens that thread on its worktree. **Remove**
+  asks first and keeps the branch; a thread's worktree can go once the thread is done. **Prune** forgets worktrees whose
+  folders are gone.
+- **Thread branch**: on a thread's worktree, this section shows `<branch> → <project branch>` and how many commits
+  are left to merge. **Merge into <branch>** merges them into the project's branch with a merge commit. On a conflict
+  the view moves to the project root with the merge banner. **Remove worktree** removes the thread's folder once the
+  thread is done; the branch stays, and the folder picker goes back to the project.
 - **No hooks**: Ark runs Git without the project's hooks, so pre-commit checks don't run. Use the terminal to run them.
 - **Threads at work**: on a thread's worktree, every Git action waits while the team's turn is running. Status and diffs
   stay readable.
