@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { BrowserKey, BrowserState } from '@shared/browser';
 import type { ThreadUpdate } from '@shared/thread';
 import type { ArkApi, ChatEvent, UsageState } from '@shared/types';
 
@@ -133,6 +134,32 @@ const api: ArkApi = {
       ipcRenderer.on('terminal:exit', listener);
       return () => {
         ipcRenderer.removeListener('terminal:exit', listener);
+      };
+    },
+  },
+  browser: {
+    open: (projectId) => ipcRenderer.invoke('browser:open', projectId),
+    close: (projectId) => ipcRenderer.invoke('browser:close', projectId),
+    navigate: (projectId, url) => ipcRenderer.invoke('browser:navigate', projectId, url),
+    back: (projectId) => ipcRenderer.invoke('browser:back', projectId),
+    forward: (projectId) => ipcRenderer.invoke('browser:forward', projectId),
+    reload: (projectId) => ipcRenderer.invoke('browser:reload', projectId),
+    layout: (projectId, bounds) => ipcRenderer.invoke('browser:layout', projectId, bounds),
+    capture: (projectId) => ipcRenderer.invoke('browser:capture', projectId),
+    pick: (projectId, rect) => ipcRenderer.invoke('browser:pick', projectId, rect),
+    openBlocked: (projectId) => ipcRenderer.invoke('browser:open-blocked', projectId),
+    onState: (cb) => {
+      const listener = (_e: unknown, projectId: string, s: BrowserState) => cb(projectId, s);
+      ipcRenderer.on('browser:state', listener);
+      return () => {
+        ipcRenderer.removeListener('browser:state', listener);
+      };
+    },
+    onKey: (cb) => {
+      const listener = (_e: unknown, projectId: string, k: BrowserKey) => cb(projectId, k);
+      ipcRenderer.on('browser:key', listener);
+      return () => {
+        ipcRenderer.removeListener('browser:key', listener);
       };
     },
   },

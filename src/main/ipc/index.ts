@@ -3,6 +3,7 @@ import { basename, isAbsolute, join, resolve } from 'node:path';
 import { app, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
 import { checkUploads, kindOf, type Upload } from '@shared/attachments';
+import { cleanBounds } from '@shared/browser';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
 import { rootKey, UUID_RE } from '@shared/files';
 import type { ShellOption } from '@shared/terminal';
@@ -11,6 +12,7 @@ import type { SkillInfo } from '@shared/types';
 import type { AgentRunner } from '../services/agent-runner';
 import { importAgent, importableAgents, type Catalog } from '../services/catalog';
 import { engineStatus, mergeEngines, readEngines, validateEngines, writeEngines } from '../services/engines/config';
+import { BrowserViews } from '../services/browser/views';
 import { run } from '../services/exec';
 import { normEntry, normRel, normRels, resolveInside, rootDir, rootRef } from '../services/files/guard';
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
@@ -202,6 +204,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     chats.clear();
     watcher.closeAll();
     terms?.killAll(); // the page that showed them is gone
+    views.destroyAll();
   });
   handle('chat:start', async (id, dir) => {
     const started = await runner.start(agentId(id), projectDir(dir));
@@ -397,6 +400,33 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('terminal:resize', (id, cols, rows) => live().resize(termId(id), termSize(cols), termSize(rows)));
   handle('terminal:kill', (id) => terms?.kill(termId(id)));
   app.on('before-quit', () => terms?.killAll());
+
+  // Browser: one locked-down view per project, named by project id; the page in it never reaches these handlers.
+  const views = new BrowserViews({
+    win,
+    send: (c, id, p) => !win.isDestroyed() && win.webContents.send(c, id, p),
+    openExternal: (u) => void shell.openExternal(u).catch((err) => console.error('openExternal failed', err)),
+  });
+  const pid = (v: unknown) => uuid(v, 'project');
+  handle('browser:open', (id) => views.open(pid(id)));
+  handle('browser:close', (id) => views.close(pid(id)));
+  handle('browser:navigate', (id, url) => {
+    const p = pid(id);
+    if (typeof url !== 'string' || url.length > 2048) throw new Error('Invalid address');
+    views.navigate(p, url); // refuses anything but a local address
+  });
+  handle('browser:back', (id) => views.back(pid(id)));
+  handle('browser:forward', (id) => views.forward(pid(id)));
+  handle('browser:reload', (id) => views.reload(pid(id)));
+  handle('browser:layout', (id, bounds) => {
+    const p = pid(id);
+    const b = cleanBounds(bounds);
+    if (b === undefined) throw new Error('Invalid bounds');
+    views.layout(p, b);
+  });
+  handle('browser:capture', (id) => views.capture(pid(id)));
+  handle('browser:pick', (id, rect) => views.pick(pid(id), rect)); // cleanRect against the view's last bounds
+  handle('browser:open-blocked', (id) => views.openBlocked(pid(id)));
 
   usage.onChanged((s) => {
     if (!win.isDestroyed()) win.webContents.send('usage:changed', s);

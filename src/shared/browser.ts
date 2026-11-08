@@ -3,6 +3,21 @@
 export type Rect = { x: number; y: number; width: number; height: number };
 export type NavVerdict = 'allow' | 'external' | 'blocked' | 'ignore';
 
+/** What the browser tab shows about its view; `blocked` is a non-local page nobody asked for. */
+export type BrowserState = {
+  url: string;
+  title: string;
+  loading: boolean;
+  canBack: boolean;
+  canForward: boolean;
+  failed?: { url: string; reason: string };
+  blocked?: { host: string };
+};
+/** Shortcuts the focused page hands back to Ark. */
+export type BrowserKey = 'terminal' | 'select';
+/** A crop of the last capture (PNG) and what the page says is under it. */
+export type Picked = { image: Uint8Array; element?: ElementInfo };
+
 /** How long after a click or key press a navigation still counts as the user's. */
 export const USER_GESTURE_MS = 1000;
 
