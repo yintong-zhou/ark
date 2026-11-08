@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { go, setAddress, useBrowser } from '../browser/browser-store';
+import { cancelSelect, go, setAddress, startSelect, useBrowser } from '../browser/browser-store';
 import { useOverlayOpen } from '../browser/overlay';
+import { BrowserSelect } from './BrowserSelect';
 import { BackIcon, ForwardIcon, RefreshIcon } from './Icons';
-import { BUTTON_INSET, ICON_BUTTON, INPUT } from './ui';
+import { BUTTON, BUTTON_INSET, CTA, ICON_BUTTON, INPUT } from './ui';
 
 const bar = () => window.ark.browser;
 
@@ -11,18 +12,20 @@ const bar = () => window.ark.browser;
  * component keeps laid over the placeholder (spec §5.1). The view is hidden (`layout(…, null)`) when the pane unmounts,
  * an overlay is open, there is no address yet or the load failed: then the placeholder has its own content.
  */
-export function BrowserPane({ projectId }: { projectId: string }) {
-  const { state, address, error } = useBrowser(projectId);
+export function BrowserPane({ projectId, thread }: { projectId: string; thread?: { id: string; title: string } }) {
+  const view = useBrowser(projectId);
+  const { state, address, error, sel, sent } = view;
   const overlay = useOverlayOpen();
   const place = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<string>(); // the page as it was when an overlay opened
   const live = !!state.url && !state.failed;
+  const selecting = !!sel;
 
   useEffect(() => {
     const el = place.current;
     if (!el) return;
     const hide = () => void bar().layout(projectId, null).catch(() => {});
-    if (!live) {
+    if (!live || selecting) {
       hide();
       return;
     }
@@ -51,7 +54,7 @@ export function BrowserPane({ projectId }: { projectId: string }) {
       ro.disconnect();
       window.removeEventListener('resize', send);
     };
-  }, [projectId, live, overlay]);
+  }, [projectId, live, overlay, selecting]);
 
   // leaving the pane (another tab, project or area) hides the view; main keeps it alive
   useEffect(() => () => void bar().layout(projectId, null).catch(() => {}), [projectId]);
@@ -77,6 +80,16 @@ export function BrowserPane({ projectId }: { projectId: string }) {
           onKeyDown={(e) => e.key === 'Enter' && void go(projectId)}
           className={`${INPUT} min-w-0 flex-1`}
         />
+        {sent && <span role="status" className="shrink-0 text-meta text-muted">{sent}</span>}
+        <button
+          disabled={!live}
+          aria-pressed={selecting}
+          title="Select an area (Ctrl+Shift+S)"
+          onClick={() => (selecting ? cancelSelect(projectId) : void startSelect(projectId))}
+          className={selecting ? CTA : BUTTON}
+        >
+          Select
+        </button>
       </div>
       {error && <p role="alert" className="shrink-0 border-b border-divider px-2 py-[4px] text-meta text-muted">{error}</p>}
       {state.blocked && (
@@ -94,7 +107,11 @@ export function BrowserPane({ projectId }: { projectId: string }) {
             <button onClick={() => void bar().reload(projectId)} className={BUTTON_INSET}>Retry</button>
           </div>
         ) : (
-          overlay && frame && <img src={frame} alt="" className="size-full object-fill" />
+          sel ? (
+            <BrowserSelect projectId={projectId} view={view} thread={thread} />
+          ) : (
+            overlay && frame && <img src={frame} alt="" className="size-full object-fill" />
+          )
         )}
       </div>
     </div>

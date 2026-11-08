@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { areaName, browserMessage, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, navVerdict, toAddress, viewBounds } from '@shared/browser';
+import { areaName, boxPlace, browserMessage, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, navVerdict, toAddress, viewBounds } from '@shared/browser';
 
 describe('isLocalUrl', () => {
   it.each([
@@ -91,4 +91,13 @@ describe('viewBounds', () => {
     const { css } = viewBounds({ x: 0, y: 40, width: 800.4, height: 600.3 }, { width: 1200, height: 760 }, 1);
     expect(cleanRect({ x: 0, y: 0, width: 800.4, height: 50 }, css)).toBeDefined();
   });
+});
+
+describe('boxPlace', () => {
+  const box = { width: 100, height: 60 };
+  const area = { width: 400, height: 300 };
+  it('goes right when it fits', () => expect(boxPlace({ x: 20, y: 30, width: 50, height: 50 }, box, area)).toEqual({ x: 78, y: 30 }));
+  it('goes left when right is short', () => expect(boxPlace({ x: 300, y: 30, width: 90, height: 50 }, box, area)).toEqual({ x: 192, y: 30 }));
+  it('goes below when neither side fits', () => expect(boxPlace({ x: 10, y: 20, width: 380, height: 50 }, box, area)).toEqual({ x: 10, y: 78 }));
+  it('clamps inside the area', () => expect(boxPlace({ x: 10, y: 280, width: 380, height: 20 }, box, area)).toEqual({ x: 10, y: 240 }));
 });

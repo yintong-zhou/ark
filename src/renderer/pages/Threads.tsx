@@ -17,7 +17,7 @@ import { TeamPanel } from '../components/TeamPanel';
 import { TerminalPanel } from '../components/TerminalPanel';
 import { ThreadView } from '../components/ThreadView';
 import { BUTTON, CTA, ICON_BUTTON } from '../components/ui';
-import { onBrowserKey } from '../browser/browser-store';
+import { onBrowserKey, startSelect, useBrowser } from '../browser/browser-store';
 import { activate, BROWSER_TAB, open as openTab, openDiff, useTabs } from '../editor/tabs-store';
 import type { useThreads } from '../hooks/useThreads';
 import { panelHeight, setPanelHeight, toggle as toggleTerminal, useTerms } from '../terminal/terms-store';
@@ -84,13 +84,20 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const terms = useTerms(project?.id);
   // Ctrl+` toggles the terminal from anywhere in the area, Monaco and xterm included (capture runs first). It is the
   // physical key left of 1, whatever the layout prints on it.
-  const here = useRef({ projectId: project?.id, root });
+  const bv = useBrowser(project?.id);
+  const selectable = tabs.active === BROWSER_TAB && !!bv.state.url && !bv.state.failed; // there is a page to select on
+  const here = useRef({ projectId: project?.id, root, selectable });
   useEffect(() => {
-    here.current = { projectId: project?.id, root };
+    here.current = { projectId: project?.id, root, selectable };
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const { projectId, root: r } = here.current;
+      const { projectId, root: r, selectable: sel } = here.current;
+      if (projectId && sel && e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyS') {
+        e.preventDefault();
+        if (!e.repeat) void startSelect(projectId);
+        return;
+      }
       if (!projectId || !e.ctrlKey || e.code !== 'Backquote') return;
       e.preventDefault();
       if (e.repeat) return; // a held key would flicker the panel
@@ -103,8 +110,9 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   useEffect(
     () =>
       onBrowserKey((_projectId, k) => {
-        const { projectId, root: r } = here.current;
+        const { projectId, root: r, selectable: sel } = here.current;
         if (k === 'terminal' && projectId) toggleTerminal(projectId, r);
+        if (k === 'select' && projectId && sel) void startSelect(projectId);
       }),
     [],
   );
@@ -244,7 +252,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {project && tabs.active === BROWSER_TAB ? (
-            <BrowserPane key={project.id} projectId={project.id} />
+            <BrowserPane key={project.id} projectId={project.id} thread={thread ? { id: thread.id, title: thread.title } : undefined} />
           ) : project && fileDoc?.diff ? (
             <DiffView key={fileDoc.tab.key} projectId={project.id} doc={fileDoc} onOpenFile={() => openFile(fileDoc.tab.root, fileDoc.tab.rel)} />
           ) : project && fileDoc ? (

@@ -173,3 +173,15 @@ export function areaName(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `area-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
 }
+
+/**
+ * Where the comment box goes beside a selection: right if it fits, else left, else below, then clamped inside the area
+ * so it is never clipped (spec §5.3).
+ */
+export function boxPlace(sel: Rect, box: { width: number; height: number }, area: { width: number; height: number }, gap = 8): { x: number; y: number } {
+  const right = sel.x + sel.width + gap;
+  const left = sel.x - gap - box.width;
+  const [x, y] =
+    right + box.width <= area.width ? [right, sel.y] : left >= 0 ? [left, sel.y] : [sel.x, sel.y + sel.height + gap];
+  return { x: Math.max(0, Math.min(x, area.width - box.width)), y: Math.max(0, Math.min(y, area.height - box.height)) };
+}
