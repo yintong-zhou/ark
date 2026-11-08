@@ -1,13 +1,17 @@
 import { useState, type ReactNode } from 'react';
 import { rootKey, type RootRef } from '@shared/files';
+import type { Thread } from '@shared/thread';
 import { GIT_BUSY, groups, letter, type GitEntry, type GitSide, type GitStatus } from '@shared/git';
 import { act, useGit } from '../git/status-store';
-import { BranchMenu } from './GitSections';
+import { BranchMenu, ThreadBranchSection, WorktreesSection } from './GitSections';
 import { DiscardIcon, FetchIcon, FileIcon, MinusIcon, PlusIcon, PullIcon, PushIcon } from './Icons';
 import { BUTTON_INSET, CTA, FIELD } from './ui';
 
 type Props = {
   root: RootRef;
+  projectId: string;
+  /** The thread whose worktree `root` is; unset on the project root. */
+  thread?: Thread;
   /** The root is a thread worktree whose turn is running: every write action waits. */
   busyThread: boolean;
   onOpenFile: (rel: string) => void;
@@ -15,6 +19,10 @@ type Props = {
   onOpenDiff: (rel: string, side: GitSide) => void;
   /** Runs an action; a refusal shows in the pane's problem line. */
   attempt: (call: () => Promise<unknown>) => Promise<void>;
+  /** A worktree row's Show: opens that thread. */
+  onShowThread: (id: string) => void;
+  /** A thread merge stopped on a conflict, which now sits in the project. */
+  onConflict: () => void;
 };
 
 /** A 20px icon action inside a 24px row, its icon drawn at 16px. */
@@ -34,7 +42,7 @@ type Sync = 'fetch' | 'pull' | 'push';
 const drafts = new Map<string, string>();
 
 /** The Git view: the branch, the commit box and the changed files of one root, grouped like VS Code. */
-export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: Props) {
+export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpenDiff, attempt, onShowThread, onConflict }: Props) {
   const { status, error, busy } = useGit(root, true);
   const key = rootKey(root);
   const [message, setMessage] = useState(() => drafts.get(key) ?? '');
@@ -198,6 +206,8 @@ export function GitView({ root, busyThread, onOpenFile, onOpenDiff, attempt }: P
         </>)}
         {status.truncated && <p className="h-3 px-[4px] text-meta text-muted">Showing first 5000 changes</p>}
       </div>
+      {thread?.build && !thread.build.removed && <ThreadBranchSection thread={thread} attempt={attempt} onConflict={onConflict} />}
+      {root.kind === 'project' && <WorktreesSection projectId={projectId} attempt={attempt} onShowThread={onShowThread} />}
     </div>
   );
 }

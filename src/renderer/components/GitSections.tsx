@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { rootKey, type RootRef } from '@shared/files';
-import type { GitBranches, GitStatus } from '@shared/git';
+import type { GitBranches, GitStatus, ThreadBranch, WorktreeRow } from '@shared/git';
+import type { Thread } from '@shared/thread';
 import { act } from '../git/status-store';
-import { FIELD_INSET } from './ui';
+import { BUTTON_INSET, FIELD_INSET } from './ui';
 
 type Props = {
   root: RootRef;
@@ -160,5 +161,129 @@ export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props
         </>
       )}
     </div>
+  );
+}
+
+/** A small text action inside a 24px row. */
+const LINK = 'shrink-0 rounded-xs px-[4px] text-meta text-muted hover:text-secondary disabled:opacity-40';
+const ROW = 'flex h-3 items-center gap-[4px] pl-[4px] pr-1';
+const folderName = (path: string) => path.replace(/[\/]+$/, '').split(/[\/]/).pop() ?? path;
+
+/** Confirms removing a worktree (never the main one); the branch stays. */
+const confirmRemove = (path: string, branch: string | undefined) =>
+  confirm(`Remove worktree ${folderName(path)}? The branch ${branch ?? 'HEAD'} stays.`);
+
+type SectionProps = {
+  /** Runs an action; a refusal shows in the pane's problem line. */
+  attempt: (call: () => Promise<unknown>) => Promise<void>;
+};
+
+/** The project's worktrees (main first), collapsed until opened. Each action returns the fresh list. */
+export function WorktreesSection({ projectId, attempt, onShowThread }: SectionProps & { projectId: string; onShowThread: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<WorktreeRow[]>();
+  const [busy, setBusy] = useState(false);
+  const git = window.ark.git;
+
+  const run = (call: () => Promise<WorktreeRow[]>) => {
+    setBusy(true);
+    void attempt(async () => setRows(await call())).finally(() => setBusy(false));
+  };
+  const toggle = () => {
+    setOpen(!open);
+    if (!open) run(() => git.worktrees(projectId)); // loads each time it opens
+  };
+
+  return (
+    <section>
+      <div className={ROW}>
+        <button aria-expanded={open} onClick={toggle} className="section flex flex-1 items-center gap-[4px] text-left">
+          <span aria-hidden className="w-2 shrink-0">{open ? '▾' : '▸'}</span>Worktrees
+        </button>
+        <button disabled={busy} onClick={() => run(() => git.pruneWorktrees(projectId))} className={LINK}>Prune</button>
+      </div>
+      {open &&
+        rows?.map((w, i) => (
+          <div key={w.path} title={w.path} className={`${ROW} text-muted`}>
+            <span className="min-w-0 truncate text-secondary">{w.branch ?? 'detached'}</span>
+            <span className="min-w-0 truncate text-meta">{folderName(w.path)}</span>
+            {w.thread && <span className="min-w-0 truncate text-meta">#{w.thread.title}</span>}
+            <span className="ml-auto flex shrink-0">
+              {w.thread && <button disabled={busy} onClick={() => onShowThread(w.thread!.id)} className={LINK}>Show</button>}
+              {i > 0 && (
+                <button
+                  disabled={busy || (w.thread !== undefined && !w.thread.done)}
+                  onClick={() => confirmRemove(w.path, w.branch) && run(() => git.removeWorktree(projectId, w.path))}
+                  className={LINK}
+                >
+                  Remove
+                </button>
+              )}
+            </span>
+          </div>
+        ))}
+    </section>
+  );
+}
+
+/** The open thread's branch: what it holds, merging it into the project's branch, and removing its worktree. */
+export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProps & { thread: Thread; onConflict: () => void }) {
+  const [info, setInfo] = useState<ThreadBranch | null>();
+  const [merged, setMerged] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const git = window.ark.git;
+  const build = thread.build;
+  const running = thread.status === 'running';
+
+  useEffect(() => {
+    let alive = true;
+    void attempt(async () => {
+      const b = await git.threadBranch(thread.id);
+      if (alive) setInfo(b);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reloads when the thread's turn starts or ends
+  }, [thread.id, thread.status]);
+
+  if (!build || !info) return null;
+  const { into } = info;
+
+  const merge = () => {
+    if (!into || !confirm(`Merge ${info.branch} into ${into}?`)) return;
+    setBusy(true);
+    const result = { merged: false };
+    void attempt(async () => {
+      // the merge lands in the project's folder: its view takes the returned status, conflicts included
+      await act({ kind: 'project', id: thread.projectId }, async () => {
+        const r = await git.mergeThread(thread.id);
+        result.merged = r.merged;
+        return r.status;
+      });
+      if (!result.merged) return onConflict();
+      setMerged(true);
+      setInfo(await git.threadBranch(thread.id));
+    }).finally(() => setBusy(false));
+  };
+  const remove = () => {
+    if (confirmRemove(build.worktree, build.branch)) void attempt(() => git.removeWorktree(thread.projectId, build.worktree));
+  };
+
+  return (
+    <section className="flex flex-col gap-[4px]">
+      <h3 className="section px-[4px] pt-2">Thread branch</h3>
+      <p className="truncate px-[4px] text-secondary" title={info.branch}>{into ? `${info.branch} → ${into}` : info.branch}</p>
+      <p className="px-[4px] text-meta text-muted">
+        {!into ? 'Check out a branch in the project first'
+          : merged && info.ahead === 0 ? 'Merged'
+          : info.ahead === 0 ? 'Nothing to merge'
+          : `${info.ahead} ${info.ahead === 1 ? 'commit' : 'commits'} to merge`}
+      </p>
+      <div className="flex gap-1 px-[4px]">
+        <button disabled={busy || running || !into || info.ahead === 0} onClick={merge} className={BUTTON_INSET}>{into ? `Merge into ${into}` : 'Merge'}</button>
+        <button disabled={busy || running || thread.phase !== 'done'} onClick={remove} className={BUTTON_INSET}>Remove worktree</button>
+      </div>
+    </section>
   );
 }

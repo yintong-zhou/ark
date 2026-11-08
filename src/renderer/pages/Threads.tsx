@@ -55,18 +55,29 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const [view, setViewState] = useState(lastView);
   const setView = (v: View) => setViewState(keepView(v));
   // Files and Git show the project, or the open thread's worktree once its build has one.
-  const worktree = thread?.build?.worktree;
+  const worktree = thread?.build && !thread.build.removed ? thread.build.worktree : undefined;
   const [rootSel, setRootSel] = useState<'project' | 'worktree'>('project');
   const [rootFor, setRootFor] = useState(thread?.id);
+  const [wanted, setWanted] = useState<string>(); // a thread Show picked: its worktree is wanted once it is open
   if (rootFor !== thread?.id) {
     setRootFor(thread?.id);
-    setRootSel('project');
+    setRootSel(wanted && wanted === thread?.id ? 'worktree' : 'project');
+    setWanted(undefined);
   }
   const root: RootRef = worktree && rootSel === 'worktree' && thread ? { kind: 'thread', id: thread.id } : { kind: 'project', id: project?.id ?? '' };
   const openFile = (r: RootRef, rel: string) => project && void attempt(() => openTab(project.id, r, rel));
   const tabs = useTabs(project?.id);
   const fileDoc = tabs.active ? tabs.docs.find((d) => d.tab.key === tabs.active) : undefined;
   const showThread = () => project && activate(project.id, null);
+  const showWorktree = (id: string) => {
+    onDraft(false);
+    showThread();
+    if (id === thread?.id) setRootSel('worktree');
+    else {
+      setWanted(id);
+      void ws.select(id);
+    }
+  };
   const initGit = project && <button onClick={() => void attempt(() => ws.gitInit(project.id))} className={BUTTON}>Initialize Git</button>;
   const terms = useTerms(project?.id);
   // Ctrl+` toggles the terminal from anywhere in the area, Monaco and xterm included (capture runs first). It is the
@@ -153,10 +164,14 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
               <GitView
                 key={rootKey(root)}
                 root={root}
+                projectId={project.id}
+                thread={root.kind === 'thread' ? thread : undefined}
                 busyThread={root.kind === 'thread' && thread?.status === 'running'}
                 onOpenFile={(rel) => openFile(root, rel)}
                 onOpenDiff={(rel, side) => openDiff(project.id, root, rel, side)}
                 attempt={attempt}
+                onShowThread={showWorktree}
+                onConflict={() => setRootSel('project')}
               />
             ) : (
               initGit
