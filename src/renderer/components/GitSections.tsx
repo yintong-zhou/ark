@@ -280,8 +280,16 @@ export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProp
           : info.ahead === 0 ? 'Nothing to merge'
           : `${info.ahead} ${info.ahead === 1 ? 'commit' : 'commits'} to merge`}
       </p>
-      <div className="flex gap-1 px-[4px]">
-        <button disabled={busy || running || !into || info.ahead === 0} onClick={merge} className={BUTTON_INSET}>{into ? `Merge into ${into}` : 'Merge'}</button>
+      {/* the buttons wrap in a narrow sidebar; a long branch name truncates inside its button, whole in the title */}
+      <div className="flex flex-wrap gap-1 px-[4px]">
+        <button
+          title={into ? `Merge into ${into}` : undefined}
+          disabled={busy || running || !into || info.ahead === 0}
+          onClick={merge}
+          className={`${BUTTON_INSET} max-w-full`}
+        >
+          <span className="min-w-0 truncate">{into ? `Merge into ${into}` : 'Merge'}</span>
+        </button>
         <button disabled={busy || running || thread.phase !== 'done'} onClick={remove} className={BUTTON_INSET}>Remove worktree</button>
       </div>
     </section>
