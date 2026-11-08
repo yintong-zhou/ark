@@ -5,9 +5,8 @@ import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
 import { checkUploads, kindOf, type Upload } from '@shared/attachments';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
 import { rootKey, UUID_RE } from '@shared/files';
-import type { WorktreeRow } from '@shared/git';
 import type { ShellOption } from '@shared/terminal';
-import type { Build, Reaction } from '@shared/thread';
+import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
 import type { AgentRunner } from '../services/agent-runner';
 import { importAgent, importableAgents, type Catalog } from '../services/catalog';
@@ -17,7 +16,8 @@ import { normEntry, normRel, normRels, resolveInside, rootDir, rootRef } from '.
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
 import { RootWatcher } from '../services/files/watch';
 import * as git from '../services/git/repo';
-import { checkMergeable, checkRemovable, gitRoot, worktreeThread } from '../services/git/rules';
+import { checkMergeable, gitRoot } from '../services/git/rules';
+import { pruneWorktrees, removeWorktree, worktreeRows, type WorktreeDeps } from '../services/git/worktrees';
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
 import { readView, writeView } from '../services/settings';
@@ -348,48 +348,13 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     if (!t) throw new Error('Unknown thread');
     return t;
   };
-  const worktreeRows = async (dir: string): Promise<WorktreeRow[]> => {
-    const threads = store.threads();
-    return (await git.worktrees(dir)).map((w) => {
-      const t = worktreeThread(threads, w.path);
-      return t ? { ...w, thread: { id: t.id, title: t.title, done: t.phase === 'done' && t.status !== 'running' } } : w;
-    });
-  };
-  handle('git:worktrees', (id) => worktreeRows(projectFolder(id)));
-  handle('git:remove-worktree', async (id, path) => {
-    const pid = uuid(id, 'project');
-    const dir = projectFolder(pid);
-    const p = pathArg(path);
-    const t = worktreeThread(store.threads().filter((x) => x.projectId === pid), p); // this project's threads only
-    checkRemovable(t);
-    if (!t) await git.removeWorktree(dir, p);
-    else {
-      // The recursive watch holds the folder on Windows, and the tree, status and tabs stores each hold a reference to it:
-      // close it whatever the count, and put the references back if git refuses (a worktree with changes, say).
-      const key = rootKey({ kind: 'thread', id: t.id });
-      const wt = (t.build as Build).worktree;
-      const held = watcher.drop(key);
-      try {
-        await git.removeWorktree(dir, p);
-      } catch (e) {
-        for (let i = 0; i < held; i++) {
-          try {
-            watcher.watch(key, wt);
-          } catch {
-            // the folder is gone: nothing to watch
-          }
-        }
-        throw e;
-      }
-      conductor.worktreeRemoved(t.id);
-    }
-    return worktreeRows(dir);
-  });
-  handle('git:prune-worktrees', async (id) => {
+  const wtDeps: WorktreeDeps = { threads: () => store.threads(), watcher, removed: (tid) => conductor.worktreeRemoved(tid) };
+  handle('git:worktrees', (id) => worktreeRows(projectFolder(id), wtDeps));
+  handle('git:remove-worktree', (id, path) => {
     const dir = projectFolder(id);
-    await git.pruneWorktrees(dir);
-    return worktreeRows(dir);
+    return removeWorktree(dir, pathArg(path), wtDeps);
   });
+  handle('git:prune-worktrees', (id) => pruneWorktrees(projectFolder(id), wtDeps));
   handle('git:thread-branch', (id) => {
     const t = threadOf(id);
     return t.build ? git.threadBranch(projectFolder(t.projectId), t.build.branch) : null;

@@ -33,9 +33,12 @@ export function gitRoot(ref: RootRef, store: RootStore, write: boolean): string 
 export const worktreeThread = (threads: Thread[], path: string): Thread | undefined =>
   threads.find((t) => t.build && !t.build.removed && samePath(t.build.worktree, path));
 
+/** A thread's worktree can go once the thread is done and quiet (the row's `done` flag and the check below). */
+export const removable = (t: Thread): boolean => t.phase === 'done' && t.status !== 'running';
+
 /** A worktree no thread owns can go; a thread's goes once the thread is done and quiet. */
 export function checkRemovable(t: Thread | undefined): void {
-  if (t && !(t.phase === 'done' && t.status !== 'running')) throw new Error('Finish the thread before removing its worktree');
+  if (t && !removable(t)) throw new Error('Finish the thread before removing its worktree');
 }
 
 /** The branch to merge for a thread, which must not be mid-turn. */

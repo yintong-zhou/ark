@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
@@ -25,7 +25,10 @@ import {
   worktrees,
 } from '../../src/main/services/git/repo';
 import { gitNow, queued } from '../../src/main/services/git/run';
+import * as wts from '../../src/main/services/git/worktrees';
+import type { WorktreeDeps } from '../../src/main/services/git/worktrees';
 import { groups } from '../../src/shared/git';
+import type { Thread } from '../../src/shared/thread';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -705,4 +708,88 @@ test('mergeBranch refuses to start while a merge is already in progress', async 
   await expect(mergeBranch(dir, 'third')).rejects.toThrow('Finish the merge in progress first'); // not 'conflict'
   expect(sh(dir, 'rev-parse', 'MERGE_HEAD')).toBe(mergeHead);
   expect((await status(dir)).merging).toBe(true); // the first merge is untouched
+});
+
+/** A thread that owns the worktree `wt`, done and quiet unless `o` says otherwise; `projectId` needn't be the repo's. */
+const owner = (wt: string, o: Partial<Thread> = {}) =>
+  ({ id: o.id ?? 'T1', projectId: 'P2', title: 't', createdAt: 0, phase: 'done', status: 'idle', build: { worktree: wt, branch: 'wt', plan: '', phases: [], current: 0 }, ...o }) as Thread;
+
+/** The worktree actions' deps around `threads`; `removed` marks the thread the way the conductor does. Each root held twice. */
+function wtDeps(threads: Thread[]) {
+  const log = { removed: [] as string[], dropped: [] as string[], watched: [] as string[] };
+  const d: WorktreeDeps = {
+    threads: () => threads,
+    watcher: { drop: (k) => (log.dropped.push(k), 2), watch: (k) => void log.watched.push(k) },
+    removed: (id) => {
+      log.removed.push(id);
+      const t = threads.find((x) => x.id === id)!;
+      t.build = { ...t.build!, removed: true };
+    },
+  };
+  return { d, log };
+}
+
+test('removing a done thread worktree marks the thread removed, whatever project it belongs to', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  const { d, log } = wtDeps([owner(wt)]);
+  expect(await wts.removeWorktree(dir, wt.replace(/\\/g, '/'), d)).toHaveLength(1); // git's spelling, as the row sends it
+  expect(log).toEqual({ removed: ['T1'], dropped: ['thread:T1', 'thread:T1'], watched: [] });
+  expect(existsSync(wt)).toBe(false);
+});
+
+test('a thread of another project sharing the repo still has to be done before its worktree goes', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  const { d, log } = wtDeps([owner(wt, { phase: 'build' })]);
+  expect((await wts.worktreeRows(dir, d))[1].thread).toEqual({ id: 'T1', title: 't', done: false });
+  await expect(wts.removeWorktree(dir, wt, d)).rejects.toThrow('Finish the thread before removing its worktree');
+  expect(existsSync(wt)).toBe(true);
+  expect(log.dropped).toEqual([]);
+});
+
+test('a worktree git refuses to remove keeps its thread and its watch', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  put(wt, 'new.txt', 'x\n');
+  const { d, log } = wtDeps([owner(wt)]);
+  await expect(wts.removeWorktree(dir, wt, d)).rejects.toThrow(/untracked|modified/);
+  expect(log).toEqual({ removed: [], dropped: ['thread:T1'], watched: ['thread:T1', 'thread:T1'] });
+});
+
+test('pruning a worktree deleted outside Ark marks its thread removed', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  const keep = addWorktree(dir, 'keep');
+  rmSync(wt, { recursive: true, force: true });
+  const { d, log } = wtDeps([owner(wt), owner(keep, { id: 'T2' })]);
+  expect(await wts.pruneWorktrees(dir, d)).toHaveLength(2);
+  expect(log.removed).toEqual(['T1']);
+});
+
+test('the removal waits for the worktree folder queue, and a status there waits for it', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  const { d } = wtDeps([owner(wt)]);
+  const removal = wts.removeWorktree(dir, wt, d);
+  const seen = queued(wt, async () => existsSync(join(wt, 'a.txt'))); // queued after the removal: runs once it is over
+  await removal;
+  expect(await seen).toBe(false);
+});
+
+test('a folder held open: git drops the entry but not the folder, and the thread is still marked removed', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e3)'], { cwd: wt, stdio: 'ignore' });
+  try {
+    await new Promise((ok, fail) => holder.once('spawn', ok).once('error', fail));
+    const { d, log } = wtDeps([owner(wt)]);
+    await expect(wts.removeWorktree(dir, wt, d)).rejects.toThrow(wts.IN_USE);
+    expect(log).toEqual({ removed: ['T1'], dropped: ['thread:T1', 'thread:T1'], watched: [] }); // never watched again
+    expect(await wts.worktreeRows(dir, d)).toHaveLength(1);
+    expect(existsSync(wt)).toBe(true); // the empty folder git could not delete
+  } finally {
+    holder.kill();
+    await new Promise((ok) => (holder.exitCode !== null ? ok(null) : holder.once('exit', ok)));
+  }
 });
