@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { boxPlace, MIN_SELECTION, type Rect } from '@shared/browser';
+import { boxPlace, clampPoint, MIN_SELECTION, type Rect } from '@shared/browser';
 import { cancelSelect, pickArea, sendArea, setDraft, type BrowserView } from '../browser/browser-store';
 import { CloseIcon } from './Icons';
 import { CTA, FIELD, ICON_BUTTON } from './ui';
@@ -29,7 +29,10 @@ export function BrowserSelect({ projectId, view, thread }: { projectId: string; 
   useEffect(() => {
     const el = root.current;
     if (!el) return;
-    const read = () => setSize({ width: el.clientWidth, height: el.clientHeight });
+    const read = () => {
+      const b = el.getBoundingClientRect(); // fractional, like the bounds main validates against
+      setSize({ width: b.width, height: b.height });
+    };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
@@ -49,7 +52,7 @@ export function BrowserSelect({ projectId, view, thread }: { projectId: string; 
 
   const point = (e: PointerEvent) => {
     const r = root.current!.getBoundingClientRect();
-    return { x: Math.min(Math.max(e.clientX - r.left, 0), size.width), y: Math.min(Math.max(e.clientY - r.top, 0), size.height) };
+    return clampPoint({ x: e.clientX - r.left, y: e.clientY - r.top }, size);
   };
   const down = (e: PointerEvent) => {
     if (e.button !== 0) return;

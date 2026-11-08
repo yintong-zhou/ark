@@ -185,3 +185,8 @@ export function boxPlace(sel: Rect, box: { width: number; height: number }, area
     right + box.width <= area.width ? [right, sel.y] : left >= 0 ? [left, sel.y] : [sel.x, sel.y + sel.height + gap];
   return { x: Math.max(0, Math.min(x, area.width - box.width)), y: Math.max(0, Math.min(y, area.height - box.height)) };
 }
+
+/** A pointer position held inside the frame, whose size may be fractional (as main's bounds are). */
+export function clampPoint(p: { x: number; y: number }, size: { width: number; height: number }): { x: number; y: number } {
+  return { x: Math.min(Math.max(p.x, 0), size.width), y: Math.min(Math.max(p.y, 0), size.height) };
+}

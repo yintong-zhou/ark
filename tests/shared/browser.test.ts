@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { areaName, boxPlace, browserMessage, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, navVerdict, toAddress, viewBounds } from '@shared/browser';
+import { areaName, boxPlace, browserMessage, clampPoint, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, navVerdict, toAddress, viewBounds } from '@shared/browser';
 
 describe('isLocalUrl', () => {
   it.each([
@@ -100,4 +100,15 @@ describe('boxPlace', () => {
   it('goes left when right is short', () => expect(boxPlace({ x: 300, y: 30, width: 90, height: 50 }, box, area)).toEqual({ x: 192, y: 30 }));
   it('goes below when neither side fits', () => expect(boxPlace({ x: 10, y: 20, width: 380, height: 50 }, box, area)).toEqual({ x: 10, y: 78 }));
   it('clamps inside the area', () => expect(boxPlace({ x: 10, y: 280, width: 380, height: 20 }, box, area)).toEqual({ x: 10, y: 240 }));
+});
+
+describe('clampPoint', () => {
+  const size = { width: 800.6, height: 400.4 };
+  it('clamps to exactly the fractional edge, and the rect passes cleanRect', () => {
+    const a = clampPoint({ x: -5, y: -5 }, size);
+    const b = clampPoint({ x: 900, y: 500 }, size);
+    expect(b).toEqual({ x: 800.6, y: 400.4 });
+    const rect = { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y };
+    expect(cleanRect(rect, size)).toEqual(rect);
+  });
 });
