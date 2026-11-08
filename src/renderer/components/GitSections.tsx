@@ -167,7 +167,7 @@ export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props
 /** A small text action inside a 24px row. */
 const LINK = 'shrink-0 rounded-xs px-[4px] text-meta text-muted hover:text-secondary disabled:opacity-40';
 const ROW = 'flex h-3 items-center gap-[4px] pl-[4px] pr-1';
-const folderName = (path: string) => path.replace(/[\/]+$/, '').split(/[\/]/).pop() ?? path;
+const folderName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? path;
 
 /** Confirms removing a worktree (never the main one); the branch stays. */
 const confirmRemove = (path: string, branch: string | undefined) =>
