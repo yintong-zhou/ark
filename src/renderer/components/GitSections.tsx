@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { rootKey, type RootRef } from '@shared/files';
 import type { GitBranches, GitStatus, ThreadBranch, WorktreeRow } from '@shared/git';
 import type { Thread } from '@shared/thread';
+import { useOverlay } from '../browser/overlay';
 import { act } from '../git/status-store';
 import { BUTTON_INSET, FIELD_INSET } from './ui';
 
@@ -25,6 +26,7 @@ const HEIGHT = 320;
  * a field and a second list, so it is its own component. Escape inside the field or the delete list goes back first.
  */
 export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props) {
+  useOverlay();
   const ref = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<'list' | 'create' | 'delete'>('list');
   const [data, setData] = useState<GitBranches>();

@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
+import { useOverlay } from '../browser/overlay';
 
 export type MenuItem = { label: string; onClick: () => void; danger?: boolean };
 
 /** A small Raised popup at the pointer. Escape, a click outside or picking an item closes it. */
 export function Menu({ items, at, onClose }: { items: MenuItem[]; at: { x: number; y: number }; onClose: () => void }) {
+  useOverlay();
   const ref = useRef<HTMLUListElement>(null);
   useEffect(() => {
     const outside = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();

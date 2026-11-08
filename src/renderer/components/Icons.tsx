@@ -27,6 +27,26 @@ export const TerminalIcon = () => (
   </svg>
 );
 
+/** A globe: the built-in browser. */
+export const GlobeIcon = () => (
+  <svg {...base}>
+    <circle cx="10" cy="10" r="7" opacity="0.35" />
+    <path d="M3 10h14M10 3c2.2 2 3 4.5 3 7s-.8 5-3 7c-2.2-2-3-4.5-3-7s.8-5 3-7Z" />
+  </svg>
+);
+
+/** Back and forward in the browser's history. */
+export const BackIcon = () => (
+  <svg {...base}>
+    <path d="M16 10H4M9 5l-5 5 5 5" />
+  </svg>
+);
+export const ForwardIcon = () => (
+  <svg {...base}>
+    <path d="M4 10h12M11 5l5 5-5 5" />
+  </svg>
+);
+
 /** Three agents linked to each other. */
 export const AgentsIcon = () => (
   <svg {...base}>

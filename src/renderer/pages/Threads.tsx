@@ -3,6 +3,7 @@ import { rootKey, type RootRef } from '@shared/files';
 import type { Project, Thread } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
 import { toUploads } from '../components/Attachments';
+import { BrowserPane } from '../components/BrowserPane';
 import { Composer } from '../components/Composer';
 import { DiffView } from '../components/DiffView';
 import { Editor } from '../components/Editor';
@@ -16,7 +17,8 @@ import { TeamPanel } from '../components/TeamPanel';
 import { TerminalPanel } from '../components/TerminalPanel';
 import { ThreadView } from '../components/ThreadView';
 import { BUTTON, CTA, ICON_BUTTON } from '../components/ui';
-import { activate, open as openTab, openDiff, useTabs } from '../editor/tabs-store';
+import { onBrowserKey } from '../browser/browser-store';
+import { activate, BROWSER_TAB, open as openTab, openDiff, useTabs } from '../editor/tabs-store';
 import type { useThreads } from '../hooks/useThreads';
 import { panelHeight, setPanelHeight, toggle as toggleTerminal, useTerms } from '../terminal/terms-store';
 
@@ -97,6 +99,15 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
+  // With the page focused the keys never reach this window: main hands them back.
+  useEffect(
+    () =>
+      onBrowserKey((_projectId, k) => {
+        const { projectId, root: r } = here.current;
+        if (k === 'terminal' && projectId) toggleTerminal(projectId, r);
+      }),
+    [],
+  );
 
   const start = async (files: File[]) => {
     const t = text.trim();
@@ -232,7 +243,9 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
           />
         )}
         <div className="flex min-h-0 flex-1 flex-col">
-          {project && fileDoc?.diff ? (
+          {project && tabs.active === BROWSER_TAB ? (
+            <BrowserPane key={project.id} projectId={project.id} />
+          ) : project && fileDoc?.diff ? (
             <DiffView key={fileDoc.tab.key} projectId={project.id} doc={fileDoc} onOpenFile={() => openFile(fileDoc.tab.root, fileDoc.tab.rel)} />
           ) : project && fileDoc ? (
             <Editor key={project.id} projectId={project.id} doc={fileDoc} />
@@ -303,7 +316,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         )}
       </Main>
 
-      {thread && !fileDoc && <TeamPanel thread={thread} messages={ws.messages} agents={ws.agents} />}
+      {thread && tabs.active === null && <TeamPanel thread={thread} messages={ws.messages} agents={ws.agents} />}
     </>
   );
 }
