@@ -7,6 +7,7 @@ import {
   isLocalUrl,
   navVerdict,
   USER_GESTURE_MS,
+  viewBounds,
   type BrowserKey,
   type BrowserState,
   type NavVerdict,
@@ -101,14 +102,9 @@ export class BrowserViews {
       e.view.setVisible(false); // the last bounds stay: a pick runs while the freeze frame hides the view
       return;
     }
-    const z = this.deps.win.webContents.getZoomFactor();
-    const { width: W, height: H } = this.deps.win.getContentBounds();
-    const x = Math.min(Math.round(bounds.x * z), W);
-    const y = Math.min(Math.round(bounds.y * z), H);
-    const width = Math.min(Math.round(bounds.width * z), W - x);
-    const height = Math.min(Math.round(bounds.height * z), H - y);
-    e.view.setBounds({ x, y, width, height });
-    e.bounds = { x: x / z, y: y / z, width: width / z, height: height / z }; // what is really shown, back in CSS px
+    const { css, dip } = viewBounds(bounds, this.deps.win.getContentBounds(), this.deps.win.webContents.getZoomFactor());
+    e.view.setBounds(dip);
+    e.bounds = css;
     e.view.setVisible(true);
   }
 

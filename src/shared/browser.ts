@@ -130,6 +130,26 @@ export function cleanBounds(v: unknown): Rect | null | undefined {
   return Object.values(r).every((n) => n >= 0 && n <= 10000) ? r : undefined;
 }
 
+/**
+ * The view's place for a layout request. `css` stays in the renderer's CSS px, unrounded, so a selection the renderer
+ * clamps to its placeholder still passes `cleanRect`; `dip` is what `setBounds` gets. Both stay inside the window.
+ */
+export function viewBounds(b: Rect, content: { width: number; height: number }, zoom: number): { css: Rect; dip: Rect } {
+  const [cw, ch] = [content.width / zoom, content.height / zoom];
+  const x = Math.min(b.x, cw);
+  const y = Math.min(b.y, ch);
+  const css = { x, y, width: Math.min(b.width, cw - x), height: Math.min(b.height, ch - y) };
+  const dx = Math.min(Math.round(x * zoom), content.width);
+  const dy = Math.min(Math.round(y * zoom), content.height);
+  const dip = {
+    x: dx,
+    y: dy,
+    width: Math.min(Math.round(css.width * zoom), content.width - dx),
+    height: Math.min(Math.round(css.height * zoom), content.height - dy),
+  };
+  return { css, dip };
+}
+
 /** A view-space selection in the pixels of a capture (scaled by display zoom), kept inside the image. */
 export function imageBox(
   sel: Rect,

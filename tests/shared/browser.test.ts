@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { areaName, browserMessage, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, navVerdict, toAddress } from '@shared/browser';
+import { areaName, browserMessage, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, navVerdict, toAddress, viewBounds } from '@shared/browser';
 
 describe('isLocalUrl', () => {
   it.each([
@@ -74,4 +74,21 @@ describe('browser message and crop maths', () => {
     expect(imageBox({ x: 790, y: 590, width: 10, height: 10 }, { width: 800, height: 600 }, { width: 799, height: 599 }))
       .toEqual({ x: 789, y: 589, width: 10, height: 10 }));
   it('names the area', () => expect(areaName(new Date(2026, 10, 8, 9, 5, 7))).toBe('area-20261108-090507.png'));
+});
+
+describe('viewBounds', () => {
+  it('keeps CSS bounds unrounded and rounds only the DIP rectangle', () => {
+    const v = viewBounds({ x: 10.2, y: 20.6, width: 800.4, height: 500.5 }, { width: 1200, height: 760 }, 1);
+    expect(v.css).toEqual({ x: 10.2, y: 20.6, width: 800.4, height: 500.5 });
+    expect(v.dip).toEqual({ x: 10, y: 21, width: 800, height: 501 });
+  });
+  it('clamps to the content size divided by the zoom', () => {
+    const v = viewBounds({ x: 100, y: 50, width: 2000, height: 2000 }, { width: 1200, height: 760 }, 1.25);
+    expect(v.css).toEqual({ x: 100, y: 50, width: 860, height: 558 });
+    expect(v.dip).toEqual({ x: 125, y: 63, width: 1075, height: 697 }); // rounding never spills past the window
+  });
+  it('lets a selection reach the fractional edge', () => {
+    const { css } = viewBounds({ x: 0, y: 40, width: 800.4, height: 600.3 }, { width: 1200, height: 760 }, 1);
+    expect(cleanRect({ x: 0, y: 0, width: 800.4, height: 50 }, css)).toBeDefined();
+  });
 });
