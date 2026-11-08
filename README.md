@@ -173,6 +173,24 @@ Windows) and refuses to start a Codex agent if a read-only command can still wri
 - **Threads at work**: on a thread's worktree, every Git action waits while the team's turn is running. Status and diffs
   stay readable.
 
+## Browser
+
+- **Preview your project**: start its dev server in the terminal, then press the globe button at the right of the tab
+  strip. The browser opens as a tab next to the thread and the files. Type the address (`localhost:5173` works, `http://`
+  is added). Back, forward and reload sit next to the address.
+- **Local addresses only**: `localhost`, names ending in `.localhost`, `127.x.x.x` and `[::1]`, on any port, over http
+  or https (self-signed certificates are accepted for these). A link to another site opens in your default browser.
+  When a page tries to go elsewhere on its own (a redirect to a hosted login, for example), Ark stops it and shows a bar
+  with **Open in your browser**.
+- **Comment on an area**: press **Select** (or Ctrl+Shift+S), drag a rectangle over the part of the page that's wrong,
+  write what you want in the box beside it and press **Send to thread** (or Enter). The comment goes to the thread
+  that's open in the project, as your message, with a picture of the area and a line naming the page and the element
+  under it, so the team finds the code. Esc cancels. With no thread open, open one first; your comment stays.
+- **Isolated**: the page can't reach Ark or your files, and it can't open windows. Camera, notifications and downloads are
+  refused. Its logins and storage live in a separate session that survives a restart.
+- **Keys in the page**: Ctrl+R and F5 reload the page (not Ark), Ctrl+` toggles the terminal, Ctrl+W does nothing.
+- The page stays loaded while you switch tabs, projects or areas. Reloading or closing Ark closes it.
+
 ## Run it
 
 Requirements: Windows, Node.js 22 or newer.
