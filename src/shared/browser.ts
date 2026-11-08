@@ -53,3 +53,88 @@ export function certVerdict(hostname: string): 0 | -3 {
   // Certificate hostnames carry no brackets.
   return isLocalHost(hostname === '::1' ? '[::1]' : hostname) ? 0 : -3;
 }
+
+export type ElementInfo = { tag: string; id?: string; classes: string[]; path: string; text: string };
+
+/** Smallest selection side, in view pixels, worth sending. */
+export const MIN_SELECTION = 8;
+
+/** Page text must not turn into #tags or @mentions in a thread: a word joiner breaks the token, the text stays readable. */
+export function neutralize(s: string): string {
+  return s.replace(/(^|\s)([#@])/gu, '$1⁠$2');
+}
+
+const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : undefined);
+
+/** Shape check and caps for what the page script reports about the clicked element. */
+export function cleanElement(v: unknown): ElementInfo | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  if (typeof o.tag !== 'string' || typeof o.path !== 'string' || typeof o.text !== 'string') return undefined;
+  if (!Array.isArray(o.classes) || !o.classes.every((c) => typeof c === 'string')) return undefined;
+  if (o.id !== undefined && typeof o.id !== 'string') return undefined;
+  const id = str(o.id, 64);
+  return {
+    tag: o.tag.slice(0, 32),
+    ...(id ? { id } : {}),
+    classes: (o.classes as string[]).slice(0, 4).map((c) => c.slice(0, 64)),
+    path: o.path.split('>').slice(-5).join('>').slice(0, 300),
+    text: o.text.replace(/\s+/g, ' ').trim().slice(0, 120),
+  };
+}
+
+/** The text a thread gets: the user's comment as typed, then where it came from. */
+export function browserMessage(comment: string, url: string, el?: ElementInfo): string {
+  let out = `${comment.trim()}\n\n${neutralize(`From the browser: ${url}`)}`;
+  if (el) {
+    const sel = el.tag + (el.id ? `#${el.id}` : '') + el.classes.map((c) => `.${c}`).join('');
+    out += `\n${neutralize(`Element: ${sel} · ${el.path}${el.text ? ` · "${el.text}"` : ''}`)}`;
+  }
+  return out;
+}
+
+const num = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+const asRect = (v: unknown): Rect | undefined => {
+  if (!v || typeof v !== 'object') return undefined;
+  const { x, y, width, height } = v as Record<string, unknown>;
+  return num(x) && num(y) && num(width) && num(height) ? { x, y, width, height } : undefined;
+};
+
+/** A selection from the page overlay: big enough and wholly inside the view. */
+export function cleanRect(v: unknown, view: { width: number; height: number }): Rect | undefined {
+  const r = asRect(v);
+  if (!r || r.x < 0 || r.y < 0 || r.width < MIN_SELECTION || r.height < MIN_SELECTION) return undefined;
+  return r.x + r.width <= view.width && r.y + r.height <= view.height ? r : undefined;
+}
+
+/** Where the renderer wants the view: null hides it, undefined is not a valid request. */
+export function cleanBounds(v: unknown): Rect | null | undefined {
+  if (v === null) return null;
+  const r = asRect(v);
+  if (!r) return undefined;
+  return Object.values(r).every((n) => n >= 0 && n <= 10000) ? r : undefined;
+}
+
+/** A view-space selection in the pixels of a capture (scaled by display zoom), kept inside the image. */
+export function imageBox(
+  sel: Rect,
+  view: { width: number; height: number },
+  image: { width: number; height: number },
+): Rect {
+  const sx = image.width / view.width;
+  const sy = image.height / view.height;
+  const x = Math.min(Math.max(Math.round(sel.x * sx), 0), image.width - 1);
+  const y = Math.min(Math.max(Math.round(sel.y * sy), 0), image.height - 1);
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.min(Math.round(sel.width * sx), image.width - x)),
+    height: Math.max(1, Math.min(Math.round(sel.height * sy), image.height - y)),
+  };
+}
+
+/** File name for a cropped area, local time. */
+export function areaName(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `area-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+}

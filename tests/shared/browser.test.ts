@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { certVerdict, isLocalUrl, navVerdict, toAddress } from '@shared/browser';
+import { areaName, browserMessage, certVerdict, cleanBounds, cleanElement, cleanRect, imageBox, isLocalUrl, navVerdict, toAddress } from '@shared/browser';
 
 describe('isLocalUrl', () => {
   it.each([
@@ -29,4 +29,49 @@ describe('certVerdict', () => {
   it('trusts local hosts', () => expect(certVerdict('localhost')).toBe(0));
   it('trusts 127.x', () => expect(certVerdict('127.0.0.1')).toBe(0));
   it('leaves others to Chromium', () => expect(certVerdict('example.com')).toBe(-3));
+});
+
+describe('browser message and crop maths', () => {
+  it('formats the message', () => {
+    const el = { tag: 'div', id: 'plan-pro', classes: ['card', 'pricing-card'], path: 'main>section.grid>div:nth-of-type(2)', text: 'Pro plan €12/month' };
+    expect(browserMessage('  misaligned  ', 'http://localhost:5173/pricing', el)).toBe(
+      'misaligned\n\nFrom the browser: http://localhost:5173/pricing\nElement: div#plan-pro.card.pricing-card · main>section.grid>div:nth-of-type(2) · "Pro plan €12/month"');
+  });
+  it('leaves out the Element line without an element, and the quote without text', () => {
+    expect(browserMessage('x', 'http://localhost/')).toBe('x\n\nFrom the browser: http://localhost/');
+    expect(browserMessage('x', 'http://localhost/', { tag: 'img', classes: [], path: 'body>img', text: '' }))
+      .toBe('x\n\nFrom the browser: http://localhost/\nElement: img · body>img');
+  });
+  it('caps page strings', () => {
+    const e = cleanElement({ tag: 'div'.repeat(20), id: 'i'.repeat(100), classes: ['a', 'b', 'c', 'd', 'e', 'x'.repeat(99)], path: 'p'.repeat(500), text: 't'.repeat(500) })!;
+    expect([e.tag.length, e.id!.length, e.classes.length, e.path.length, e.text.length]).toEqual([32, 64, 4, 300, 120]);
+  });
+  it('keeps at most 5 path levels', () =>
+    expect(cleanElement({ tag: 'i', classes: [], path: 'a>b>c>d>e>f>g', text: '' })!.path).toBe('c>d>e>f>g'));
+  it('refuses a bad shape', () => {
+    expect(cleanElement(null)).toBeUndefined();
+    expect(cleanElement({ tag: 1, classes: [], path: '', text: '' })).toBeUndefined();
+    expect(cleanElement({ tag: 'div', classes: 'a', path: '', text: '' })).toBeUndefined();
+  });
+  it('collapses whitespace in text', () => expect(cleanElement({ tag: 'p', classes: [], path: 'p', text: ' a \n\t b ' })!.text).toBe('a b'));
+  it('validates a selection rect', () => {
+    const view = { width: 800, height: 600 };
+    expect(cleanRect({ x: 10, y: 10, width: 100, height: 50 }, view)).toEqual({ x: 10, y: 10, width: 100, height: 50 });
+    expect(cleanRect({ x: 10, y: 10, width: 7, height: 50 }, view)).toBeUndefined();   // under MIN_SELECTION
+    expect(cleanRect({ x: 750, y: 10, width: 100, height: 50 }, view)).toBeUndefined(); // past the view
+    expect(cleanRect({ x: NaN, y: 0, width: 10, height: 10 }, view)).toBeUndefined();
+  });
+  it('validates bounds', () => {
+    expect(cleanBounds(null)).toBeNull();
+    expect(cleanBounds({ x: 0, y: 64, width: 900, height: 500 })).toEqual({ x: 0, y: 64, width: 900, height: 500 });
+    expect(cleanBounds({ x: -1, y: 0, width: 10, height: 10 })).toBeUndefined();
+    expect(cleanBounds({ x: 0, y: 0, width: 20000, height: 10 })).toBeUndefined();
+  });
+  it('maps a selection to image pixels at 150%', () =>
+    expect(imageBox({ x: 10, y: 20, width: 100, height: 40 }, { width: 800, height: 600 }, { width: 1200, height: 900 }))
+      .toEqual({ x: 15, y: 30, width: 150, height: 60 }));
+  it('clamps to the image', () =>
+    expect(imageBox({ x: 790, y: 590, width: 10, height: 10 }, { width: 800, height: 600 }, { width: 799, height: 599 }))
+      .toEqual({ x: 789, y: 589, width: 10, height: 10 }));
+  it('names the area', () => expect(areaName(new Date(2026, 10, 8, 9, 5, 7))).toBe('area-20261108-090507.png'));
 });
