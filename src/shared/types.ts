@@ -1,5 +1,6 @@
 import type { AgentDef, EngineId, Tier } from './agent-file';
 import type { ImageInput, Upload } from './attachments';
+import type { BrowserKey, BrowserState, Picked, Rect } from './browser';
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
 import type { GitBranches, GitStatus, ShowResult, ThreadBranch, WorktreeRow } from './git';
 import type { ShellId, ShellOption } from './terminal';
@@ -182,6 +183,26 @@ export interface ArkApi {
     kill(id: string): Promise<void>;
     onData(cb: (id: string, chunk: string) => void): () => void;
     onExit(cb: (id: string, code: number) => void): () => void;
+  };
+  /** One view per project showing the local dev server; rects are CSS px of Ark's page. */
+  browser: {
+    open(projectId: string): Promise<BrowserState>;
+    close(projectId: string): Promise<void>;
+    /** Refuses anything but a local address. */
+    navigate(projectId: string, url: string): Promise<void>;
+    back(projectId: string): Promise<void>;
+    forward(projectId: string): Promise<void>;
+    reload(projectId: string): Promise<void>;
+    /** Where the view goes; null hides it. */
+    layout(projectId: string, bounds: Rect | null): Promise<void>;
+    /** PNG data URL of the visible page, kept in main for `pick`. */
+    capture(projectId: string): Promise<string>;
+    /** A crop of the last capture and the element under it. */
+    pick(projectId: string, rect: Rect): Promise<Picked>;
+    /** Opens the last blocked non-local page in the user's browser. */
+    openBlocked(projectId: string): Promise<void>;
+    onState(cb: (projectId: string, s: BrowserState) => void): () => void;
+    onKey(cb: (projectId: string, k: BrowserKey) => void): () => void;
   };
 }
 

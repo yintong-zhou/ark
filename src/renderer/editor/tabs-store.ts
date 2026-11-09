@@ -23,13 +23,16 @@ export type Doc = {
   /** A read-only diff of this file's side (spec §5.2): no model, never dirty, never reloaded by the watcher. */
   diff?: GitSide;
 };
-export type TabsView = { docs: Doc[]; active: string | null };
+/** The browser tab's key in a project's order; file tab keys contain '\n', so it never collides. */
+export const BROWSER_TAB = 'browser';
+/** `keys` is the full tab order, `BROWSER_TAB` included; `docs` are the file tabs in that order. */
+export type TabsView = { docs: Doc[]; active: string | null; keys: string[] };
 
 const docs = new Map<string, Doc>();
 const order = new Map<string, { keys: string[]; active: string | null }>();
 const snaps = new Map<string, TabsView>();
 const listeners = new Set<() => void>();
-const EMPTY: TabsView = { docs: [], active: null };
+const EMPTY: TabsView = { docs: [], active: null, keys: [] };
 
 function emit() {
   snaps.clear();
@@ -124,16 +127,28 @@ export function activate(projectId: string, key: string | null): void {
   emit();
 }
 
+export const focusBrowserTab = (projectId: string): void => focus(projectId, BROWSER_TAB);
+
+/** Takes a key out of the order; the next tab (or the thread) becomes active when it was the active one. */
+function removeKey(projectId: string, key: string) {
+  const o = of(projectId);
+  const i = o.keys.indexOf(key);
+  const keys = o.keys.filter((k) => k !== key);
+  order.set(projectId, { keys, active: o.active === key ? (keys[Math.min(i, keys.length - 1)] ?? null) : o.active });
+}
+
+export function dropBrowserTab(projectId: string): void {
+  removeKey(projectId, BROWSER_TAB);
+  emit();
+}
+
 export function close(projectId: string, key: string): void {
   const d = docs.get(key);
   if (!d) return;
   if (d.tab.dirty && !confirm(`Discard unsaved changes to ${d.name}?`)) return;
   d.model?.dispose();
   docs.delete(key);
-  const o = of(projectId);
-  const i = o.keys.indexOf(key);
-  const keys = o.keys.filter((k) => k !== key);
-  order.set(projectId, { keys, active: o.active === key ? (keys[Math.min(i, keys.length - 1)] ?? null) : o.active });
+  removeKey(projectId, key);
   if (![...docs.values()].some((x) => rootKey(x.tab.root) === rootKey(d.tab.root))) void window.ark.files.unwatch(d.tab.root).catch(() => {});
   emit();
 }
@@ -234,7 +249,7 @@ export function tabsOf(projectId: string | undefined): TabsView {
   let s = snaps.get(projectId);
   if (!s) {
     const o = of(projectId);
-    s = { docs: o.keys.map((k) => docs.get(k)).filter((d): d is Doc => !!d), active: o.active };
+    s = { docs: o.keys.map((k) => docs.get(k)).filter((d): d is Doc => !!d), active: o.active, keys: o.keys };
     snaps.set(projectId, s);
   }
   return s;
