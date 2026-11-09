@@ -145,7 +145,9 @@ export const branches = (dir: string): Promise<GitBranches> => inRepo(dir, () =>
 export const switchBranch = (dir: string, name: string, track: boolean): Promise<void> =>
   inRepo(dir, async () => {
     const b = await refs(dir);
-    if (!(track ? b.remote.includes(name) : b.local.some((l) => l.name === name))) throw new Error('Unknown branch');
+    const local = b.local.find((l) => l.name === name);
+    if (!(track ? b.remote.includes(name) : local)) throw new Error('Unknown branch');
+    if (!track && local?.worktree && !local.current) throw new Error(`Branch is in use at ${local.worktree}.`);
     // `--`: a listed branch can still start with `-` (made by update-ref, or cloned from such a repo).
     await gitNow(dir, track ? ['switch', '--track', '--', name] : ['switch', '--', name]);
   });
@@ -161,7 +163,9 @@ export const createBranch = (dir: string, name: string): Promise<void> =>
 /** Git's refusal to delete a branch whose commits are on no other branch comes back as `'unmerged'`, for a confirm. */
 export const deleteBranch = (dir: string, name: string, force: boolean): Promise<'deleted' | 'unmerged'> =>
   inRepo(dir, async () => {
-    if (!(await refs(dir)).local.some((l) => l.name === name && !l.current)) throw new Error('Unknown branch');
+    const b = (await refs(dir)).local.find((l) => l.name === name && !l.current);
+    if (!b) throw new Error('Unknown branch');
+    if (b.worktree) throw new Error(`Branch is in use at ${b.worktree}.`);
     try {
       await gitNow(dir, ['branch', force ? '-D' : '-d', '--', name]);
       return 'deleted';

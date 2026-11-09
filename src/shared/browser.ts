@@ -16,6 +16,9 @@ export type BrowserState = {
 /** Shortcuts the focused page hands back to Ark. */
 export type BrowserKey = 'terminal' | 'select';
 
+/** One captured page: its image, address and size stay together until the selection is sent or cancelled. */
+export type BrowserCapture = { id: number; frame: string; url: string; width: number; height: number };
+
 /** What a key pressed in the page does to Ark. Physical `code`, not the typed letter: layouts like Russian change `key`. */
 export function keyAction(i: { key: string; code: string; control: boolean; shift: boolean }): 'reload' | 'swallow' | BrowserKey | undefined {
   if (i.key === 'F5' || i.code === 'F5' || (i.control && i.code === 'KeyR')) return 'reload';

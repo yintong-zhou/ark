@@ -476,8 +476,26 @@ test('branches lists local with track counts and remote-only branches', async ()
   await fetch(dir);
   const b = await branches(dir);
   expect(b.remote).toEqual(['origin/feat']); // origin/main has a local twin
-  expect(b.local[0]).toEqual({ name: 'main', current: true, upstream: 'origin/main', ahead: 1, behind: 0 });
+  expect(b.local[0]).toEqual({ name: 'main', current: true, upstream: 'origin/main', ahead: 1, behind: 0, worktree: dir.replace(/\\/g, '/') });
   expect(b.local[1]).toEqual({ name: 'side', current: false, ahead: 0, behind: 0 });
+});
+
+test('branches in another worktree cannot be switched to or deleted, even with force', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  sh(dir, 'branch', 'free');
+  const wt = addWorktree(dir, 'in-use');
+  const list = await branches(dir);
+  expect(list.local.find((b) => b.name === 'in-use')).toEqual({
+    name: 'in-use', current: false, ahead: 0, behind: 0, worktree: wt.replace(/\\/g, '/'),
+  });
+  await expect(switchBranch(dir, 'in-use', false)).rejects.toThrow('Branch is in use at ');
+  for (const force of [false, true]) await expect(deleteBranch(dir, 'in-use', force)).rejects.toThrow('Branch is in use at ');
+  expect((await status(dir)).branch).toBe('main');
+  expect((await status(wt)).branch).toBe('in-use');
+  await switchBranch(wt, 'in-use', false); // the branch already current here is still usable
+  await switchBranch(dir, 'free', false);
+  expect((await status(dir)).branch).toBe('free');
+  expect((await branches(wt)).local.find((b) => b.name === 'free')?.worktree).toBe(dir.replace(/\\/g, '/'));
 });
 
 test('createBranch switches to the new branch and refuses bad names', async () => {

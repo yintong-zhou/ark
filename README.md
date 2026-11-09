@@ -186,6 +186,8 @@ Windows) and refuses to start a Codex agent if a read-only command can still wri
   write what you want in the box beside it and press **Send to thread** (or Enter). The comment goes to the thread
   that's open in the project, as your message, with a picture of the area and a line naming the page and the element
   under it, so the team finds the code. Esc cancels. With no thread open, open one first; your comment stays.
+  The message keeps the captured page's address even if the page later navigates. Resizing the page area cancels the
+  selection and keeps your comment, ready to select again.
 - **Isolated**: the page can't reach Ark or your files, and it can't open windows. Camera, notifications and downloads are
   refused. Its logins and storage live in a separate session that survives a restart.
 - **Keys in the page**: Ctrl+R and F5 reload the page (not Ark), Ctrl+` toggles the terminal, Ctrl+W does nothing.

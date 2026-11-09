@@ -14,7 +14,7 @@ const bar = () => window.ark.browser;
  */
 export function BrowserPane({ projectId, thread }: { projectId: string; thread?: { id: string; title: string } }) {
   const view = useBrowser(projectId);
-  const { state, address, error, sel, sent } = view;
+  const { state, address, error, capturing, sel, sent } = view;
   const overlay = useOverlayOpen();
   const place = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<string>(); // the page as it was when an overlay opened
@@ -34,7 +34,7 @@ export function BrowserPane({ projectId, thread }: { projectId: string; thread?:
       let alive = true;
       void bar()
         .capture(projectId)
-        .then((url) => alive && setFrame(url))
+        .then(({ frame }) => alive && setFrame(frame))
         .catch(() => {})
         .finally(() => alive && hide());
       return () => {
@@ -59,6 +59,13 @@ export function BrowserPane({ projectId, thread }: { projectId: string; thread?:
   // leaving the pane (another tab, project or area) hides the view; main keeps it alive
   useEffect(() => () => void bar().layout(projectId, null).catch(() => {}), [projectId]);
 
+  useEffect(() => {
+    if (!capturing) return;
+    const cancel = (e: KeyboardEvent) => e.key === 'Escape' && !e.isComposing && cancelSelect(projectId);
+    window.addEventListener('keydown', cancel);
+    return () => window.removeEventListener('keydown', cancel);
+  }, [projectId, capturing]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-4 shrink-0 items-center gap-[4px] border-b border-divider bg-sidebar px-1">
@@ -71,24 +78,29 @@ export function BrowserPane({ projectId, thread }: { projectId: string; thread?:
         <button aria-label="Reload" title="Reload" disabled={!state.url} onClick={() => void bar().reload(projectId)} className={`${ICON_BUTTON} disabled:opacity-40`}>
           <RefreshIcon />
         </button>
-        <input
-          aria-label="Address"
-          value={address}
-          placeholder="localhost:5173"
-          spellCheck={false}
-          onChange={(e) => setAddress(projectId, e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void go(projectId)}
-          className={`${INPUT} min-w-0 flex-1`}
-        />
+        {selecting ? (
+          <p role="status" className="min-w-0 flex-1 truncate px-1 text-meta text-muted">Drag over the area to comment on. Esc to cancel.</p>
+        ) : (
+          <input
+            aria-label="Address"
+            value={address}
+            placeholder="localhost:5173"
+            spellCheck={false}
+            onChange={(e) => setAddress(projectId, e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void go(projectId)}
+            className={`${INPUT} min-w-0 flex-1`}
+          />
+        )}
         {sent && <span role="status" className="shrink-0 text-meta text-muted">{sent}</span>}
         <button
-          disabled={!live}
+          disabled={!live || capturing}
+          aria-busy={capturing || undefined}
           aria-pressed={selecting}
           title="Select an area (Ctrl+Shift+S)"
           onClick={() => (selecting ? cancelSelect(projectId) : void startSelect(projectId))}
           className={selecting ? CTA : BUTTON}
         >
-          Select
+          {capturing ? 'Capturing…' : 'Select'}
         </button>
       </div>
       {error && <p role="alert" className="shrink-0 border-b border-divider px-2 py-[4px] text-meta text-muted">{error}</p>}

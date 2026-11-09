@@ -9,6 +9,7 @@ import {
   navVerdict,
   USER_GESTURE_MS,
   viewBounds,
+  type BrowserCapture,
   type BrowserKey,
   type BrowserState,
   type NavVerdict,
@@ -29,7 +30,9 @@ type Entry = {
   /** Last layout, in the renderer's CSS px (what selections are measured in). */
   bounds?: Rect;
   /** The last capture, which a pick crops so the picture matches what the user saw. */
-  shot?: NativeImage;
+  shot?: { id: number; image: NativeImage; bounds: Rect; url: string; scale: number; navigation: number };
+  captureId?: number;
+  navigation: number;
   /** When the user last pressed a key or a mouse button in the page. */
   lastInput: number;
   failed?: BrowserState['failed'];
@@ -43,6 +46,7 @@ type Entry = {
  */
 export class BrowserViews {
   private readonly views = new Map<string, Entry>();
+  private captureId = 0;
 
   constructor(private readonly deps: Deps) {}
 
@@ -53,7 +57,7 @@ export class BrowserViews {
         webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, partition: PARTITION },
       });
       lockDown(view.webContents.session);
-      e = { view, lastInput: 0 };
+      e = { view, lastInput: 0, navigation: 0 };
       this.views.set(id, e);
       this.wire(id, e);
       view.setVisible(false);
@@ -109,36 +113,55 @@ export class BrowserViews {
     e.view.setVisible(true);
   }
 
-  async capture(id: string): Promise<string> {
+  async capture(id: string): Promise<BrowserCapture> {
     const e = this.get(id);
-    e.shot = await e.view.webContents.capturePage();
-    return e.shot.toDataURL();
+    const wc = e.view.webContents;
+    if (!e.bounds || e.bounds.width <= 0 || e.bounds.height <= 0 || e.failed) throw new Error('The page is not ready to capture.');
+    const bounds = { ...e.bounds };
+    const url = wc.getURL();
+    const navigation = e.navigation;
+    const scale = this.deps.win.webContents.getZoomFactor() / wc.getZoomFactor();
+    const captureId = (e.captureId = ++this.captureId);
+    e.shot = undefined;
+    const image = await wc.capturePage();
+    if (this.views.get(id) !== e || e.captureId !== captureId || e.navigation !== navigation || e.failed || wc.getURL() !== url ||
+        e.bounds.width !== bounds.width || e.bounds.height !== bounds.height ||
+        this.deps.win.webContents.getZoomFactor() / wc.getZoomFactor() !== scale) {
+      throw new Error('The page changed while capturing. Select the area again.');
+    }
+    if (image.isEmpty()) throw new Error('The page capture is empty. Select the area again.');
+    e.shot = { id: captureId, image, bounds, url, scale, navigation };
+    return { id: captureId, frame: image.toDataURL(), url, width: bounds.width, height: bounds.height };
   }
 
   /** Crops the last capture at a selection (renderer CSS px over the view) and describes the element under it. */
-  async pick(id: string, raw: unknown): Promise<Picked> {
+  async pick(id: string, captureId: unknown, raw: unknown): Promise<Picked> {
     const e = this.get(id);
-    const rect = e.bounds ? cleanRect(raw, e.bounds) : undefined;
-    if (!rect || !e.bounds) throw new Error('Invalid selection');
-    if (!e.shot) throw new Error('Select again: the page capture is gone.');
-    let img = e.shot.crop(imageBox(rect, e.bounds, e.shot.getSize()));
+    const shot = e.shot;
+    if (!shot || shot.id !== captureId) throw new Error('Select again: the page capture is gone.');
+    const rect = cleanRect(raw, shot.bounds);
+    if (!rect) throw new Error('Invalid selection');
+    let img = shot.image.crop(imageBox(rect, shot.bounds, shot.image.getSize()));
     let png = img.toPNG();
+    if (!png.byteLength) throw new Error('The selected area is empty. Select the area again.');
     while (png.byteLength > IMAGE_MAX_BYTES) {
       img = img.resize({ width: Math.max(1, Math.round(img.getSize().width * 0.75)) });
       png = img.toPNG();
     }
     const wc = e.view.webContents;
     // Ark CSS px -> screen DIP (Ark's zoom) -> page CSS px (the page's zoom).
-    const k = this.deps.win.webContents.getZoomFactor() / wc.getZoomFactor();
+    const k = shot.scale;
     const pageRect = { x: rect.x * k, y: rect.y * k, width: rect.width * k, height: rect.height * k };
     let element: Picked['element'];
     try {
       // A page stuck in a loop never answers; the picture still goes.
+      if (e.navigation !== shot.navigation || wc.getURL() !== shot.url || e.bounds?.width !== shot.bounds.width || e.bounds?.height !== shot.bounds.height ||
+          this.deps.win.webContents.getZoomFactor() / wc.getZoomFactor() !== k) return { image: png };
       const result = await Promise.race([
         wc.executeJavaScriptInIsolatedWorld(999, [{ code: describeScript(pageRect) }]),
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
       ]);
-      element = cleanElement(result);
+      if (e.navigation === shot.navigation && wc.getURL() === shot.url) element = cleanElement(result);
     } catch {
       element = undefined;
     }
@@ -220,10 +243,15 @@ export class BrowserViews {
     });
 
     wc.on('did-navigate', () => {
+      e.navigation++;
       e.failed = undefined;
+      e.blocked = e.blockedUrl = undefined;
       push();
     });
-    wc.on('did-navigate-in-page', push);
+    wc.on('did-navigate-in-page', (_ev, _url, isMainFrame) => {
+      if (isMainFrame) e.navigation++;
+      push();
+    });
     wc.on('page-title-updated', push);
     wc.on('did-start-loading', push);
     wc.on('did-stop-loading', push);

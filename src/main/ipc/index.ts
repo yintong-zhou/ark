@@ -425,7 +425,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     views.layout(p, b);
   });
   handle('browser:capture', (id) => views.capture(pid(id)));
-  handle('browser:pick', (id, rect) => views.pick(pid(id), rect)); // cleanRect against the view's last bounds
+  handle('browser:pick', (id, captureId, rect) => views.pick(pid(id), captureId, rect)); // ID and rect checked against this capture
   handle('browser:open-blocked', (id) => views.openBlocked(pid(id)));
 
   usage.onChanged((s) => {
