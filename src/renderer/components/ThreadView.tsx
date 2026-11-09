@@ -143,7 +143,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
                   {first ? (
                     <Avatar text={you ? 'You' : initials(author)} you={you} />
                   ) : (
-                    <time dateTime={new Date(m.at).toISOString()} className="block pr-1 text-right text-meta leading-[22px] text-muted opacity-0 group-hover:opacity-100">
+                    <time dateTime={new Date(m.at).toISOString()} className="block whitespace-nowrap pr-1 text-right text-meta leading-[22px] text-muted opacity-0 group-hover:opacity-100">
                       {new Date(m.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                     </time>
                   )}
@@ -152,7 +152,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
                   {first && (
                     <div className="flex items-baseline gap-1">
                       <span className="head">{author}</span>
-                      <time dateTime={new Date(m.at).toISOString()} className="text-meta text-muted">{clock(m.at)}</time>
+                      <time dateTime={new Date(m.at).toISOString()} className="shrink-0 whitespace-nowrap text-meta text-muted">{clock(m.at)}</time>
                       {model && (
                         <span className="inline-flex items-center gap-[4px] rounded-full bg-raised px-1 text-meta text-muted" title={model}>
                           <ModelMark model={model} />
