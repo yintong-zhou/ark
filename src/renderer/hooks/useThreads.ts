@@ -80,5 +80,25 @@ export function useThreads() {
     setProjects((ps) => upsert(ps, p, true));
   }, []);
 
-  return { projects, threads, agents, selected, messages, error, select, create, addProject, gitInit };
+  const removeThread = useCallback(async (id: string) => {
+    await window.ark.threads.remove(id);
+    if (selectedRef.current === id) {
+      selectedRef.current = undefined;
+      setSelected(undefined);
+      setMessages([]);
+    }
+    setThreads((ts) => ts.filter((t) => t.id !== id));
+  }, []);
+
+  const removeProject = useCallback(async (id: string) => {
+    await window.ark.projects.remove(id);
+    if (threads.some((t) => t.projectId === id && t.id === selectedRef.current)) {
+      selectedRef.current = undefined;
+      setSelected(undefined);
+      setMessages([]);
+    }
+    setProjects((ps) => ps.filter((p) => p.id !== id));
+  }, [threads]);
+
+  return { projects, threads, agents, selected, messages, error, select, create, addProject, gitInit, removeThread, removeProject };
 }

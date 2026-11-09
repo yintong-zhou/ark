@@ -4,6 +4,9 @@ import { changedDirs, letter } from '@shared/git';
 import { expand, toggle, useTree } from '../files/tree-store';
 import { useGit } from '../git/status-store';
 import { Menu, type MenuItem } from './Menu';
+import { EntryIcon } from './EntryIcon';
+import { confirmAction } from './Confirm';
+import { NewFileIcon, NewFolderIcon } from './Icons';
 
 type Props = {
   root: RootRef;
@@ -62,8 +65,8 @@ export function FileTree({ root, name, onOpen, attempt, git }: Props) {
       items.push({
         label: 'Delete',
         danger: true,
-        onClick: () => {
-          if (confirm(`Move "${entry.name}" to the Recycle Bin?`)) void attempt(() => window.ark.files.remove(root, rel));
+        onClick: async () => {
+          if (await confirmAction(`Move "${entry.name}" to the Recycle Bin?`)) void attempt(() => window.ark.files.remove(root, rel));
         },
       });
     }
@@ -104,6 +107,7 @@ export function FileTree({ root, name, onOpen, attempt, git }: Props) {
           className={`${ROW} ${selected === rel ? 'bg-raised text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary'}`}
         >
           <span aria-hidden className="flex w-2 shrink-0 justify-center text-meta">{isDir ? (isOpen ? '▾' : '▸') : ''}</span>
+          <EntryIcon name={e.name} folder={isDir} open={isOpen} />
           <span className={`min-w-0 flex-1 truncate ${e.kind === 'link' ? 'italic' : ''}`}>{e.name}</span>
           {mark && <span className={`shrink-0 text-meta ${mark === '!' ? 'text-secondary' : 'text-muted'}`}>{mark}</span>}
         </button>,
@@ -118,9 +122,10 @@ export function FileTree({ root, name, onOpen, attempt, git }: Props) {
     <div className="flex flex-col">
       <div onContextMenu={(ev) => open(ev, '')} className={`${ROW} pl-[4px] text-secondary`}>
         <span aria-hidden className="flex w-2 shrink-0 justify-center text-meta">▾</span>
+        <EntryIcon name={name} folder open />
         <span title={name} className="min-w-0 flex-1 truncate font-heading">{name}</span>
-        <button title="New file" aria-label="New file" onClick={() => startNew('file', '')} className="px-[4px] text-muted hover:text-secondary">+</button>
-        <button title="New folder" aria-label="New folder" onClick={() => startNew('dir', '')} className="px-[4px] text-muted hover:text-secondary">⊞</button>
+        <button title="New file" aria-label="New file" onClick={() => startNew('file', '')} className="flex size-3 items-center justify-center rounded-xs text-muted hover:bg-raised hover:text-secondary [&_svg]:size-[16px]"><NewFileIcon /></button>
+        <button title="New folder" aria-label="New folder" onClick={() => startNew('dir', '')} className="flex size-3 items-center justify-center rounded-xs text-muted hover:bg-raised hover:text-secondary [&_svg]:size-[16px]"><NewFolderIcon /></button>
       </div>
       {tree.error ? <p className="px-1 py-1 text-meta text-muted">{tree.error}</p> : rows('', 1)}
       {menu && <Menu items={menu.items} at={menu.at} onClose={() => setMenu(undefined)} />}

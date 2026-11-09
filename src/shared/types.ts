@@ -74,6 +74,10 @@ export type HistoryDay = {
 
 /** The only API the sandboxed renderer can reach (exposed by the preload as window.ark). */
 export interface ArkApi {
+  window: {
+    onConfirmUnload(cb: () => void): () => void;
+    confirmUnloadResult(answer: boolean): void;
+  };
   usage: {
     get(): Promise<UsageState>;
     refresh(): Promise<UsageState>;
@@ -108,10 +112,12 @@ export interface ArkApi {
   projects: {
     list(): Promise<Project[]>;
     add(dir: string): Promise<Project>;
+    remove(id: string): Promise<void>;
     gitInit(id: string): Promise<Project>;
   };
   threads: {
     list(): Promise<Thread[]>;
+    remove(id: string): Promise<void>;
     open(id: string): Promise<{ thread: Thread; messages: ThreadMessage[] }>;
     create(projectId: string, text: string, files?: Upload[]): Promise<Thread>;
     send(id: string, text: string, files?: Upload[]): Promise<void>;

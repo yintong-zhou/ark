@@ -4,6 +4,7 @@ import { afterSave, diskChanged, keepMine, saveBase, tabKey, touches, type FileT
 import { rootKey, type ReadResult, type RootRef } from '@shared/files';
 import type { GitSide } from '@shared/git';
 import { readable } from '../errors';
+import { confirmAction } from '../components/Confirm';
 import { loadMonaco } from './monaco';
 
 /**
@@ -142,10 +143,11 @@ export function dropBrowserTab(projectId: string): void {
   emit();
 }
 
-export function close(projectId: string, key: string): void {
+export async function close(projectId: string, key: string): Promise<void> {
   const d = docs.get(key);
   if (!d) return;
-  if (d.tab.dirty && !confirm(`Discard unsaved changes to ${d.name}?`)) return;
+  if (d.tab.dirty && !await confirmAction(`Discard unsaved changes to ${d.name}?`)) return;
+  if (docs.get(key) !== d) return;
   d.model?.dispose();
   docs.delete(key);
   removeKey(projectId, key);

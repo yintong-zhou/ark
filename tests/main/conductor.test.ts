@@ -181,6 +181,32 @@ test('create without a manager in the catalog throws', () => {
   );
 });
 
+test('deleting a thread protects running turns and worktrees and stops idle sessions', async () => {
+  const t = c.create(projectId, 'Test');
+  await turns(1);
+  const trash = async (path: string) => rmSync(path, { recursive: true });
+  await expect(c.remove(t.id, trash)).rejects.toThrow('Pause the thread');
+  c.pause(t.id);
+  const paused = thread(t.id);
+  store.save({ ...paused, build: { worktree: 'wt', branch: 'b', plan: '', phases: [], current: 0 } });
+  await expect(c.remove(t.id, trash)).rejects.toThrow('Remove the thread worktree');
+  store.save(paused);
+  await c.remove(t.id, trash);
+  expect(store.get(t.id)).toBeUndefined();
+});
+
+test('removing a project pauses running threads and keeps them for reimport', async () => {
+  const t = c.create(projectId, 'Test');
+  await turns(1);
+  const dir = store.projects()[0].dir;
+  c.removeProject(projectId);
+  expect(store.projects()).toEqual([]);
+  expect(thread(t.id).status).toBe('idle');
+  expect(runner.stopped).toContain(runner.turns[0].chatId);
+  expect(store.addProject(dir).id).toBe(projectId);
+  expect(store.get(t.id)).toBeDefined();
+});
+
 test('IT Services team participates in planning, username mentions and assigned tasks without build access', async () => {
   const ids = IT_SERVICES_AGENTS.map((a) => a.id);
   runner.reply('project-manager', ark({ team: ids.map((agent) => ({ agent, reason: 'Relevant specialist' })) }));

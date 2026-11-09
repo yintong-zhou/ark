@@ -65,6 +65,7 @@ export class Conductor {
   private readonly stuck = new Set<string>(); // chats that started on Claude while it was limited (nowhere to move)
   private readonly pending = new Map<string, Map<number, { chatId: string; id: string }>>(); // threadId -> approval seq -> engine request
   private readonly starting = new Set<string>(); // threads whose startDeveloper is in flight
+  private readonly deleting = new Set<string>();
 
   constructor(private readonly deps: ConductorDeps) {
     deps.runner.onEvent((chatId, e) => {
@@ -176,7 +177,7 @@ export class Conductor {
       if (!head) throw new Error('The project needs a Git repository with at least one commit');
       // git -C walks up: a folder inside another repository would build that one.
       if (!(await ws.isRepoRoot(project.dir))) throw new Error('The project folder must be the root of its Git repository');
-      for (const role of BUILD_ROLES) if (!catalog.get(role)) throw new Error(`Add thread roles in Agents, or fix the ${role} profile if it has errors`);
+      for (const role of BUILD_ROLES) if (!catalog.get(role)) throw new Error(`Add the ${role} agent in Agents, or fix its profile if it has errors`);
       if (catalog.get(DEVELOPER)!.permissions !== 'build') throw new Error('The developer agent needs permissions: build');
       t = this.thread(threadId); // re-read: the thread may have moved during the await
       plan = planOf(t);
@@ -244,6 +245,30 @@ export class Conductor {
     this.save({ ...t, status: 'idle', speaking: undefined }, []);
   }
 
+  removeProject(projectId: string): void {
+    const threads = this.deps.store.threads().filter((t) => t.projectId === projectId);
+    if (threads.some((t) => this.starting.has(t.id))) {
+      throw new Error('Wait for the project\'s thread to finish starting before removing it');
+    }
+    for (const t of threads) if (t.status === 'running') this.pause(t.id);
+    this.deps.store.removeProject(projectId);
+  }
+
+  async remove(threadId: string, trash: (path: string) => Promise<void>): Promise<void> {
+    const t = this.thread(threadId);
+    if (t.status === 'running' || this.starting.has(threadId)) throw new Error('Pause the thread before deleting it');
+    if (t.build && !t.build.removed) throw new Error('Remove the thread worktree before deleting it');
+    this.halt(t);
+    this.deleting.add(threadId);
+    try {
+      for (const agent of [...(this.sessions.get(threadId)?.keys() ?? [])]) this.dropSession(threadId, agent);
+      this.sessions.delete(threadId);
+      await this.deps.store.removeThread(threadId, trash);
+    } finally {
+      this.deleting.delete(threadId);
+    }
+  }
+
   /** The thread's worktree was removed: its folder is never offered again. Does nothing when the thread has no build. */
   worktreeRemoved(threadId: string): void {
     const t = this.thread(threadId);
@@ -268,6 +293,7 @@ export class Conductor {
   }
 
   private thread(id: string): Thread {
+    if (this.deleting.has(id)) throw new Error('Thread is being deleted');
     const t = this.deps.store.get(id);
     if (!t) throw new Error('Unknown thread');
     return t;

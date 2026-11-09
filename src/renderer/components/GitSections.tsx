@@ -3,6 +3,7 @@ import { rootKey, type RootRef } from '@shared/files';
 import type { GitBranches, GitStatus, ThreadBranch, WorktreeRow } from '@shared/git';
 import type { Thread } from '@shared/thread';
 import { useOverlay } from '../browser/overlay';
+import { confirmAction } from './Confirm';
 import { act } from '../git/status-store';
 import { BUTTON_INSET, FIELD_INSET } from './ui';
 
@@ -76,8 +77,8 @@ export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props
     void attempt(() => act(root, call));
   };
 
-  const remove = (branch: string) => {
-    if (!confirm(`Delete branch ${branch}?`)) return;
+  const remove = async (branch: string) => {
+    if (!await confirmAction(`Delete branch ${branch}?`)) return;
     onClose();
     const result = { unmerged: false };
     const del = (force: boolean) =>
@@ -88,7 +89,7 @@ export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props
       });
     void attempt(async () => {
       await del(false);
-      if (result.unmerged && confirm('Not merged. Delete anyway?')) await del(true);
+      if (result.unmerged && await confirmAction('Not merged. Delete anyway?')) await del(true);
     });
   };
 
@@ -175,7 +176,7 @@ const folderName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).
 
 /** Confirms removing a worktree (never the main one); the branch stays. */
 const confirmRemove = (path: string, branch: string | undefined) =>
-  confirm(`Remove worktree ${folderName(path)}? The branch ${branch ?? 'HEAD'} stays.`);
+  confirmAction(`Remove worktree ${folderName(path)}? The branch ${branch ?? 'HEAD'} stays.`);
 
 type SectionProps = {
   /** Runs an action; a refusal shows in the pane's problem line. */
@@ -225,7 +226,7 @@ export function WorktreesSection({ projectId, attempt, onShowThread }: SectionPr
               {i > 0 && (
                 <button
                   disabled={busy || (w.thread !== undefined && !w.thread.done)}
-                  onClick={() => confirmRemove(w.path, w.branch) && run(() => git.removeWorktree(projectId, w.path))}
+                  onClick={async () => { if (await confirmRemove(w.path, w.branch)) run(() => git.removeWorktree(projectId, w.path)); }}
                   className={LINK}
                 >
                   Remove
@@ -262,8 +263,8 @@ export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProp
   if (!build || !info) return null;
   const { into } = info;
 
-  const merge = () => {
-    if (!into || !confirm(`Merge ${info.branch} into ${into}?`)) return;
+  const merge = async () => {
+    if (!into || !await confirmAction(`Merge ${info.branch} into ${into}?`)) return;
     setBusy(true);
     const result = { merged: false };
     void attempt(async () => {
@@ -278,8 +279,8 @@ export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProp
       setInfo(await git.threadBranch(thread.id));
     }).finally(() => setBusy(false));
   };
-  const remove = () => {
-    if (!confirmRemove(build.worktree, build.branch)) return;
+  const remove = async () => {
+    if (!await confirmRemove(build.worktree, build.branch)) return;
     setBusy(true);
     void attempt(() => git.removeWorktree(thread.projectId, build.worktree)).finally(() => setBusy(false));
   };

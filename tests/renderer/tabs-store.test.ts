@@ -26,6 +26,7 @@ vi.mock('../../src/renderer/editor/monaco', () => ({
     editor: { createModel: (text: string) => (models.push(new FakeModel(text)), models.at(-1)) },
   }),
 }));
+vi.mock('../../src/renderer/components/Confirm', () => ({ confirmAction: vi.fn(async () => true) }));
 
 // The disk as main sees it: one file with an mtime that moves on every write.
 const disk = { text: 'v1', mtimeMs: 100 };
@@ -52,16 +53,16 @@ const files = {
   }),
 };
 vi.stubGlobal('window', { ark: { files }, addEventListener: () => {} });
-vi.stubGlobal('confirm', () => true);
 
 const store = await import('../../src/renderer/editor/tabs-store');
+const { confirmAction } = await import('../../src/renderer/components/Confirm');
 const root: RootRef = { kind: 'project', id: '0b5d6a3e-1f2a-4c3b-9d8e-7f6a5b4c3d2e' };
 const P = 'p';
 const KEY = `project:${root.id}\na.ts`;
 const tab = () => store.tabsOf(P).docs.find((d) => d.tab.key === KEY);
 
 beforeEach(async () => {
-  store.close(P, KEY);
+  await store.close(P, KEY);
   disk.text = 'v1';
   disk.mtimeMs = 100;
   gate = Promise.resolve();
@@ -82,6 +83,15 @@ test('two saves in a row never conflict with Ark’s own first save', async () =
   expect(disk.text).toBe('mine 2');
   expect(tab()?.tab.bar).toBeUndefined();
   expect(tab()?.tab.dirty).toBe(false);
+});
+
+test('closing a modified tab keeps changes when confirmation is cancelled', async () => {
+  models.at(-1)!.set('unsaved');
+  vi.mocked(confirmAction).mockResolvedValueOnce(false);
+  await store.close(P, KEY);
+  expect(tab()?.tab.dirty).toBe(true);
+  await store.close(P, KEY);
+  expect(tab()).toBeUndefined();
 });
 
 test('an automatic reload never replaces what the user typed while the file was being read', async () => {

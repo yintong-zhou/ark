@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import type { AgentDef } from '@shared/agent-file';
 import { MANAGER, type Thread, type ThreadMessage } from '@shared/thread';
 import { lastModel, tokensBy, tokensByAgent, windowLines } from '@shared/thread-view';
@@ -7,8 +8,13 @@ import { ModelMark } from './Logos';
 import { Presence } from './Shell';
 import { TokenLine } from './TokenLine';
 
+let teamWidth = 240;
+
 /** The agents on the thread, by role: who speaks, who waits for the user, and what each has used. */
 export function TeamPanel({ thread, messages, agents }: { thread: Thread; messages: ThreadMessage[]; agents: AgentDef[] }) {
+  const [width, setWidth] = useState(teamWidth);
+  const drag = useRef({ x: 0, width: 0 });
+  const resize = (next: number) => setWidth(teamWidth = Math.max(180, Math.min(600, window.innerWidth - 320, next)));
   const tokens = tokensByAgent(messages);
   const byModel = Object.entries(tokensBy(messages, (m) => m.model)).filter(([model]) => model);
   const windows = windowLines(thread.windows);
@@ -19,7 +25,31 @@ export function TeamPanel({ thread, messages, agents }: { thread: Thread; messag
   ].filter((g) => g.ids.length > 0);
 
   return (
-    <aside aria-label="Team" className="flex w-30 shrink-0 flex-col border-l border-divider bg-sidebar">
+    <aside aria-label="Team" style={{ width }} className="relative flex shrink-0 flex-col border-l border-divider bg-sidebar">
+      <div
+        role="separator"
+        aria-label="Resize team panel"
+        aria-orientation="vertical"
+        aria-valuemin={180}
+        aria-valuemax={600}
+        aria-valuenow={width}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          drag.current = { x: e.clientX, width };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) resize(drag.current.width + drag.current.x - e.clientX);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            resize(width + (e.key === 'ArrowLeft' ? 10 : -10));
+          }
+        }}
+        className="absolute inset-y-0 -left-[3px] z-10 w-[6px] cursor-col-resize touch-none hover:bg-divider focus-visible:bg-divider focus-visible:outline-hidden"
+      />
       <header className="drag flex h-6 shrink-0 items-center border-b border-divider px-2">
         <h2 className="text-body">Team</h2>
       </header>

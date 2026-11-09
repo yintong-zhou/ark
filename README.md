@@ -55,8 +55,7 @@ and Max plans.
 Ark keeps a catalog of agents. Each agent is a Markdown file in `%APPDATA%\ark\agents`, so you can edit it in any
 editor and keep it in Git. It has a role prompt, an engine (Claude Code or Codex), and the list of skills it may use.
 
-- **Seeds**: a first set of agents (for example project manager, planner, developer, code and security reviewers) is
-  there from the start.
+- **Default**: Alex, the project manager, is added automatically so you can start a thread.
 - **Import**: copy agents from `~/.claude/agents` and from Claude Code plugins into the catalog.
 - **Draft with AI**: describe an agent in one sentence and a light-tier agent writes a draft for you to approve.
 - **Chat**: pick an agent and a project folder and talk to it, on Claude Code or Codex.
@@ -81,7 +80,7 @@ Atlas lead product, development, QA and DevOps, with Pixel, Sage, Orion, Forge, 
 as specialists. Profiles carry their role, reporting line, handoff rules and L1/L2/L3 decision boundaries. You are
 `@head_of_engineering`; this human role is never an AI agent.
 
-New catalogs start empty. Open **Agents > Add thread roles** to add the project manager and the roles required for builds and reviews. Then open **Agents > Add IT Services team** to add missing profiles;
+New catalogs start with the project manager. **Agents > Add thread roles** adds only the project manager. To run a build, create the `developer`, `code-reviewer` and `security-reviewer` agents in **Agents**, giving the developer build permission. Open **Agents > Add IT Services team** to add missing profiles;
 customized or invalid files are kept, and repeating the action does not duplicate profiles. Agents use the standard's
 usernames, for example `@frontend_dev`, in mentions and task assignments once approved for the thread. Engine **Auto**
 uses the existing Claude Code/Codex routing; profiles need no extra skills and can be edited like any other agent.
@@ -97,6 +96,10 @@ on hold.
 A **project** is a local folder that is a Git repository (Ark offers **Initialize Git** when it is not). A **thread** is
 one piece of work in a project: a conversation between you and a team of agents from the catalog. Each thread keeps its
 transcript on disk in `%APPDATA%\ark\threads`, so it survives closing Ark.
+
+Delete a thread with the × beside its name; Ark moves its conversation and attachments to the Recycle Bin. Pause it
+and remove its worktree first, if applicable. **Remove project** hides the project from Ark, keeping its threads,
+worktrees and original folder. Running threads are paused. Add the same folder again to restore it.
 
 - **Team phase**: when you start a thread, the project manager reads your request and proposes a team from the catalog,
   with a one-line reason for each agent. You edit the list and press **Approve team**. Nobody else speaks until you do.

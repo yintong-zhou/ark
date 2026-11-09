@@ -45,7 +45,7 @@ export function Facts({ rows }: { rows: [label: string, value: ReactNode][] }) {
 }
 
 /** What a pane says when there is nothing to show yet, and the one thing to do about it. */
-export function Empty({ glyph, title, children, action }: { glyph?: string; title: string; children?: ReactNode; action?: ReactNode }) {
+export function Empty({ glyph, title, children, action }: { glyph?: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-start gap-2 px-3 py-5">
       {glyph && <span aria-hidden className="text-[32px] leading-none">{glyph}</span>}

@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
@@ -32,6 +32,31 @@ test('addProject dedupes by folder and detects git', () => {
 
 test('create rejects an unknown project', () => {
   expect(() => new ThreadStore(root).create('nope', 't')).toThrow('Unknown project');
+});
+
+test('removing a project preserves its threads and folder and restores them on reimport', () => {
+  const s = new ThreadStore(root);
+  const project = s.addProject(dir('app'));
+  const thread = s.create(project.id, 'T');
+  s.removeProject(project.id);
+  expect(s.projects()).toEqual([]);
+  expect(() => s.removeProject(project.id)).toThrow('Unknown project');
+  expect(existsSync(project.dir)).toBe(true);
+  expect(s.get(thread.id)?.projectId).toBe(project.id);
+  const other = s.addProject(dir('other'));
+  s.setGit(other.id);
+  expect(new ThreadStore(root).projects().map((p) => p.id)).toEqual([other.id]);
+  expect(s.addProject(project.dir).id).toBe(project.id);
+  expect(s.projects()).toHaveLength(2);
+});
+
+test('removing a project with a running thread is refused', () => {
+  const s = new ThreadStore(root);
+  const project = s.addProject(dir('app'));
+  const thread = s.create(project.id, 'T');
+  s.save({ ...thread, status: 'running' });
+  expect(() => s.removeProject(project.id)).toThrow('Pause');
+  expect(s.projects()).toHaveLength(1);
 });
 
 test('append numbers messages from 1 and survives a new store instance', () => {

@@ -95,12 +95,23 @@ test('adding thread roles preserves existing profiles and supplies valid require
   const c = new Catalog(dir);
   c.save(agent('project-manager', 'Custom coordinator'));
   writeFileSync(join(dir, 'code-reviewer.md'), 'broken profile');
-  expect(c.addThreadAgents()).toEqual({ added: ['developer', 'security-reviewer'], skipped: ['project-manager', 'code-reviewer'] });
+  expect(c.addThreadAgents()).toEqual({ added: [], skipped: ['project-manager'] });
   expect(c.get('project-manager')?.name).toBe('Custom coordinator');
   expect(readFileSync(join(dir, 'code-reviewer.md'), 'utf8')).toBe('broken profile');
-  expect(c.get('developer')?.permissions).toBe('build');
+  expect(c.get('developer')).toBeUndefined();
+  expect(c.get('security-reviewer')).toBeUndefined();
   for (const role of THREAD_AGENTS) expect(validateAgent(role).ok).toBe(true);
   expect(c.addThreadAgents().added).toEqual([]);
+});
+
+test('the default catalog adds only the project manager and preserves existing profiles', () => {
+  const c = new Catalog(dir);
+  expect(c.addDefaultAgent()).toEqual({ added: ['project-manager'], skipped: [] });
+  expect(c.list().agents.map((a) => a.id)).toEqual(['project-manager']);
+  expect(c.get('project-manager')?.name).toBe('Alex - Project manager');
+  c.save(agent('project-manager', 'Custom coordinator'));
+  expect(c.addDefaultAgent()).toEqual({ added: [], skipped: ['project-manager'] });
+  expect(c.get('project-manager')?.name).toBe('Custom coordinator');
 });
 
 test('refuses unsafe ids', () => {

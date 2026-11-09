@@ -4,6 +4,8 @@ import type { Thread } from '@shared/thread';
 import { GIT_BUSY, groups, letter, type GitEntry, type GitSide, type GitStatus } from '@shared/git';
 import { act, useGit } from '../git/status-store';
 import { BranchMenu, ThreadBranchSection, WorktreesSection } from './GitSections';
+import { EntryIcon } from './EntryIcon';
+import { confirmAction } from './Confirm';
 import { DiscardIcon, FetchIcon, FileIcon, MinusIcon, PlusIcon, PullIcon, PushIcon } from './Icons';
 import { BUTTON_INSET, CTA, FIELD } from './ui';
 
@@ -53,8 +55,8 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
   const git = window.ark.git;
   const locked = busyThread || busy; // one action at a time
   const run: Act = (call) => void attempt(() => act(root, call));
-  const discard = (rels: string[], question: string) => {
-    if (confirm(question)) run(() => git.discard(root, rels));
+  const discard = async (rels: string[], question: string) => {
+    if (await confirmAction(question)) run(() => git.discard(root, rels));
   };
   const edit = (text: string) => {
     setMessage(text);
@@ -89,7 +91,8 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
     const l = letter(e, side === 'conflict' ? 'tree' : side);
     return (
       <div key={`${side}:${e.rel}`} className="group flex h-3 items-center gap-[4px] rounded-xs pr-1 text-muted hover:bg-raised/50 hover:text-secondary">
-        <button title={e.rel} onClick={() => (side === 'conflict' ? onOpenFile(e.rel) : onOpenDiff(e.rel, side))} className="flex min-w-0 flex-1 items-baseline gap-[4px] pl-[4px] text-left">
+        <button title={e.rel} onClick={() => (side === 'conflict' ? onOpenFile(e.rel) : onOpenDiff(e.rel, side))} className="flex min-w-0 flex-1 items-center gap-[4px] pl-[4px] text-left">
+          <EntryIcon name={nameOf(e.rel)} folder={e.rel.endsWith('/')} />
           <span className="truncate">{nameOf(e.rel)}</span>
           <span className="truncate text-meta text-muted">{folderOf(e.rel)}</span>
         </button>

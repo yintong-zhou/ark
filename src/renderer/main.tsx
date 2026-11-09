@@ -4,9 +4,11 @@ import '@fontsource/outfit/600.css';
 import '@fontsource/hanken-grotesk/400.css';
 import './index.css';
 import App from './App';
+import { ConfirmHost } from './components/Confirm';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
+    <ConfirmHost />
   </StrictMode>,
 );

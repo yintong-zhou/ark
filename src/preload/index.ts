@@ -5,6 +5,14 @@ import type { ArkApi, ChatEvent, UsageState } from '@shared/types';
 
 // The renderer gets these typed functions only, never ipcRenderer itself.
 const api: ArkApi = {
+  window: {
+    onConfirmUnload: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('window:confirm-unload', listener);
+      return () => ipcRenderer.removeListener('window:confirm-unload', listener);
+    },
+    confirmUnloadResult: (answer) => ipcRenderer.send('window:confirm-unload-result', answer),
+  },
   usage: {
     get: () => ipcRenderer.invoke('usage:get'),
     refresh: () => ipcRenderer.invoke('usage:refresh'),
@@ -59,10 +67,12 @@ const api: ArkApi = {
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),
     add: (dir) => ipcRenderer.invoke('projects:add', dir),
+    remove: (id) => ipcRenderer.invoke('projects:remove', id),
     gitInit: (id) => ipcRenderer.invoke('projects:git-init', id),
   },
   threads: {
     list: () => ipcRenderer.invoke('threads:list'),
+    remove: (id) => ipcRenderer.invoke('threads:remove', id),
     open: (id) => ipcRenderer.invoke('threads:open', id),
     create: (projectId, text, files) => ipcRenderer.invoke('threads:create', projectId, text, files),
     send: (id, text, files) => ipcRenderer.invoke('threads:send', id, text, files),

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -84,6 +84,7 @@ app.whenReady().then(() => {
     history,
   );
   const catalog = new Catalog(join(userData, 'agents'));
+  catalog.addDefaultAgent();
   // The Claude config dir comes from the CLI (it may be moved); until it answers, ~/.claude is used.
   let claudeConfigDir = join(homedir(), '.claude');
   void claudeAuth().then((a) => {
@@ -140,19 +141,32 @@ app.whenReady().then(() => {
     claudeConfigDir: () => claudeConfigDir,
     tempDir: app.getPath('temp'),
   });
-  // Unsaved editor tabs make the page refuse to unload (beforeunload); closing the window or reloading (Ctrl+R) asks
-  // here first. The edits live only in the renderer, so leaving drops them.
+  // The renderer owns the confirmation, but beforeunload remains the final guard for unsaved edits.
+  let closing = false;
+  let pending: 'close' | 'reload' | undefined;
+  let allowUnload = false;
+  win.on('close', () => { closing = true; });
+  win.webContents.on('did-finish-load', () => { allowUnload = false; closing = false; });
   win.webContents.on('will-prevent-unload', (e) => {
-    const answer = dialog.showMessageBoxSync(win, {
-      type: 'warning',
-      buttons: ['Discard changes', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      message: 'Some files have unsaved changes',
-      detail: 'They will be lost.',
-      noLink: true,
-    });
-    if (answer === 0) e.preventDefault(); // preventDefault here lets the page go
+    if (allowUnload) {
+      allowUnload = false;
+      e.preventDefault(); // Electron interprets this as allowing unload.
+      return;
+    }
+    if (!pending) {
+      pending = closing ? 'close' : 'reload';
+      win.webContents.send('window:confirm-unload');
+    }
+    closing = false;
+  });
+  ipcMain.on('window:confirm-unload-result', (event, answer: unknown) => {
+    if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || !pending || typeof answer !== 'boolean') return;
+    const action = pending;
+    pending = undefined;
+    if (!answer || win.isDestroyed()) return;
+    allowUnload = true;
+    if (action === 'close') win.close();
+    else win.webContents.reload();
   });
   app.on('before-quit', () => {
     // Engines first, and one failure must not skip the other.

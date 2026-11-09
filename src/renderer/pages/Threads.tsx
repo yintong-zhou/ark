@@ -5,11 +5,12 @@ import { needsYou } from '@shared/thread-view';
 import { toUploads } from '../components/Attachments';
 import { BrowserPane } from '../components/BrowserPane';
 import { Composer } from '../components/Composer';
+import { confirmAction } from '../components/Confirm';
 import { DiffView } from '../components/DiffView';
 import { Editor } from '../components/Editor';
 import { FileTree } from '../components/FileTree';
 import { GitView } from '../components/GitView';
-import { CloseIcon, PlusIcon } from '../components/Icons';
+import { CloseIcon, ExplorerIcon, GitBranchIcon, PlusIcon, ThreadIcon } from '../components/Icons';
 import { Empty, PaneHeader } from '../components/Page';
 import { Main, Pill, Presence, Sidebar, SideLabel, SideRow } from '../components/Shell';
 import { TabStrip } from '../components/TabStrip';
@@ -37,6 +38,7 @@ type View = 'threads' | 'files' | 'git';
 let lastView: View = 'threads';
 const keepView = (v: View) => (lastView = v);
 const VIEW_LABEL: Record<View, string> = { threads: 'Threads', files: 'Files', git: 'Git' };
+const VIEW_ICON = { threads: ThreadIcon, files: ExplorerIcon, git: GitBranchIcon };
 
 /** What a thread row says on the right. */
 const trail = (t: Thread) =>
@@ -139,22 +141,29 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
           <div className="flex flex-col gap-1 border-t border-divider p-2">
             <p className="truncate text-meta text-muted" title={project.dir}>{project.dir}</p>
             {!project.git && view !== 'git' && initGit}
+            <button onClick={async () => {
+              if (await confirmAction(`Remove ${project.name} from Ark? Running threads will be paused. Files and threads are kept; add the folder again to restore it.`)) void attempt(() => ws.removeProject(project.id));
+            }} className={`${BUTTON} self-start`}>Remove project</button>
           </div>
         )}
       >
         {project && (
-          <div role="tablist" aria-label="Sidebar view" className="flex gap-[4px] px-1 pb-1">
-            {(['threads', 'files', 'git'] as const).map((v) => (
+          <div role="tablist" aria-label="Sidebar view" className="flex flex-wrap gap-[4px] px-1 pb-1">
+            {(['threads', 'files', 'git'] as const).map((v) => {
+              const Icon = VIEW_ICON[v];
+              return (
               <button
                 key={v}
                 role="tab"
                 aria-selected={view === v}
                 onClick={() => setView(v)}
-                className={`rounded-full px-1 text-meta ${view === v ? 'bg-neutral-light text-primary' : 'bg-raised text-muted hover:text-secondary'}`}
+                className={`flex h-4 items-center gap-[4px] rounded-full px-1 text-body [&_svg]:size-[16px] ${view === v ? 'bg-neutral-light text-primary' : 'bg-raised text-muted hover:text-secondary'}`}
               >
+                <Icon />
                 {VIEW_LABEL[v]}
               </button>
-            ))}
+              );
+            })}
           </div>
         )}
         {project && view !== 'threads' ? (
@@ -224,6 +233,9 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 waiting={needsYou(t)}
                 trail={trail(t)}
                 title={t.title}
+                onRemove={async () => {
+                  if (await confirmAction(`Delete thread "${t.title}"? Its conversation and attachments will be moved to the Recycle Bin.`)) void attempt(() => ws.removeThread(t.id));
+                }}
                 onClick={() => {
                   onDraft(false);
                   showThread();
@@ -294,7 +306,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
             <>
               <PaneHeader title={project.name} />
               <Empty
-                glyph="💬"
+                glyph={<span className="block text-muted [&_svg]:size-4"><ThreadIcon /></span>}
                 title={mine.length === 0 ? 'No threads yet' : 'Pick a thread'}
                 action={<button onClick={() => onDraft(true)} className={CTA}>New thread</button>}
               >

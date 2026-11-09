@@ -2,6 +2,7 @@ import { closeBrowser, openBrowser, useBrowser } from '../browser/browser-store'
 import { activate, BROWSER_TAB, close, type TabsView } from '../editor/tabs-store';
 import { CloseIcon, GlobeIcon, TerminalIcon } from './Icons';
 import { ICON_BUTTON } from './ui';
+import { EntryIcon } from './EntryIcon';
 
 const TAB = 'no-drag group flex h-full max-w-[200px] shrink-0 items-center gap-[4px] border-r border-divider px-1 text-meta';
 
@@ -76,6 +77,7 @@ export function TabStrip({ projectId, label, tabs, terminal }: Props) {
               onAuxClick={(e) => e.button === 1 && close(projectId, tab.key)}
               className={`${TAB} cursor-default ${look(on)}`}
             >
+              <EntryIcon name={name} />
               <span className="truncate">{name}</span>
               {tab.root.kind === 'thread' && <span className="shrink-0 text-muted">· worktree</span>}
               {tab.dirty && <span aria-label="Unsaved changes" className="shrink-0 text-secondary">●</span>}

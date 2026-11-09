@@ -19,6 +19,16 @@ export const UsageIcon = () => (
   </svg>
 );
 
+/** Navigation symbols for the sidebar. */
+export const NavIcon = ({ kind }: { kind: 'history' | 'accounts' | 'status' | 'catalog' }) => (
+  <svg {...base}>
+    {kind === 'history' && <><circle cx="10" cy="10" r="7" opacity="0.5" /><path d="M10 5.5v5l3 2" /></>}
+    {kind === 'accounts' && <><circle cx="10" cy="6.5" r="3" /><path d="M4 16c.5-3 2.5-4.5 6-4.5s5.5 1.5 6 4.5" /></>}
+    {kind === 'status' && <><rect x="3" y="4" width="14" height="12" rx="1.5" /><path d="M5.5 12.5h9" /></>}
+    {kind === 'catalog' && <><rect x="3.5" y="3.5" width="5" height="5" rx="1" /><rect x="11.5" y="3.5" width="5" height="5" rx="1" /><rect x="3.5" y="11.5" width="5" height="5" rx="1" /><rect x="11.5" y="11.5" width="5" height="5" rx="1" /></>}
+  </svg>
+);
+
 /** A prompt and a cursor in a window. */
 export const TerminalIcon = () => (
   <svg {...base}>
@@ -27,12 +37,26 @@ export const TerminalIcon = () => (
   </svg>
 );
 
-/** A globe: the built-in browser. */
+/** A browser window and globe. */
 export const GlobeIcon = () => (
   <svg {...base}>
-    <circle cx="10" cy="10" r="7" opacity="0.35" />
-    <path d="M3 10h14M10 3c2.2 2 3 4.5 3 7s-.8 5-3 7c-2.2-2-3-4.5-3-7s.8-5 3-7Z" />
+    <rect x="2.5" y="3.5" width="15" height="13" rx="1.5" />
+    <path d="M3 6.5h14" opacity="0.5" />
+    <circle cx="10" cy="11.5" r="3" />
+    <path d="M7 11.5h6M10 8.5c1.3 1.5 1.3 4.5 0 6-1.3-1.5-1.3-4.5 0-6Z" opacity="0.65" />
   </svg>
+);
+
+export const ThreadIcon = () => (
+  <svg {...base}><path d="M3.5 4.5h13v9h-8l-4 3v-3h-1z" /><path d="M6.5 8h7M6.5 10.5h5" opacity="0.55" /></svg>
+);
+
+export const ExplorerIcon = () => (
+  <svg {...base}><path d="M7 3h6l3 3v10H7zM13 3v3h3M4 6v11h9" /></svg>
+);
+
+export const GitBranchIcon = () => (
+  <svg {...base}><circle cx="6" cy="4.5" r="1.5" /><circle cx="6" cy="15.5" r="1.5" /><circle cx="14" cy="4.5" r="1.5" /><path d="M6 6v8M14 6v1c0 2.5-2 3-4 3H6" /></svg>
 );
 
 /** Back and forward in the browser's history. */
@@ -60,6 +84,18 @@ export const AgentsIcon = () => (
 export const PlusIcon = () => (
   <svg {...base}>
     <path d="M10 4v12M4 10h12" />
+  </svg>
+);
+
+export const NewFileIcon = () => (
+  <svg {...base}>
+    <path d="M11 3H5.5v14H12M11 3l3.5 3.5H11zM14.5 10v7M11 13.5h7" />
+  </svg>
+);
+
+export const NewFolderIcon = () => (
+  <svg {...base}>
+    <path d="M11.5 16.5H3V5h5l1.5 1.5H17v3M15 11v6M12 14h6" />
   </svg>
 );
 

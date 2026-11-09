@@ -4,6 +4,7 @@ import type { UsageState } from '@shared/types';
 import { AGENT_NAME, type Navigate, type Screen } from '../agents';
 import { AgentTag } from './AgentTag';
 import { Avatar, initials } from './Avatar';
+import { NavIcon, UsageIcon } from './Icons';
 import { Sidebar, SideLabel, SideRow } from './Shell';
 
 /** The usage screens, and each agent's own page. */
@@ -11,10 +12,10 @@ export function UsageNav({ screen, state, onNavigate }: { screen: Screen; state:
   const go = (name: 'usage' | 'history' | 'accounts' | 'statusline') => () => onNavigate({ name });
   return (
     <Sidebar title="Usage" label="Usage">
-      <SideRow selected={screen.name === 'usage'} onClick={go('usage')}>Overview</SideRow>
-      <SideRow selected={screen.name === 'history'} onClick={go('history')}>History</SideRow>
-      <SideRow selected={screen.name === 'accounts'} onClick={go('accounts')}>Accounts</SideRow>
-      <SideRow selected={screen.name === 'statusline'} onClick={go('statusline')}>Status line</SideRow>
+      <SideRow lead={<UsageIcon />} selected={screen.name === 'usage'} onClick={go('usage')}>Overview</SideRow>
+      <SideRow lead={<NavIcon kind="history" />} selected={screen.name === 'history'} onClick={go('history')}>History</SideRow>
+      <SideRow lead={<NavIcon kind="accounts" />} selected={screen.name === 'accounts'} onClick={go('accounts')}>Accounts</SideRow>
+      <SideRow lead={<NavIcon kind="status" />} selected={screen.name === 'statusline'} onClick={go('statusline')}>Status line</SideRow>
       <SideLabel>Agents</SideLabel>
       {(state?.agents ?? []).map((a) => (
         <SideRow
@@ -44,7 +45,7 @@ export function AgentsNav({ screen, onNavigate }: { screen: Screen; onNavigate: 
   }, [screen]);
   return (
     <Sidebar title="Agents" label="Agents">
-      <SideRow selected={screen.name === 'agents' || screen.name === 'agent-form'} onClick={() => onNavigate({ name: 'agents' })}>Catalog</SideRow>
+      <SideRow lead={<NavIcon kind="catalog" />} selected={screen.name === 'agents' || screen.name === 'agent-form'} onClick={() => onNavigate({ name: 'agents' })}>Catalog</SideRow>
       <SideLabel>Chat</SideLabel>
       {agents.map((a) => (
         <SideRow

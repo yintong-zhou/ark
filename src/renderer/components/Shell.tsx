@@ -1,19 +1,49 @@
-import type { ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 
 /** The pane that holds the work. Panes manage their own scrolling. */
 export function Main({ children }: { children: ReactNode }) {
   return <main className="flex min-w-0 flex-1 flex-col bg-content">{children}</main>;
 }
 
-/** The 240px column next to the rail: a 48px title, then rows that scroll, then an optional footer. */
+let sidebarWidth = 240;
+const resizeSidebar = (width: number) => Math.max(180, Math.min(600, window.innerWidth - 320, width));
+
+/** The column next to the rail: a 48px title, then rows that scroll, then an optional footer. */
 export function Sidebar({ title, label, children, footer }: { title: string; label: string; children: ReactNode; footer?: ReactNode }) {
+  const [width, setWidth] = useState(sidebarWidth);
+  const drag = useRef({ x: 0, width: 0 });
+  const resize = (next: number) => setWidth(sidebarWidth = resizeSidebar(next));
   return (
-    <nav aria-label={label} className="flex w-30 shrink-0 flex-col border-r border-divider bg-sidebar">
+    <nav aria-label={label} style={{ width }} className="relative flex shrink-0 flex-col border-r border-divider bg-sidebar">
       <header className="drag flex h-6 shrink-0 items-center border-b border-divider px-2">
         <h2 className="truncate text-body">{title}</h2>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">{children}</div>
       {footer}
+      <div
+        role="separator"
+        aria-label="Resize sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={180}
+        aria-valuemax={600}
+        aria-valuenow={width}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          drag.current = { x: e.clientX, width };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) resize(drag.current.width + e.clientX - drag.current.x);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            resize(width + (e.key === 'ArrowLeft' ? -10 : 10));
+          }
+        }}
+        className="absolute inset-y-0 -right-[3px] z-10 w-[6px] cursor-col-resize touch-none hover:bg-divider focus-visible:bg-divider focus-visible:outline-hidden"
+      />
     </nav>
   );
 }
@@ -27,8 +57,8 @@ export function SideLabel({ children }: { children: ReactNode }) {
  * A 32px row: glyph or avatar, name, then a state on the right.
  * A row that waits for the user carries the Accent bar, flush with the column edge.
  */
-export function SideRow({ selected = false, waiting = false, onClick, lead, trail, children, title }: {
-  selected?: boolean; waiting?: boolean; onClick: () => void; lead?: ReactNode; trail?: ReactNode; children: ReactNode; title?: string;
+export function SideRow({ selected = false, waiting = false, onClick, lead, trail, children, title, onRemove }: {
+  selected?: boolean; waiting?: boolean; onClick: () => void; lead?: ReactNode; trail?: ReactNode; children: ReactNode; title?: string; onRemove?: () => void;
 }) {
   return (
     <div className="relative">
@@ -37,7 +67,7 @@ export function SideRow({ selected = false, waiting = false, onClick, lead, trai
         onClick={onClick}
         title={title}
         aria-current={selected ? 'page' : undefined}
-        className={`group flex h-4 w-full items-center gap-1 rounded-sm px-1 text-left ${
+        className={`group flex h-4 w-full items-center gap-1 rounded-sm px-1 text-left ${onRemove ? 'pr-4' : ''} ${
           selected ? 'bg-raised text-secondary' : `hover:bg-raised/50 hover:text-secondary ${waiting ? 'text-secondary' : 'text-muted'}`
         }`}
       >
@@ -45,6 +75,7 @@ export function SideRow({ selected = false, waiting = false, onClick, lead, trai
         <span className="min-w-0 flex-1 truncate">{children}</span>
         {trail}
       </button>
+      {onRemove && <button onClick={onRemove} aria-label={`Delete ${title ?? 'thread'}`} title="Delete thread" className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-secondary">×</button>}
     </div>
   );
 }

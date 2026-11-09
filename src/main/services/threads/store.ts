@@ -20,7 +20,7 @@ export class ThreadStore {
     return join(this.root, 'threads', id);
   }
 
-  projects(): Project[] {
+  private allProjects(): (Project & { archived?: boolean })[] {
     try {
       const p = JSON.parse(readFileSync(join(this.root, 'projects.json'), 'utf8'));
       return Array.isArray(p) ? p : [];
@@ -29,24 +29,50 @@ export class ThreadStore {
     }
   }
 
-  private saveProjects(ps: Project[]): void {
+  projects(): Project[] {
+    return this.allProjects().filter((p) => !p.archived);
+  }
+
+  private saveProjects(ps: (Project & { archived?: boolean })[]): void {
     mkdirSync(this.root, { recursive: true });
     writeAtomic(join(this.root, 'projects.json'), JSON.stringify(ps, null, 2));
   }
 
   addProject(dir: string): Project {
     const d = resolve(dir);
-    const ps = this.projects();
+    const ps = this.allProjects();
     const found = ps.find((p) => p.dir === d);
-    if (found) return found;
+    if (found) {
+      if (found.archived) {
+        delete found.archived;
+        this.saveProjects(ps);
+      }
+      return found;
+    }
     const p: Project = { id: randomUUID(), name: basename(d), dir: d, git: existsSync(join(d, '.git')) };
     this.saveProjects([...ps, p]);
     return p;
   }
 
+  removeProject(id: string): void {
+    const ps = this.allProjects();
+    if (!ps.some((p) => p.id === id)) throw new Error('Unknown project');
+    const p = ps.find((p) => p.id === id && !p.archived);
+    if (!p) throw new Error('Unknown project');
+    if (this.threads().some((t) => t.projectId === id && t.status === 'running')) throw new Error('Pause the project\'s running threads before removing it');
+    p.archived = true;
+    this.saveProjects(ps);
+  }
+
+  async removeThread(id: string, trash: (path: string) => Promise<void>): Promise<void> {
+    if (!this.get(id)) throw new Error('Unknown thread');
+    await trash(this.dir(id));
+    this.lastSeq.delete(id);
+  }
+
   setGit(id: string): Project {
-    const ps = this.projects();
-    const p = ps.find((x) => x.id === id);
+    const ps = this.allProjects();
+    const p = ps.find((x) => x.id === id && !x.archived);
     if (!p) throw new Error('Unknown project');
     p.git = existsSync(join(p.dir, '.git'));
     this.saveProjects(ps);

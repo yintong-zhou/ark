@@ -228,6 +228,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
 
   handle('projects:list', () => store.projects());
   handle('projects:add', (dir) => store.addProject(projectDir(dir)));
+  handle('projects:remove', (id) => conductor.removeProject(uuid(id, 'project')));
   handle('projects:git-init', async (id) => {
     const pid = uuid(id, 'project');
     const p = store.projects().find((x) => x.id === pid);
@@ -237,6 +238,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
 
   handle('threads:list', () => store.threads());
+  handle('threads:remove', (id) => conductor.remove(uuid(id, 'thread'), (path) => shell.trashItem(path)));
   handle('threads:open', (id) => {
     const tid = uuid(id, 'thread');
     const thread = store.get(tid);

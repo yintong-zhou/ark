@@ -81,7 +81,7 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
 
       <section className="flex flex-col items-start gap-1" aria-label="Thread roles">
         <h2 className="text-body">Thread roles</h2>
-        <p className="max-w-[65ch] text-muted">Add the project manager and the three roles required to build and review changes. Existing profiles are kept.</p>
+        <p className="max-w-[65ch] text-muted">Add the project manager needed to start a thread. Existing profiles are kept.</p>
         <button onClick={() => void addThreadAgents()} disabled={addingTeam || catalog === null} className={BUTTON}>Add thread roles</button>
       </section>
 

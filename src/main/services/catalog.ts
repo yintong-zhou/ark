@@ -76,6 +76,11 @@ export class Catalog {
     return this.addMissing(THREAD_AGENTS);
   }
 
+  /** Ensure the coordinator exists without replacing a customized or invalid profile. */
+  addDefaultAgent(): { added: string[]; skipped: string[] } {
+    return this.addThreadAgents();
+  }
+
   private addMissing(agents: AgentDef[]): { added: string[]; skipped: string[] } {
     const added: string[] = [];
     const skipped: string[] = [];
