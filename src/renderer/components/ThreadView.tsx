@@ -12,7 +12,8 @@ import { PHASE_GLYPH, shortModel } from './glyphs';
 import { ModelMark } from './Logos';
 import { PauseIcon } from './Icons';
 import { PaneHeader } from './Page';
-import { ICON_BUTTON } from './ui';
+import { TaskBoard } from './TaskBoard';
+import { BUTTON, ICON_BUTTON } from './ui';
 
 type Props = {
   thread: Thread;
@@ -40,13 +41,14 @@ const clock = (at: number) => {
 /** One thread: a header that says where it stands, the messages with the cards the user can act on, and the composer. */
 export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
   const [text, setText] = useState('');
+  const [board, setBoard] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [inflight, setInflight] = useState(0); // IPC calls awaiting main; the one-shot buttons wait for them
   const end = useRef<HTMLDivElement>(null);
   // keep the latest message and the composer in view
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'end' });
-  }, [messages.length]);
+  }, [messages.length, board]);
 
   const name = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
   const card = actionable(thread, messages);
@@ -91,9 +93,13 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
 
   return (
     <>
-      <PaneHeader title={thread.title} meta={[`${PHASE_GLYPH[thread.phase]} ${PHASE[thread.phase]}`, status]} />
+      <PaneHeader title={thread.title} meta={board ? ['Task board'] : [`${PHASE_GLYPH[thread.phase]} ${PHASE[thread.phase]}`, status]} actions={
+        <button className={BUTTON} aria-pressed={board} onClick={() => setBoard(!board)}>
+          {board ? 'Conversation' : `Tasks (${thread.tasks?.length ?? 0})`}
+        </button>
+      } />
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {board ? <TaskBoard thread={thread} agents={agents} /> : <div className="min-h-0 flex-1 overflow-y-auto">
         <ol className="flex max-w-[960px] flex-col pb-2">
           {rows.map(({ m, first }) => {
             if (m.kind === 'note') {
@@ -188,7 +194,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
           })}
         </ol>
         <div ref={end} />
-      </div>
+      </div>}
 
       <Composer
         label="Message the thread"

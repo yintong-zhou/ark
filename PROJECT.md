@@ -100,6 +100,12 @@ No deadlines: phased development, following the chosen priority order.
 | Extra features — placement in phases to be defined  | None     |
 
 
+## Extra features: current step
+
+Extra features now proceed with the **thread task board**: user-managed cards in To do / In progress / Done, assigned
+to members of the approved team and included in each agent's next turn. Assignment does not schedule a turn. Remaining
+extras (shared project memory, checkpoints/rollback, OpenCode execution and API-key setup) still need a priority order.
+
 ## Open questions to verify
 
 - Test the data sources against the installed agent versions, since the formats have changed over time. In particular:

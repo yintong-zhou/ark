@@ -10,6 +10,9 @@ export type Phase = 'team' | 'planning' | 'build' | 'done';
 export type ThreadStatus = 'running' | 'waiting' | 'idle' | 'error'; // waiting = for the user
 export type Reaction = '👍' | '👎';
 export type TeamPick = { agent: string; reason: string };
+export type TaskStatus = 'todo' | 'doing' | 'done';
+export type TaskInput = { title: string; status: TaskStatus; agent?: string };
+export type ThreadTask = TaskInput & { id: string };
 export const REVIEW_ROUNDS = 2;
 export const BUILD_TURN_MS = 3_600_000; // developer turns, approvals included
 export const BUILD_ROLES = ['developer', 'code-reviewer', 'security-reviewer'] as const;
@@ -50,6 +53,7 @@ export type Thread = {
   id: string; projectId: string; title: string; createdAt: number;
   phase: Phase; status: ThreadStatus;
   tags?: string[];                   // labels the user wrote as #tag, kept on the thread
+  tasks?: ThreadTask[];              // the user's board; assignment never starts an agent
   speaking?: string;                 // agent whose turn is running
   team: string[];                    // approved agent ids, MANAGER first; empty during the team phase
   waitingOn?: string;                // agent that asked the user

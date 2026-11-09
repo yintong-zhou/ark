@@ -4,7 +4,7 @@ import type { BrowserCapture, BrowserKey, BrowserState, Picked, Rect } from './b
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
 import type { GitBranches, GitStatus, ShowResult, ThreadBranch, WorktreeRow } from './git';
 import type { ShellId, ShellOption } from './terminal';
-import type { Project, Reaction, Thread, ThreadMessage, ThreadUpdate } from './thread';
+import type { Project, Reaction, TaskInput, Thread, ThreadMessage, ThreadUpdate } from './thread';
 
 // Common model shared by main, preload and renderer.
 // Times: resetsAt is epoch SECONDS; lastSeen/updatedAt are epoch MILLISECONDS.
@@ -121,6 +121,8 @@ export interface ArkApi {
     /** Allows or denies a pending approval card. */
     answer(id: string, seq: number, allow: boolean): Promise<void>;
     pause(id: string): Promise<void>;
+    saveTask(id: string, taskId: string | null, task: TaskInput): Promise<void>;
+    removeTask(id: string, taskId: string): Promise<void>;
     onUpdate(cb: (u: ThreadUpdate) => void): () => void;
   };
   /** A project folder or a thread worktree; paths are '/'-separated and relative to it. */

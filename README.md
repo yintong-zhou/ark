@@ -113,6 +113,16 @@ Live-tested with codex-cli 0.167.0; 0.132.0 cannot talk to the current model ser
 Windows sandbox (`windows.sandbox = "unelevated"`, no admin rights; without it Codex runs commands unsandboxed on
 Windows) and refuses to start a Codex agent if a read-only command can still write.
 
+## Task board
+
+Open a thread and press **Tasks** to view its board. Add a title, optionally assign an agent from the thread's approved
+team, and choose **To do**, **In progress** or **Done**. Change a card's status from its menu, or use **Edit** to rename
+or reassign it. **Delete** asks first. **Conversation** returns to the messages.
+
+The board is saved with the thread and survives restarting Ark. Agents receive its current state on their next turn,
+including fresh build sessions. Assignment does not start an agent or change the team's turn order; editing cards leaves
+running turns and approval cards alone. Up to 100 tasks per thread, with titles up to 200 characters.
+
 ## Files and editor
 
 - **Files**: the project sidebar switches between **Threads** and **Files**. Files shows the project folder as a tree,

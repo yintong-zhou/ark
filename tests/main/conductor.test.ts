@@ -1181,3 +1181,83 @@ test('worktreeRemoved does nothing for a thread without a build', async () => {
   expect(thread(t.id).build).toBeUndefined();
   expect(updates).toHaveLength(0);
 });
+
+test('task CRUD persists and emits without starting or changing the thread', () => {
+  const t = store.create(projectId, 'Board');
+  store.save({ ...t, team: ['project-manager', 'planner'] });
+  const updates: Thread[] = [];
+  c.onUpdate((u) => updates.push(u.thread));
+  c.saveTask(t.id, null, { title: '  Draft plan  ', status: 'todo', agent: 'planner' });
+  const task = thread(t.id).tasks![0];
+  expect(task).toMatchObject({ title: 'Draft plan', status: 'todo', agent: 'planner' });
+  expect(new ThreadStore(join(root, 'data')).get(t.id)!.tasks).toEqual([task]);
+  c.saveTask(t.id, task.id, { title: 'Updated plan', status: 'done' });
+  expect(thread(t.id).tasks).toEqual([{ id: task.id, title: 'Updated plan', status: 'done' }]);
+  c.removeTask(t.id, task.id);
+  expect(thread(t.id).tasks).toEqual([]);
+  expect(updates.map((u) => u.tasks?.length)).toEqual([1, 1, 0]);
+  expect(thread(t.id).status).toBe('idle');
+  expect(runner.started).toHaveLength(0);
+  expect(store.messages(t.id)).toEqual([]);
+});
+
+test('task mutations refuse bad input, agents outside the team, unknown tasks and excess cards', () => {
+  const t = store.create(projectId, 'Board');
+  expect(() => c.saveTask(t.id, null, { title: 'x', status: 'todo', agent: 'planner' })).toThrow('team');
+  expect(() => c.saveTask(t.id, null, { title: 'x', status: 'todo', agent: 'missing' })).toThrow('team');
+  expect(() => c.saveTask(t.id, null, { title: '', status: 'todo' })).toThrow('title');
+  expect(() => c.saveTask(t.id, 'missing', { title: 'x', status: 'todo' })).toThrow('Unknown task');
+  expect(() => c.removeTask(t.id, 'missing')).toThrow('Unknown task');
+  store.save({ ...t, tasks: Array.from({ length: 100 }, (_, i) => ({ id: `${i}`, title: 'x', status: 'todo' })) });
+  expect(() => c.saveTask(t.id, null, { title: 'x', status: 'todo' })).toThrow('100 tasks');
+  c.saveTask(t.id, '0', { title: 'still editable', status: 'doing' });
+  expect(thread(t.id).tasks).toHaveLength(100);
+});
+
+test('task edits during a running turn survive its saves and reach the next live turn', async () => {
+  const t = await planning();
+  await turns(2); // manager is working on the approved team
+  c.saveTask(t.id, null, { title: 'Review layout', status: 'doing', agent: 'planner' });
+  const task = thread(t.id).tasks![0];
+  runner.reply('project-manager', ark({ next: 'planner' }));
+  await turns(3);
+  expect(thread(t.id).tasks).toEqual([task]);
+  expect(runner.turns[2].text).toContain('"Review layout" | In progress | Planner (@planner)');
+  c.removeTask(t.id, task.id);
+  runner.reply('planner', 'Reviewed.');
+  await turns(4);
+  expect(thread(t.id).tasks).toEqual([]);
+  expect(runner.turns[3].text).not.toContain('Review layout');
+  expect(runner.turns[3].text).toContain('Current task board: no tasks');
+});
+
+test('fresh build sessions receive the current task board even when the transcript is skipped', async () => {
+  const { id } = await planned();
+  c.saveTask(id, null, { title: 'Follow the plan', status: 'todo' });
+  await c.startDeveloper(id);
+  await turns(4);
+  expect(runner.turns.find((x) => x.agent === 'developer')?.text).toContain('"Follow the plan" | To do | Unassigned');
+});
+
+test('task edits and pending approvals survive each other during a developer turn', async () => {
+  const { id, devChat } = await developing();
+  runner.emit(devChat, { type: 'approval', id: 'r1', tool: 'Bash', detail: 'npm ci' });
+  const card = store.messages(id).findLast((m) => m.kind === 'approval')!;
+  c.saveTask(id, null, { title: 'Check layout', status: 'todo', agent: 'developer' });
+  const task = thread(id).tasks![0];
+  expect(thread(id)).toMatchObject({ status: 'running', speaking: 'developer', approvals: [card.seq] });
+  c.answer(id, card.seq, true);
+  expect(thread(id).tasks).toEqual([task]);
+  expect(runner.answers).toEqual([[devChat, 'r1', true]]);
+
+  runner.emit(devChat, { type: 'approval', id: 'r2', tool: 'Bash', detail: 'npm test' });
+  const next = store.messages(id).findLast((m) => m.kind === 'approval')!;
+  c.saveTask(id, task.id, { title: 'Check layout', status: 'doing', agent: 'developer' });
+  c.removeTask(id, task.id);
+  expect(thread(id).approvals).toEqual([next.seq]);
+  expect(runner.stopped).not.toContain(devChat);
+  runner.reply('developer', 'Built.');
+  await until(() => runner.turns.at(-1)?.agent === 'code-reviewer');
+  expect(thread(id)).toMatchObject({ tasks: [], approvals: [] });
+  expect(runner.turns.at(-1)?.text).toContain('Current task board: no tasks');
+});

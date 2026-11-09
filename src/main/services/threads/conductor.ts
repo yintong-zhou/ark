@@ -3,6 +3,7 @@
 // thread, guarded by a generation number: pause, stopAll and every new loop bump it, and a loop that sees
 // a different number after an await returns without recording anything.
 // The build phase runs its own loop (runBuild) over the build rules; Git and the checks go through Workspace.
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentId, type EngineId, type Permissions } from '@shared/agent-file';
@@ -11,6 +12,7 @@ import {
   BUILD_ROLES, BUILD_TURN_MS, CODE_REVIEWER, DEVELOPER, MANAGER, SECURITY_REVIEWER,
   type Control, type NewMessage, type Reaction, type Thread, type ThreadMessage, type ThreadUpdate,
 } from '@shared/thread';
+import { taskBoardText, taskInput } from '@shared/tasks';
 import { claudeLimited, tierUp } from '@shared/agent-problems';
 import { tokensBy, windowLines } from '@shared/thread-view';
 import { mergeTags } from '@shared/tokens';
@@ -126,6 +128,29 @@ export class Conductor {
     const t = this.thread(threadId);
     if (!this.deps.store.messages(threadId).some((m) => m.seq === seq && m.kind === 'agent')) throw new Error('You can react only to an agent message');
     this.emit(t, [this.deps.store.append(threadId, { kind: 'reaction', target: seq, emoji })]);
+  }
+
+  saveTask(threadId: string, taskId: string | null, value: unknown): void {
+    const t = this.thread(threadId);
+    const input = taskInput(value);
+    if (input.agent && (!t.team.includes(input.agent) || !this.deps.catalog.get(input.agent))) {
+      throw new Error('Assign tasks only to agents in this thread\'s team');
+    }
+    const tasks = t.tasks ?? [];
+    if (taskId !== null && !tasks.some((x) => x.id === taskId)) throw new Error('Unknown task');
+    if (taskId === null && tasks.length >= 100) throw new Error('A thread can have at most 100 tasks');
+    const task = { ...input, id: taskId ?? randomUUID() };
+    const next = { ...t, tasks: taskId === null ? [...tasks, task] : tasks.map((x) => x.id === taskId ? task : x) };
+    this.deps.store.save(next);
+    this.emit(next, []);
+  }
+
+  removeTask(threadId: string, taskId: string): void {
+    const t = this.thread(threadId);
+    if (!t.tasks?.some((x) => x.id === taskId)) throw new Error('Unknown task');
+    const next = { ...t, tasks: t.tasks.filter((x) => x.id !== taskId) };
+    this.deps.store.save(next);
+    this.emit(next, []);
   }
 
   /**
@@ -262,9 +287,9 @@ export class Conductor {
   }
 
   private save(t: Thread, added: ThreadMessage[]): void {
-    // A turn works on its own copy of the thread; tags the user wrote and pending approvals live only on disk.
+    // A turn works on its own copy; user edits and pending approvals live only on disk.
     const disk = this.deps.store.get(t.id);
-    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), approvals: disk?.approvals };
+    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), tasks: disk?.tasks, approvals: disk?.approvals };
     this.deps.store.save(next);
     this.emit(next, added);
   }
@@ -454,6 +479,8 @@ export class Conductor {
     );
     // A manager session that starts in the team phase (first turn, or after a pause, an error, a handoff or a restart) has never seen the catalog.
     if (fresh && project && t.phase === 'team' && agent === MANAGER) parts.push('[Ark] ' + NOTES.teamStart(project.name, project.dir, catalog.list().agents));
+    const tasks = store.get(id)?.tasks;
+    if (tasks) parts.push(taskBoardText(tasks, names));
     if (o.note) parts.push('[Ark] ' + o.note);
     let result: TurnResult;
     const engine = this.engines.get(chatId);

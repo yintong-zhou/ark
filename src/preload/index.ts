@@ -68,6 +68,8 @@ const api: ArkApi = {
     startDeveloper: (id) => ipcRenderer.invoke('threads:start-developer', id),
     answer: (id, seq, allow) => ipcRenderer.invoke('threads:answer', id, seq, allow),
     pause: (id) => ipcRenderer.invoke('threads:pause', id),
+    saveTask: (id, taskId, task) => ipcRenderer.invoke('threads:save-task', id, taskId, task),
+    removeTask: (id, taskId) => ipcRenderer.invoke('threads:remove-task', id, taskId),
     onUpdate: (cb) => {
       const listener = (_e: unknown, u: ThreadUpdate) => cb(u);
       ipcRenderer.on('threads:update', listener);

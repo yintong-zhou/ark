@@ -255,6 +255,8 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('threads:start-developer', (id) => conductor.startDeveloper(uuid(id, 'thread')));
   handle('threads:answer', (id, n, allow) => conductor.answer(uuid(id, 'thread'), seq(n), bool(allow)));
   handle('threads:pause', (id) => conductor.pause(uuid(id, 'thread')));
+  handle('threads:save-task', (id, taskId, task) => conductor.saveTask(uuid(id, 'thread'), taskId === null ? null : uuid(taskId, 'task'), task));
+  handle('threads:remove-task', (id, taskId) => conductor.removeTask(uuid(id, 'thread'), uuid(taskId, 'task')));
 
   // Files: the renderer names a root and a rel path; the folder and every path check are decided here.
   const dirOf = (r: unknown) => rootDir(rootRef(r), store);
