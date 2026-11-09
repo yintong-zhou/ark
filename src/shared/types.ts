@@ -88,6 +88,7 @@ export interface ArkApi {
   settings: { getView(): Promise<ViewMode>; setView(v: ViewMode): Promise<void> };
   catalog: {
     list(): Promise<CatalogList>;
+    addItServices(): Promise<{ added: string[]; skipped: string[] }>;
     save(a: AgentDef): Promise<void>;
     remove(id: string): Promise<void>;
     importable(): Promise<ImportableAgent[]>;

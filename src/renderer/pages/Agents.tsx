@@ -16,6 +16,8 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
   const { catalog, skills, engines, error, reload } = useCatalog();
   const [importing, setImporting] = useState<ImportableAgent[] | null>(null);
   const [problem, setProblem] = useState<string>();
+  const [addingTeam, setAddingTeam] = useState(false);
+  const [teamResult, setTeamResult] = useState<string>();
   const skillNames = new Set(skills.map((s) => s.name));
 
   const openImport = async () => {
@@ -34,6 +36,20 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
       setProblem(readable(e));
     }
   };
+  const addTeam = async () => {
+    setAddingTeam(true);
+    setProblem(undefined);
+    setTeamResult(undefined);
+    try {
+      const { added, skipped } = await window.ark.catalog.addItServices();
+      setTeamResult(`Added ${added.length} IT Services agents. ${skipped.length} existing profiles kept.`);
+      await reload();
+    } catch (e) {
+      setProblem(readable(e));
+    } finally {
+      setAddingTeam(false);
+    }
+  };
 
   return (
     <Page
@@ -47,6 +63,15 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
       }
     >
       <EngineRow engines={engines} state={state} reload={reload} />
+
+      <section className="flex flex-col items-start gap-1" aria-label="IT Services team">
+        <h2 className="text-body">IT Services team</h2>
+        <p className="max-w-[65ch] text-muted">14 agents for product, development, quality and operations. You are the Head of engineering. Existing profiles are kept.</p>
+        <button onClick={() => void addTeam()} disabled={addingTeam || catalog === null} className={BUTTON}>
+          {addingTeam ? 'Adding team' : 'Add IT Services team'}
+        </button>
+        {teamResult && <p role="status" className="text-muted">{teamResult}</p>}
+      </section>
 
       {importing && (
         <ul className="flex flex-col">

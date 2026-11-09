@@ -7,6 +7,7 @@ import type { Thread, ThreadMessage } from '@shared/thread';
 import type { ImageInput } from '@shared/attachments';
 import type { ChatEvent, TokenCount, TurnResult, UsageWindow } from '@shared/types';
 import { SEED_AGENTS } from '../../src/main/services/catalog';
+import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
 import { NOTES } from '../../src/main/services/threads/protocol';
 import { Conductor } from '../../src/main/services/threads/conductor';
 import { ThreadStore } from '../../src/main/services/threads/store';
@@ -178,6 +179,28 @@ test('create without a manager in the catalog throws', () => {
   expect(() => new Conductor({ store, catalog: none, runner, workspace: ws, worktrees, windows: () => undefined }).create(projectId, 'x')).toThrow(
     'Add a Project manager agent (id project-manager) to the catalog',
   );
+});
+
+test('IT Services team participates in planning, username mentions and assigned tasks without build access', async () => {
+  const ids = IT_SERVICES_AGENTS.map((a) => a.id);
+  runner.reply('project-manager', ark({ team: ids.map((agent) => ({ agent, reason: 'Relevant specialist' })) }));
+  const t = c.create(projectId, 'Plan an IT service');
+  await idle();
+  expect(runner.turns[0].text).toContain('frontend_dev: Gon — Frontend dev');
+  c.approveTeam(t.id, ids);
+  runner.reply('project-manager', ark({ next: 'dev_manager' }), ark({ ask: 'Continue?' }));
+  runner.reply('dev_manager', 'Objective: implement the approved service. Owner: @frontend_dev.');
+  await idle();
+  c.saveTask(t.id, null, { title: 'Plan the interface', status: 'todo', agent: 'frontend_dev' });
+  c.send(t.id, '@frontend_dev which API contract is needed?');
+  runner.reply('frontend_dev', ark({ ask: 'Which API is approved?' }));
+  await idle();
+  expect(thread(t.id)).toMatchObject({ phase: 'planning', status: 'waiting', waitingOn: 'frontend_dev' });
+  expect(thread(t.id).team).toEqual(['project-manager', ...ids]);
+  expect(runner.turns.at(-1)).toMatchObject({ agent: 'frontend_dev', text: expect.stringContaining('Plan the interface') });
+  expect(runner.started.at(-1)?.prompt).toContain('Your username is @frontend_dev');
+  expect(runner.starts.filter((s) => ids.includes(s.id)).every((s) => s.permissions === 'read-only')).toBe(true);
+  expect(ws.calls).toEqual([]); // advisory roles never create a worktree or start a build
 });
 
 test('approve then planning: manager gives the floor, member replies, floor returns to manager', async () => {

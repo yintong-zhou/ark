@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { validateAgent, type AgentDef } from '@shared/agent-file';
+import { AGENT_ID_RE, validateAgent, type AgentDef } from '@shared/agent-file';
 import { Catalog, SEED_AGENTS, importAgent, importableAgents } from '../../src/main/services/catalog';
+import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
 
 let root: string;
 let dir: string;
@@ -51,20 +52,59 @@ test('lists invalid files without failing', () => {
 test('seeds once', () => {
   const c = new Catalog(dir);
   c.seedIfEmpty();
-  expect(readdirSync(dir).filter((f) => f.endsWith('.md'))).toHaveLength(7);
+  expect(readdirSync(dir).filter((f) => f.endsWith('.md'))).toHaveLength(SEED_AGENTS.length);
   c.remove('seo');
   c.seedIfEmpty();
-  expect(readdirSync(dir).filter((f) => f.endsWith('.md'))).toHaveLength(6);
+  expect(readdirSync(dir).filter((f) => f.endsWith('.md'))).toHaveLength(SEED_AGENTS.length - 1);
 });
 
 test('every seed is a valid agent with a safe id', () => {
   expect(SEED_AGENTS.map((a) => a.id)).toEqual([
     'project-manager', 'planner', 'developer', 'code-reviewer', 'security-reviewer', 'marketing', 'seo',
+    ...IT_SERVICES_AGENTS.map((a) => a.id),
   ]);
   for (const a of SEED_AGENTS) {
     expect(validateAgent(a)).toEqual({ ok: true, agent: a });
-    expect(a.prompt).toContain(`You are ${a.name}, a member of a small team working in Ark.`);
+    expect(a.id).toMatch(AGENT_ID_RE);
   }
+});
+
+test('IT Services profiles match the source directory, with the human outside the catalog', () => {
+  const doc = readFileSync('docs/agents/it-services.md', 'utf8');
+  const directory = [...doc.matchAll(/^\| (\w+) \| `@(\w+)` \| ([^|]+) \| `@(\w+)` \|\r?$/gm)];
+  expect(directory).toHaveLength(14);
+  expect(IT_SERVICES_AGENTS.map((a) => a.id)).toEqual(directory.map((m) => m[2]));
+  expect(new Set(SEED_AGENTS.map((a) => a.id)).size).toBe(SEED_AGENTS.length);
+  for (const [, alias, id, role, manager] of directory) {
+    const a = IT_SERVICES_AGENTS.find((x) => x.id === id)!;
+    expect(a.name).toBe(`${alias} — ${role.trim()}`);
+    expect(a.prompt).toContain(`Your username is @${id}`);
+    expect(a.prompt).toContain(`You report to @${manager}`);
+    expect(a.prompt).toContain('L3: propose and wait for explicit human approval');
+    expect(a.prompt).toContain('Written handoffs include objective, materials, acceptance criteria and deadline');
+    expect(a.prompt).toContain('Only Ark\'s developer implements an approved plan');
+    expect(a).toMatchObject({ engine: { kind: 'auto' }, permissions: 'read-only', skills: [] });
+  }
+  expect(SEED_AGENTS.some((a) => a.id === 'head_of_engineering')).toBe(false);
+});
+
+test('adding IT Services preserves customized, unrelated and broken profiles; repeated adds are safe', () => {
+  const c = new Catalog(dir);
+  c.save(agent('product_manager', 'Custom Nova'));
+  c.save(agent('project-manager', 'Existing coordinator'));
+  writeFileSync(join(dir, 'security.md'), 'broken profile to fix manually');
+  const result = c.addItServices();
+  expect(result.added).toHaveLength(12);
+  expect(result.skipped).toEqual(['product_manager', 'security']);
+  expect(c.get('product_manager')?.name).toBe('Custom Nova');
+  expect(c.get('project-manager')?.name).toBe('Existing coordinator');
+  expect(readFileSync(join(dir, 'security.md'), 'utf8')).toBe('broken profile to fix manually');
+  expect(c.list().invalid).toEqual([{ file: 'security.md', error: expect.any(String) }]);
+  expect(c.addItServices()).toEqual({ added: [], skipped: IT_SERVICES_AGENTS.map((a) => a.id) });
+  c.remove('frontend_dev');
+  c.seedIfEmpty(); // startup must respect deletions in an existing catalog
+  expect(c.get('frontend_dev')).toBeUndefined();
+  expect(c.addItServices().added).toEqual(['frontend_dev']); // explicit request restores it
 });
 
 test('refuses unsafe ids', () => {

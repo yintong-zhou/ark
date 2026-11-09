@@ -1,8 +1,9 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { AGENT_ID_RE, agentId, parseAgentFile, serializeAgentFile, type AgentDef } from '@shared/agent-file';
 import type { CatalogList, ImportableAgent } from '@shared/types';
 import { writeAtomic } from './files';
+import { IT_SERVICES_AGENTS } from './it-services';
 import { pluginInstalls } from './skills';
 
 const SAFE_ID = AGENT_ID_RE;
@@ -29,7 +30,7 @@ const seed = (
   prompt: `You are ${name}, a member of a small team working in Ark. ${role} ${TAIL}`,
 });
 
-/** The first-run catalog: the user's Superpowers cycle (spec §5.3, roles from §8). */
+/** First-run catalog: the Superpowers build cycle plus the IT Services specialists. */
 export const SEED_AGENTS: AgentDef[] = [
   seed('project-manager', 'Project manager', 'Leads the thread, builds the team, and calls you when needed.',
     { kind: 'auto' }, 'light', ['superpowers:brainstorming'], 'read-only',
@@ -53,6 +54,7 @@ export const SEED_AGENTS: AgentDef[] = [
   seed('seo', 'SEO', "Improves how the project's pages rank in search.",
     { kind: 'auto' }, 'light', [], 'read-only',
     "You improve how the project's pages rank in search: titles, descriptions, headings, structure and keywords, without changing what the pages say."),
+  ...IT_SERVICES_AGENTS,
 ];
 
 /** The agent catalog: one `<id>.md` per agent under `dir`. */
@@ -71,7 +73,7 @@ export class Catalog {
     for (const file of mdFiles(this.dir)) {
       const id = file.slice(0, -3);
       if (!SAFE_ID.test(id)) {
-        invalid.push({ file, error: 'file name: use lowercase letters, digits and dashes (up to 64)' });
+        invalid.push({ file, error: 'file name: use lowercase letters, digits, dashes and underscores (up to 64)' });
         continue;
       }
       try {
@@ -109,6 +111,20 @@ export class Catalog {
   /** Writes the seeds only when the folder has no agent file at all, so a deleted seed stays deleted. */
   seedIfEmpty(): void {
     if (mdFiles(this.dir).length === 0) for (const a of SEED_AGENTS) this.save(a);
+  }
+
+  /** Explicitly add the bundled team to an existing catalog, preserving even broken or customized files. */
+  addItServices(): { added: string[]; skipped: string[] } {
+    const added: string[] = [];
+    const skipped: string[] = [];
+    for (const a of IT_SERVICES_AGENTS) {
+      if (existsSync(this.file(a.id))) skipped.push(a.id);
+      else {
+        this.save(a);
+        added.push(a.id);
+      }
+    }
+    return { added, skipped };
   }
 }
 

@@ -56,6 +56,24 @@ needs into a private folder for each session. The engines themselves still keep 
 `npm run test:live` checks this against the real engines. It makes a few cheap calls on your Claude Code and Codex
 subscriptions.
 
+### IT Services team
+
+The catalog includes the 14 profiles from [IT Services standard](docs/agents/it-services.md): Nova, Jarvis, Killua and
+Atlas lead product, development, QA and DevOps, with Pixel, Sage, Orion, Forge, Gon, Echo, Scout, Bolt, Helix and Cipher
+as specialists. Profiles carry their role, reporting line, handoff rules and L1/L2/L3 decision boundaries. You are
+`@head_of_engineering`; this human role is never an AI agent.
+
+New catalogs include the team. In an existing catalog, open **Agents → Add IT Services team** to add missing profiles;
+customized or invalid files are kept, and repeating the action does not duplicate profiles. Agents use the standard's
+usernames, for example `@frontend_dev`, in mentions and task assignments once approved for the thread. Engine **Auto**
+uses the existing Claude Code/Codex routing; profiles need no extra skills and can be edited like any other agent.
+
+These profiles advise in Chat and planning with read-only access. The reporting hierarchy and governance rules are
+instructions in their prompts, not a separate scheduler or an automated release gate. Ark's existing project manager
+still coordinates turns, and its developer and reviewers still run the approved build. Specialists hand implementation
+to that developer; they gain no production, deployment or write access. OpenCode execution and configuration remain
+on hold.
+
 ## Threads
 
 A **project** is a local folder that is a Git repository (Ark offers **Initialize Git** when it is not). A **thread** is

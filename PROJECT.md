@@ -20,7 +20,7 @@ Ark is a local, open-source desktop app (React + Electron) that merges the chann
 **In scope:**
 
 - Windows as the only platform.
-- Support for Claude Code, Codex and OpenCode, with an architecture open to other agents.
+- Agent execution with Claude Code and Codex, with an architecture open to other agents. OpenCode currently has detection only.
 - Agent access through both subscriptions (CLI) and API keys.
 - All modules and features listed below, released in phases.
 
@@ -28,6 +28,7 @@ Ark is a local, open-source desktop app (React + Electron) that merges the chann
 
 - macOS and Linux.
 - Voice input.
+- OpenCode execution and configuration: deferred by user choice; current work focuses on Claude Code and Codex.
 - Gemini CLI, GitHub Copilot CLI, Aider.
 
 ## Key features / requirements
@@ -100,11 +101,22 @@ No deadlines: phased development, following the chosen priority order.
 | Extra features — placement in phases to be defined  | None     |
 
 
+## IT Services agent profiles
+
+The catalog integrates the 14 AI profiles in `docs/agents/it-services.md`, including aliases, role usernames, reporting
+lines, written handoffs and L1/L2/L3 governance instructions. The Head of engineering is the human user. Profiles are
+included for new catalogs; existing catalogs can add missing profiles without replacing customized files.
+
+These specialists are read-only advisors in Chat and planning using Claude Code or Codex. Ark's existing coordinator,
+developer and reviewers retain the thread and build workflow. The organizational hierarchy is prompt guidance; it does
+not add an automated release gate, parallel execution or production access.
+
 ## Extra features: current step
 
-Extra features now proceed with the **thread task board**: user-managed cards in To do / In progress / Done, assigned
+The **thread task board** is complete: user-managed cards in To do / In progress / Done, assigned
 to members of the approved team and included in each agent's next turn. Assignment does not schedule a turn. Remaining
-extras (shared project memory, checkpoints/rollback, OpenCode execution and API-key setup) still need a priority order.
+extras (shared project memory, checkpoints/rollback and API-key setup for Claude Code and Codex) still need a priority
+order. OpenCode execution and configuration are on hold.
 
 ## Open questions to verify
 

@@ -28,6 +28,7 @@ const api: ArkApi = {
   },
   catalog: {
     list: () => ipcRenderer.invoke('catalog:list'),
+    addItServices: () => ipcRenderer.invoke('catalog:add-it-services'),
     save: (a) => ipcRenderer.invoke('catalog:save', a),
     remove: (id) => ipcRenderer.invoke('catalog:remove', id),
     importable: () => ipcRenderer.invoke('catalog:importable'),

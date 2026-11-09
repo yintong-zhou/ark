@@ -24,7 +24,7 @@ export type ParseResult = { ok: true; agent: AgentDef } | { ok: false; error: st
 const TIERS: readonly Tier[] = ['light', 'standard', 'heavy'];
 const PERMISSIONS: readonly Permissions[] = ['read-only', 'build'];
 /** Folder-safe agent id: what the catalog accepts on disk and IPC accepts from the renderer. */
-export const AGENT_ID_RE = /^[a-z0-9-]{1,64}$/;
+export const AGENT_ID_RE = /^[a-z0-9_-]{1,64}$/;
 const SKILL_RE = /^[A-Za-z0-9][\w.-]*(:[A-Za-z0-9][\w.-]*)?$/;
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 const MAX_NAME = 80;
