@@ -16,6 +16,7 @@ import { indexSkills } from '../../src/main/services/skills';
 import { Conductor } from '../../src/main/services/threads/conductor';
 import { ThreadStore } from '../../src/main/services/threads/store';
 import { workspace } from '../../src/main/services/threads/workspace';
+import { SEED_AGENTS } from '../fixtures/catalog-agents';
 
 // Everything lives under one OS temp folder; the runner builds its session folders under it too.
 const tmp = mkdtempSync(join(tmpdir(), 'ark-live-thread-'));
@@ -54,7 +55,7 @@ afterAll(async () => {
 });
 
 test('Thread: the manager answers the first message with a team proposal or a question', async () => {
-  catalog.seedIfEmpty();
+  for (const agent of SEED_AGENTS) catalog.save(agent);
   execFileSync('git', ['init', '-q', projectDir], { stdio: 'ignore' });
   const project = store.addProject(projectDir);
   expect(project.git).toBe(true);

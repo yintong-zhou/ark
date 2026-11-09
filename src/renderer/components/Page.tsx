@@ -6,7 +6,7 @@ export function PaneHeader({ title, meta = [], actions }: { title: string; meta?
     <header className="drag flex h-6 shrink-0 items-center gap-2 border-b border-divider px-3">
       {/* the title gives way first: what the thread is doing matters more than the rest of its name */}
       <h1 className="min-w-0 truncate text-title">{title}</h1>
-      <div className="flex max-w-[60%] shrink-0 gap-2 text-muted">
+      <div className="flex min-w-0 max-w-[60%] gap-2 overflow-hidden text-muted">
         {meta.map((m, i) => (
           <span key={m} className={i === meta.length - 1 ? 'truncate' : 'shrink-0'}>{m}</span>
         ))}

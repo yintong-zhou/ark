@@ -84,7 +84,6 @@ app.whenReady().then(() => {
     history,
   );
   const catalog = new Catalog(join(userData, 'agents'));
-  catalog.seedIfEmpty();
   // The Claude config dir comes from the CLI (it may be moved); until it answers, ~/.claude is used.
   let claudeConfigDir = join(homedir(), '.claude');
   void claudeAuth().then((a) => {

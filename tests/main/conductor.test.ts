@@ -6,7 +6,7 @@ import type { AgentDef } from '@shared/agent-file';
 import type { Thread, ThreadMessage } from '@shared/thread';
 import type { ImageInput } from '@shared/attachments';
 import type { ChatEvent, TokenCount, TurnResult, UsageWindow } from '@shared/types';
-import { SEED_AGENTS } from '../../src/main/services/catalog';
+import { SEED_AGENTS } from '../fixtures/catalog-agents';
 import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
 import { NOTES } from '../../src/main/services/threads/protocol';
 import { Conductor } from '../../src/main/services/threads/conductor';

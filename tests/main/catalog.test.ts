@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { AGENT_ID_RE, validateAgent, type AgentDef } from '@shared/agent-file';
-import { Catalog, SEED_AGENTS, importAgent, importableAgents } from '../../src/main/services/catalog';
+import { Catalog, importAgent, importableAgents } from '../../src/main/services/catalog';
 import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
 
 let root: string;
@@ -49,32 +49,16 @@ test('lists invalid files without failing', () => {
   expect(invalid[0].error).toContain('frontmatter');
 });
 
-test('seeds once', () => {
-  const c = new Catalog(dir);
-  c.seedIfEmpty();
-  expect(readdirSync(dir).filter((f) => f.endsWith('.md'))).toHaveLength(SEED_AGENTS.length);
-  c.remove('seo');
-  c.seedIfEmpty();
-  expect(readdirSync(dir).filter((f) => f.endsWith('.md'))).toHaveLength(SEED_AGENTS.length - 1);
-});
-
-test('every seed is a valid agent with a safe id', () => {
-  expect(SEED_AGENTS.map((a) => a.id)).toEqual([
-    'project-manager', 'planner', 'developer', 'code-reviewer', 'security-reviewer', 'marketing', 'seo',
-    ...IT_SERVICES_AGENTS.map((a) => a.id),
-  ]);
-  for (const a of SEED_AGENTS) {
-    expect(validateAgent(a)).toEqual({ ok: true, agent: a });
-    expect(a.id).toMatch(AGENT_ID_RE);
-  }
-});
-
 test('IT Services profiles match the source directory, with the human outside the catalog', () => {
   const doc = readFileSync('docs/agents/it-services.md', 'utf8');
   const directory = [...doc.matchAll(/^\| (\w+) \| `@(\w+)` \| ([^|]+) \| `@(\w+)` \|\r?$/gm)];
   expect(directory).toHaveLength(14);
   expect(IT_SERVICES_AGENTS.map((a) => a.id)).toEqual(directory.map((m) => m[2]));
-  expect(new Set(SEED_AGENTS.map((a) => a.id)).size).toBe(SEED_AGENTS.length);
+  expect(new Set(IT_SERVICES_AGENTS.map((a) => a.id)).size).toBe(IT_SERVICES_AGENTS.length);
+  for (const a of IT_SERVICES_AGENTS) {
+    expect(validateAgent(a)).toEqual({ ok: true, agent: a });
+    expect(a.id).toMatch(AGENT_ID_RE);
+  }
   for (const [, alias, id, role, manager] of directory) {
     const a = IT_SERVICES_AGENTS.find((x) => x.id === id)!;
     expect(a.name).toBe(`${alias} - ${role.trim()}`);
@@ -85,7 +69,7 @@ test('IT Services profiles match the source directory, with the human outside th
     expect(a.prompt).toContain('Only Ark\'s developer implements an approved plan');
     expect(a).toMatchObject({ engine: { kind: 'auto' }, permissions: 'read-only', skills: [] });
   }
-  expect(SEED_AGENTS.some((a) => a.id === 'head_of_engineering')).toBe(false);
+  expect(IT_SERVICES_AGENTS.some((a) => a.id === 'head_of_engineering')).toBe(false);
 });
 
 test('adding IT Services preserves customized, unrelated and broken profiles; repeated adds are safe', () => {
@@ -102,7 +86,6 @@ test('adding IT Services preserves customized, unrelated and broken profiles; re
   expect(c.list().invalid).toEqual([{ file: 'security.md', error: expect.any(String) }]);
   expect(c.addItServices()).toEqual({ added: [], skipped: IT_SERVICES_AGENTS.map((a) => a.id) });
   c.remove('frontend_dev');
-  c.seedIfEmpty(); // startup must respect deletions in an existing catalog
   expect(c.get('frontend_dev')).toBeUndefined();
   expect(c.addItServices().added).toEqual(['frontend_dev']); // explicit request restores it
 });

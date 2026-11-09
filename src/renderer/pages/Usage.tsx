@@ -161,7 +161,8 @@ function CompactTable({ sessions, byId, now, onNavigate, thresholds }: {
     return <p className="max-w-[60ch] text-muted">No open sessions. Start Claude Code or Codex in a terminal and they show up here.</p>;
   }
   return (
-    <table className="w-full border-collapse">
+    <div className="min-w-0 overflow-x-auto">
+    <table className="w-full min-w-[640px] border-collapse">
       <thead>
         <tr>
           <th className={`${TH} w-[40%]`}>Session</th>
@@ -206,6 +207,7 @@ function CompactTable({ sessions, byId, now, onNavigate, thresholds }: {
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 
@@ -213,7 +215,7 @@ function Detailed({ agents, sessions, now, onNavigate, thresholds }: {
   agents: AgentStatus[]; sessions: Session[]; now: number; onNavigate: Navigate; thresholds: Record<EngineId, number>;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-5">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-3">
       <section className="flex flex-col">
         <h2 className="pb-1 text-body">Agents</h2>
         {agents.map((a) => (

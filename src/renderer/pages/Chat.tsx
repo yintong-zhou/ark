@@ -103,7 +103,7 @@ function Entry({ e, agentName }: { e: ChatEntry; agentName: string }) {
   const you = e.role === 'user';
   const author = you ? 'You' : agentName;
   return (
-    <li className="mt-2 flex gap-2 px-3 pb-[2px] pt-[4px] hover:bg-raised/30">
+    <li className="mt-2 flex gap-2 px-3 hover:bg-raised/30">
       <Avatar text={you ? 'You' : initials(author)} you={you} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1">

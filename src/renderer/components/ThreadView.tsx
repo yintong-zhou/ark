@@ -112,14 +112,14 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
             if (m.kind === 'phase') {
               const phase = thread.build?.phases[m.index];
               return phase && (
-                <li key={m.seq} className="mt-2 pl-[72px] pr-3">
+                <li key={m.seq} className="mt-2 pl-[80px] pr-3">
                   <PhaseCard phase={phase} index={m.index} total={thread.build?.phases.length ?? 0} />
                 </li>
               );
             }
             if (m.kind === 'approval') {
               return (
-                <li key={m.seq} className="mt-2 pl-[72px] pr-3">
+                <li key={m.seq} className="mt-2 pl-[80px] pr-3">
                   <ApprovalCard
                     m={m}
                     name={name(m.agent)}
@@ -137,7 +137,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
             const model = m.kind === 'agent' ? m.model || lastModel(messages, m.agent) : undefined;
             const mood = m.kind === 'agent' ? reactions.get(m.seq) : undefined;
             return (
-              <li key={m.seq} className={`group relative flex gap-2 px-3 pb-[2px] hover:bg-raised/30 ${first ? 'mt-2 pt-[4px]' : 'mt-[2px]'}`}>
+              <li key={m.seq} className={`group relative flex gap-2 px-3 hover:bg-raised/30 ${first ? 'mt-2' : 'mt-[2px]'}`}>
                 {mine && <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-accent" />}
                 <div className="w-5 shrink-0">
                   {first ? (

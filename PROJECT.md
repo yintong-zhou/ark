@@ -105,7 +105,7 @@ No deadlines: phased development, following the chosen priority order.
 
 The catalog integrates the 14 AI profiles in `docs/agents/it-services.md`, including aliases, role usernames, reporting
 lines, written handoffs and L1/L2/L3 governance instructions. The Head of engineering is the human user. Profiles are
-included for new catalogs; existing catalogs can add missing profiles without replacing customized files.
+available to add to the initially empty catalog without replacing customized files.
 
 These specialists are read-only advisors in Chat and planning using Claude Code or Codex. Ark's existing coordinator,
 developer and reviewers retain the thread and build workflow. The organizational hierarchy is prompt guidance; it does
