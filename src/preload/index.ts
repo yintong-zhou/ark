@@ -146,7 +146,7 @@ const api: ArkApi = {
     reload: (projectId) => ipcRenderer.invoke('browser:reload', projectId),
     layout: (projectId, bounds) => ipcRenderer.invoke('browser:layout', projectId, bounds),
     capture: (projectId) => ipcRenderer.invoke('browser:capture', projectId),
-    pick: (projectId, rect) => ipcRenderer.invoke('browser:pick', projectId, rect),
+    pick: (projectId, captureId, rect) => ipcRenderer.invoke('browser:pick', projectId, captureId, rect),
     openBlocked: (projectId) => ipcRenderer.invoke('browser:open-blocked', projectId),
     onState: (cb) => {
       const listener = (_e: unknown, projectId: string, s: BrowserState) => cb(projectId, s);

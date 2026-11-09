@@ -120,8 +120,9 @@ export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props
         <>
           <p className="section flex h-3 items-center px-2">Delete branch…</p>
           {deletable.map((b) => (
-            <button key={b.name} role="menuitem" title={b.name} disabled={locked} onClick={() => remove(b.name)} className={ITEM}>
+            <button key={b.name} role="menuitem" title={b.worktree ? `In use at ${b.worktree}` : b.name} disabled={locked || !!b.worktree} onClick={() => remove(b.name)} className={ITEM}>
               <span className="min-w-0 flex-1 truncate">{b.name}</span>
+              {b.worktree && <span className="shrink-0 text-meta text-muted">In worktree</span>}
             </button>
           ))}
         </>
@@ -136,14 +137,15 @@ export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props
                 <button
                   key={b.name}
                   role="menuitem"
-                  title={b.name}
+                  title={b.worktree && !b.current ? `In use at ${b.worktree}` : b.name}
                   aria-current={b.name === current || undefined}
-                  disabled={locked}
+                  disabled={locked || (!!b.worktree && !b.current)}
                   onClick={() => (b.name === current ? onClose() : go(() => git.switchBranch(root, b.name, false)))}
                   className={ITEM}
                 >
                   <span aria-hidden className="w-2 shrink-0 text-muted">{b.name === current ? '✓' : ''}</span>
                   <span className="min-w-0 flex-1 truncate">{b.name}</span>
+                  {b.worktree && !b.current && <span className="shrink-0 text-meta text-muted">In worktree</span>}
                   {b.upstream && <span className="shrink-0 text-meta text-muted">↑{b.ahead} ↓{b.behind}</span>}
                 </button>
               ))}

@@ -87,24 +87,25 @@ export function letter(e: GitEntry, side: GitSide | 'tree'): string {
 }
 
 /** `ahead`/`behind` are 0 without an upstream or when it is gone. */
-export type GitBranch = { name: string; current: boolean; upstream?: string; ahead: number; behind: number };
+export type GitBranch = { name: string; current: boolean; upstream?: string; ahead: number; behind: number; worktree?: string };
 
 /** `remote` holds short names like `origin/feat`: no remote HEAD, and none that already has a local twin. */
 export type GitBranches = { local: GitBranch[]; remote: string[] };
 
 /** The `git for-each-ref --format` that `parseRefs` reads: one ref per line, fields split by NUL. */
-export const REFS_FORMAT = '%(refname)%00%(refname:short)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(HEAD)';
+export const REFS_FORMAT = '%(refname)%00%(refname:short)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(HEAD)%00%(worktreepath)';
 
 /** Reads `for-each-ref` output made with REFS_FORMAT. Locals keep Git's order, the current one first. */
 export function parseRefs(out: string): GitBranches {
   const local: GitBranch[] = [];
   const remotes: { name: string; rest: string }[] = [];
-  for (const l of out.split('\n')) {
+  for (const l of out.split(/\r?\n/)) {
     // Names come from the full ref: `:short` turns a branch that shares a tag's name into `heads/<name>`.
-    const [ref, , upstream, track, head] = l.split('\0');
+    const [ref, , upstream, track, head, worktree] = l.split('\0');
     if (ref.startsWith('refs/heads/')) {
       const b: GitBranch = { name: ref.slice('refs/heads/'.length), current: head === '*', ahead: 0, behind: 0 };
       if (upstream) b.upstream = upstream;
+      if (worktree) b.worktree = worktree;
       b.ahead = Number(/ahead (\d+)/.exec(track)?.[1] ?? 0);
       b.behind = Number(/behind (\d+)/.exec(track)?.[1] ?? 0);
       if (b.current) local.unshift(b);

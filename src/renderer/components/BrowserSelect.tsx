@@ -25,19 +25,30 @@ export function BrowserSelect({ projectId, view, thread }: { projectId: string; 
   const [from, setFrom] = useState<{ x: number; y: number }>();
   const [drag, setDrag] = useState<Rect>();
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const width = sel?.width;
+  const height = sel?.height;
 
   useEffect(() => {
     const el = root.current;
     if (!el) return;
+    let cancelFrame: number | undefined;
     const read = () => {
       const b = el.getBoundingClientRect(); // fractional, like the bounds main validates against
+      if (width !== undefined && height !== undefined && (Math.abs(b.width - width) > 0.5 || Math.abs(b.height - height) > 0.5)) {
+        // Finish the observer's layout pass before removing the selection.
+        cancelFrame ??= window.requestAnimationFrame(() => cancelSelect(projectId));
+        return;
+      }
       setSize({ width: b.width, height: b.height });
     };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    return () => {
+      ro.disconnect();
+      if (cancelFrame !== undefined) window.cancelAnimationFrame(cancelFrame);
+    };
+  }, [projectId, width, height]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && cancelSelect(projectId);
@@ -45,10 +56,10 @@ export function BrowserSelect({ projectId, view, thread }: { projectId: string; 
     return () => window.removeEventListener('keydown', onKey);
   }, [projectId]);
 
-  const ready = !!sel?.rect;
+  const rect = sel?.rect;
   useEffect(() => {
-    if (ready) area.current?.focus();
-  }, [ready]);
+    if (rect) area.current?.focus();
+  }, [rect]);
 
   const point = (e: PointerEvent) => {
     const r = root.current!.getBoundingClientRect();
@@ -85,7 +96,6 @@ export function BrowserSelect({ projectId, view, thread }: { projectId: string; 
       className="absolute inset-0 cursor-crosshair select-none overflow-hidden"
     >
       {sel && <img src={sel.frame} alt="" draggable={false} className="size-full object-fill" />}
-      <p className="pointer-events-none absolute inset-x-0 top-0 bg-sidebar/90 px-2 py-[4px] text-meta text-muted">Drag over the area to comment on. Esc to cancel.</p>
       {shown && (
         <div
           className="pointer-events-none absolute border-2 border-dashed border-accent bg-accent/10"

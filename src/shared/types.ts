@@ -1,6 +1,6 @@
 import type { AgentDef, EngineId, Tier } from './agent-file';
 import type { ImageInput, Upload } from './attachments';
-import type { BrowserKey, BrowserState, Picked, Rect } from './browser';
+import type { BrowserCapture, BrowserKey, BrowserState, Picked, Rect } from './browser';
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
 import type { GitBranches, GitStatus, ShowResult, ThreadBranch, WorktreeRow } from './git';
 import type { ShellId, ShellOption } from './terminal';
@@ -195,10 +195,10 @@ export interface ArkApi {
     reload(projectId: string): Promise<void>;
     /** Where the view goes; null hides it. */
     layout(projectId: string, bounds: Rect | null): Promise<void>;
-    /** PNG data URL of the visible page, kept in main for `pick`. */
-    capture(projectId: string): Promise<string>;
-    /** A crop of the last capture and the element under it. */
-    pick(projectId: string, rect: Rect): Promise<Picked>;
+    /** PNG data URL with its address and size, kept in main for `pick`. */
+    capture(projectId: string): Promise<BrowserCapture>;
+    /** A crop of this capture and the element under it. Refuses a replaced capture. */
+    pick(projectId: string, captureId: number, rect: Rect): Promise<Picked>;
     /** Opens the last blocked non-local page in the user's browser. */
     openBlocked(projectId: string): Promise<void>;
     onState(cb: (projectId: string, s: BrowserState) => void): () => void;

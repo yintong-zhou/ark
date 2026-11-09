@@ -67,18 +67,20 @@ test('parseRefs: current first, track counts, remote HEAD and twins left out', (
   const line = (...f: string[]) => f.join('\0');
   const out = [
     line('refs/heads/a', 'a', '', '', ' '),
-    line('refs/heads/main', 'main', 'origin/main', 'ahead 2, behind 1', '*'),
+    line('refs/heads/main', 'main', 'origin/main', 'ahead 2, behind 1', '*', 'C:/my project'),
+    line('refs/heads/busy', 'busy', '', '', ' ', 'C:/worktrees/client app'),
     line('refs/heads/old', 'old', 'origin/old', 'gone', ' '),
     line('refs/heads/v1', 'heads/v1', '', '', ' '), // a tag named v1 makes :short say heads/v1
     line('refs/remotes/origin/HEAD', 'origin', '', '', ' '),
     line('refs/remotes/origin/main', 'origin/main', '', '', ' '),
     line('refs/remotes/origin/a', 'origin/a', '', '', ' '),
     line('refs/remotes/origin/feat/x', 'origin/feat/x', '', '', ' '),
-  ].join('\n') + '\n';
+  ].join('\r\n') + '\r\n';
   expect(parseRefs(out)).toEqual({
     local: [
-      { name: 'main', current: true, upstream: 'origin/main', ahead: 2, behind: 1 },
+      { name: 'main', current: true, upstream: 'origin/main', ahead: 2, behind: 1, worktree: 'C:/my project' },
       { name: 'a', current: false, ahead: 0, behind: 0 },
+      { name: 'busy', current: false, ahead: 0, behind: 0, worktree: 'C:/worktrees/client app' },
       { name: 'old', current: false, upstream: 'origin/old', ahead: 0, behind: 0 },
       { name: 'v1', current: false, ahead: 0, behind: 0 },
     ],
