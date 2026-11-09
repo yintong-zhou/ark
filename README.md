@@ -244,6 +244,10 @@ running turns and approval cards alone. Up to 100 tasks per thread, with titles 
 
 ## Run it
 
+Install Ark with the Windows installer produced by `npm run dist`. The installer adds Ark to your user PATH. Open a
+new terminal and run `ark start` to launch the app; uninstalling Ark removes its PATH entry. Existing terminals need to
+be reopened to pick up the change.
+
 Requirements: Windows, Node.js 22 or newer.
 
 ```sh

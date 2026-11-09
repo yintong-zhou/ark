@@ -10,6 +10,11 @@ npmRebuild: false
 extraResources:
   - from: resources/statusline-wrapper.cjs
     to: statusline-wrapper.cjs
+extraFiles:
+  - from: resources/installer/ark.cmd
+    to: bin/ark.cmd
+nsis:
+  include: resources/installer/installer.nsh
 win:
   target: nsis
   icon: resources/icon.png
