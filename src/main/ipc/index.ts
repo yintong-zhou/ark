@@ -161,6 +161,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
 
   handle('catalog:list', () => catalog.list());
   handle('catalog:add-it-services', () => catalog.addItServices());
+  handle('catalog:add-thread-agents', () => catalog.addThreadAgents());
   handle('catalog:importable', () => importableAgents(claudeConfigDir()));
   handle('catalog:save', (a) => {
     const r = validateAgent(a);

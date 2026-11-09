@@ -5,6 +5,7 @@ import type { CatalogList, ImportableAgent } from '@shared/types';
 import { writeAtomic } from './files';
 import { IT_SERVICES_AGENTS } from './it-services';
 import { pluginInstalls } from './skills';
+import { THREAD_AGENTS } from './thread-agents';
 
 const SAFE_ID = AGENT_ID_RE;
 const mdFiles = (dir: string): string[] => {
@@ -68,9 +69,17 @@ export class Catalog {
 
   /** Explicitly add the bundled team to an existing catalog, preserving even broken or customized files. */
   addItServices(): { added: string[]; skipped: string[] } {
+    return this.addMissing(IT_SERVICES_AGENTS);
+  }
+
+  addThreadAgents(): { added: string[]; skipped: string[] } {
+    return this.addMissing(THREAD_AGENTS);
+  }
+
+  private addMissing(agents: AgentDef[]): { added: string[]; skipped: string[] } {
     const added: string[] = [];
     const skipped: string[] = [];
-    for (const a of IT_SERVICES_AGENTS) {
+    for (const a of agents) {
       if (existsSync(this.file(a.id))) skipped.push(a.id);
       else {
         this.save(a);

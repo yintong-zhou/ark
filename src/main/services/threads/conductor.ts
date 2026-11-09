@@ -79,7 +79,7 @@ export class Conductor {
 
   create(projectId: string, text: string, files: Upload[] = []): Thread {
     const { store, catalog } = this.deps;
-    if (!catalog.get(MANAGER)) throw new Error('Add a Project manager agent (id project-manager) to the catalog');
+    if (!catalog.get(MANAGER)) throw new Error('Add thread roles in Agents, or fix the project-manager profile if it has errors');
     const project = store.projects().find((p) => p.id === projectId);
     if (!project) throw new Error('Unknown project');
     const title = (text.trim().split('\n')[0].trim() || files[0]?.name || 'New thread').slice(0, TITLE_MAX);
@@ -176,7 +176,7 @@ export class Conductor {
       if (!head) throw new Error('The project needs a Git repository with at least one commit');
       // git -C walks up: a folder inside another repository would build that one.
       if (!(await ws.isRepoRoot(project.dir))) throw new Error('The project folder must be the root of its Git repository');
-      for (const role of BUILD_ROLES) if (!catalog.get(role)) throw new Error(`Add a ${role} agent (id ${role}) to the catalog`);
+      for (const role of BUILD_ROLES) if (!catalog.get(role)) throw new Error(`Add thread roles in Agents, or fix the ${role} profile if it has errors`);
       if (catalog.get(DEVELOPER)!.permissions !== 'build') throw new Error('The developer agent needs permissions: build');
       t = this.thread(threadId); // re-read: the thread may have moved during the await
       plan = planOf(t);

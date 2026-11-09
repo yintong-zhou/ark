@@ -89,6 +89,7 @@ export interface ArkApi {
   catalog: {
     list(): Promise<CatalogList>;
     addItServices(): Promise<{ added: string[]; skipped: string[] }>;
+    addThreadAgents(): Promise<{ added: string[]; skipped: string[] }>;
     save(a: AgentDef): Promise<void>;
     remove(id: string): Promise<void>;
     importable(): Promise<ImportableAgent[]>;

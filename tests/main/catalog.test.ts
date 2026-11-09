@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { AGENT_ID_RE, validateAgent, type AgentDef } from '@shared/agent-file';
 import { Catalog, importAgent, importableAgents } from '../../src/main/services/catalog';
 import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
+import { THREAD_AGENTS } from '../../src/main/services/thread-agents';
 
 let root: string;
 let dir: string;
@@ -88,6 +89,18 @@ test('adding IT Services preserves customized, unrelated and broken profiles; re
   c.remove('frontend_dev');
   expect(c.get('frontend_dev')).toBeUndefined();
   expect(c.addItServices().added).toEqual(['frontend_dev']); // explicit request restores it
+});
+
+test('adding thread roles preserves existing profiles and supplies valid required roles', () => {
+  const c = new Catalog(dir);
+  c.save(agent('project-manager', 'Custom coordinator'));
+  writeFileSync(join(dir, 'code-reviewer.md'), 'broken profile');
+  expect(c.addThreadAgents()).toEqual({ added: ['developer', 'security-reviewer'], skipped: ['project-manager', 'code-reviewer'] });
+  expect(c.get('project-manager')?.name).toBe('Custom coordinator');
+  expect(readFileSync(join(dir, 'code-reviewer.md'), 'utf8')).toBe('broken profile');
+  expect(c.get('developer')?.permissions).toBe('build');
+  for (const role of THREAD_AGENTS) expect(validateAgent(role).ok).toBe(true);
+  expect(c.addThreadAgents().added).toEqual([]);
 });
 
 test('refuses unsafe ids', () => {

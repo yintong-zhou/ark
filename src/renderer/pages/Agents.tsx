@@ -51,6 +51,21 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
     }
   };
 
+  const addThreadAgents = async () => {
+    setAddingTeam(true);
+    setProblem(undefined);
+    setTeamResult(undefined);
+    try {
+      const { added, skipped } = await window.ark.catalog.addThreadAgents();
+      setTeamResult(`Added ${added.length} thread roles. ${skipped.length} existing profiles kept.`);
+      await reload();
+    } catch (e) {
+      setProblem(readable(e));
+    } finally {
+      setAddingTeam(false);
+    }
+  };
+
   return (
     <Page
       title="Agents"
@@ -63,6 +78,12 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
       }
     >
       <EngineRow engines={engines} state={state} reload={reload} />
+
+      <section className="flex flex-col items-start gap-1" aria-label="Thread roles">
+        <h2 className="text-body">Thread roles</h2>
+        <p className="max-w-[65ch] text-muted">Add the project manager and the three roles required to build and review changes. Existing profiles are kept.</p>
+        <button onClick={() => void addThreadAgents()} disabled={addingTeam || catalog === null} className={BUTTON}>Add thread roles</button>
+      </section>
 
       <section className="flex flex-col items-start gap-1" aria-label="IT Services team">
         <h2 className="text-body">IT Services team</h2>

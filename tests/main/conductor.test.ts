@@ -177,7 +177,7 @@ test('create runs the manager with the catalog and waits on its team card', asyn
 test('create without a manager in the catalog throws', () => {
   const none = { get: () => undefined, list: () => ({ agents: [], invalid: [] }) };
   expect(() => new Conductor({ store, catalog: none, runner, workspace: ws, worktrees, windows: () => undefined }).create(projectId, 'x')).toThrow(
-    'Add a Project manager agent (id project-manager) to the catalog',
+    'Add thread roles in Agents, or fix the project-manager profile if it has errors',
   );
 });
 

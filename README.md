@@ -81,7 +81,7 @@ Atlas lead product, development, QA and DevOps, with Pixel, Sage, Orion, Forge, 
 as specialists. Profiles carry their role, reporting line, handoff rules and L1/L2/L3 decision boundaries. You are
 `@head_of_engineering`; this human role is never an AI agent.
 
-New catalogs start empty. Open **Agents > Add IT Services team** to add missing profiles;
+New catalogs start empty. Open **Agents > Add thread roles** to add the project manager and the roles required for builds and reviews. Then open **Agents > Add IT Services team** to add missing profiles;
 customized or invalid files are kept, and repeating the action does not duplicate profiles. Agents use the standard's
 usernames, for example `@frontend_dev`, in mentions and task assignments once approved for the thread. Engine **Auto**
 uses the existing Claude Code/Codex routing; profiles need no extra skills and can be edited like any other agent.
