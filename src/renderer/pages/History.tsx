@@ -3,7 +3,7 @@ import type { HistoryDay } from '@shared/types';
 import { AGENT_NAME } from '../agents';
 import { Page } from '../components/Page';
 
-const pct = (v?: number) => (v === undefined ? '—' : `${Math.round(v)}%`);
+const pct = (v?: number) => (v === undefined ? '-' : `${Math.round(v)}%`);
 const TH = 'py-1 pr-2 text-left text-meta font-normal text-muted';
 
 export function History() {

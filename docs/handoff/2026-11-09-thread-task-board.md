@@ -7,9 +7,9 @@ prev: docs/handoff/2026-11-09-browser-git-polish.md
 tags: [ark, threads, task-board, kanban]
 ---
 
-# Handoff — Task board dei thread
+# Handoff - Task board dei thread
 
-## Ripresa e review — 2026-11-09
+## Ripresa e review - 2026-11-09
 
 - Review completata, inclusi i file nuovi e la conservazione dei task in `Conductor.save()`.
 - Corretto un difetto riprodotto nella UI: tornando da Tasks a Conversation, le conversazioni lunghe ripartivano

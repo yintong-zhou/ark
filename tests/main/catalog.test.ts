@@ -77,7 +77,7 @@ test('IT Services profiles match the source directory, with the human outside th
   expect(new Set(SEED_AGENTS.map((a) => a.id)).size).toBe(SEED_AGENTS.length);
   for (const [, alias, id, role, manager] of directory) {
     const a = IT_SERVICES_AGENTS.find((x) => x.id === id)!;
-    expect(a.name).toBe(`${alias} — ${role.trim()}`);
+    expect(a.name).toBe(`${alias} - ${role.trim()}`);
     expect(a.prompt).toContain(`Your username is @${id}`);
     expect(a.prompt).toContain(`You report to @${manager}`);
     expect(a.prompt).toContain('L3: propose and wait for explicit human approval');

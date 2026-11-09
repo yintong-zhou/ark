@@ -7,7 +7,7 @@ prev: nessuno (il lavoro precedente è la catena `ark-phase1-step2`, ultimo file
 tags: [ark, electron, ui, brand, chat, allegati, tag, emoji, usage]
 ---
 
-# Handoff — Ark: grafica rifatta, chat con allegati e tag, barra utilizzo
+# Handoff - Ark: grafica rifatta, chat con allegati e tag, barra utilizzo
 
 ## Obiettivo
 

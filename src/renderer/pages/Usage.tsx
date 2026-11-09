@@ -117,7 +117,7 @@ function AgentSummary({ a, now }: { a: AgentStatus; now: number }) {
 }
 
 function ContextCell({ s }: { s: Session }) {
-  if (s.contextPct === undefined) return <span className="text-muted">—</span>;
+  if (s.contextPct === undefined) return <span className="text-muted">-</span>;
   return (
     <span className="flex items-center gap-1 whitespace-nowrap">
       <Bar label="Context" wide pct={s.contextPct} ticks={[HANDOFF_TICK]} />

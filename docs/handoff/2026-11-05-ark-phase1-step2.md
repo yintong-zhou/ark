@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-05-ark-phase1-step1-done.md
 tags: [ark, electron, phase1, step2, threads, conductor, subagent-driven]
 ---
 
-# Handoff — Ark Fase 1, passo 2 (thread col team), fermo prima del Task 8
+# Handoff - Ark Fase 1, passo 2 (thread col team), fermo prima del Task 8
 
 ## Obiettivo
 

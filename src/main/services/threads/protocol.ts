@@ -78,7 +78,7 @@ export const withProtocol = (agent: AgentDef, phase: Phase = 'planning'): AgentD
   prompt: `${agent.prompt}\n\n${protocolFor(agent.id, phase)}`,
 });
 
-const PHASE_HEADING = /^(#{1,3})[ \t]+\S+[ \t]+\d+[ \t]*[:.\-–—][ \t]*(.+)$/gm;
+const PHASE_HEADING = /^(#{1,3})[ \t]+\S+[ \t]+\d+[ \t]*[:.\-–\u2014][ \t]*(.+)$/gm;
 /**
  * The plan's phases: each numbered heading at the shallowest level used starts a phase, which runs to the next
  * (or the end); numbered sub-headings (`### Step 1: …`) stay inside their phase.

@@ -29,6 +29,7 @@ behavior in `README.md`.
 
 ## Rules specific to Ark
 
+- Always use a hyphen (-) in place of an em dash (U+2014), in project text and responses.
 - Ark only reads `~/.claude` and `~/.codex`. The one exception is **Connect status line** (edits `settings.json`, with a backup).
 - Agents are isolated: each sees only its own skills; the user's memory, plugins and MCP servers are left out. Don't weaken `engines/isolation.ts`.
 - Agents are read-only by default. Only the developer builds, inside a Git worktree `ark/<title>-<id>`; risky actions need an approval card.

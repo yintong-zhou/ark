@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-08-ark-phase3-step2-git-branches.md
 tags: [ark, electron, phase3, git, done, phase4, browser]
 ---
 
-# Handoff — Ark Fase 3 chiusa, si riparte dalla Fase 4
+# Handoff - Ark Fase 3 chiusa, si riparte dalla Fase 4
 
 ## Obiettivo
 

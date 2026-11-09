@@ -37,7 +37,7 @@ export function Facts({ rows }: { rows: [label: string, value: ReactNode][] }) {
       {rows.map(([label, value]) => (
         <div key={label} className="contents">
           <dt className="text-muted">{label}</dt>
-          <dd className="min-w-0 break-words">{value ?? <span className="text-muted">—</span>}</dd>
+          <dd className="min-w-0 break-words">{value ?? <span className="text-muted">-</span>}</dd>
         </div>
       ))}
     </dl>

@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-07-ark-phase2-step1-done.md
 tags: [ark, electron, phase2, step2, terminal, node-pty, xterm, done]
 ---
 
-# Handoff — Ark Fase 2, passo 2 (terminale), completato
+# Handoff - Ark Fase 2, passo 2 (terminale), completato
 
 ## Obiettivo
 

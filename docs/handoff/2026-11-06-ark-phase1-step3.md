@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-05-ark-phase1-step2-done.md
 tags: [ark, electron, phase1, step3, build, worktree, approvals, subagent-driven]
 ---
 
-# Handoff — Ark Fase 1, passo 3 (fasi di build), interrotto dopo il Task 6
+# Handoff - Ark Fase 1, passo 3 (fasi di build), interrotto dopo il Task 6
 
 ## Obiettivo
 

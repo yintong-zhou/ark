@@ -1,4 +1,4 @@
-# Ark Phase 1, Step 3 — Build phases — Implementation Plan
+# Ark Phase 1, Step 3 - Build phases - Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -35,7 +35,7 @@
 **Decisions taken here** (spec §14 leaves them to the builder):
 - **Worktree path:** `<userData>/worktrees/<first 8 chars of thread id>`. It is short, because Windows paths cap at 260 characters and `node_modules` is deep. The branch is `ark/<slug of the title, at most 40 chars>-<first 8 chars of thread id>`, with the slug from `agentId()` in `@shared/agent-file`.
 - **The plan is copied** to `<worktree>/docs/plans/<YYYY-MM-DD>-<slug>.md` and committed as the branch's first commit (`docs: plan for <title>`). Phase 1's diff starts after it.
-- **Ark commits, not the developer.** After every developer turn Ark runs `git add -A` and commits `ark: phase <n> — <title>` when something changed. The phase diff is then `git diff <phase base> HEAD`, which also covers new files. The developer is told not to commit. In a worktree `.git` points outside the folder, so a commit would prompt anyway.
+- **Ark commits, not the developer.** After every developer turn Ark runs `git add -A` and commits `ark: phase <n> - <title>` when something changed. The phase diff is then `git diff <phase base> HEAD`, which also covers new files. The developer is told not to commit. In a worktree `.git` points outside the folder, so a commit would prompt anyway.
 - **Ark runs the checks itself** after every developer turn: the `typecheck`, `lint`, `test` and `build` scripts in the worktree's `package.json`, whichever exist, in that order, through `npm run <script>`. This is the deterministic gate behind "the phase cannot leave this step while checks fail" (spec §8.3). A project with no `package.json` or none of those scripts has no checks, and the phase card says so. The card lists the scripts that passed instead of "tests n/n": counting tests depends on the framework.
 - **Dependencies:** a new worktree has no `node_modules`. The developer is told to run `npm ci` first when it is missing. That is an approval card the user clicks once per thread. Ark never installs anything itself.
 - **Rounds.** A phase has one counter, `rounds`. It goes up each time the developer is sent back, either because checks failed or because a review asked for changes. When a failure arrives and `rounds` already equals `REVIEW_ROUNDS` (2), the phase is `blocked`: the project manager gets a turn to tag the user with the open points (spec §8.3.4), and the thread waits. The user's reply resets `rounds` to 0 and sends the developer back to work.
@@ -48,7 +48,7 @@
 
   Fresh build sessions see no transcript, only their note. Later developer turns in the same phase see the unseen messages as today, which include the reviewers' findings.
 - **Reviewer verdict:** reviewers end with `{"review":"pass"}` or `{"review":"changes","findings":["…"]}`. A bad block gets the one correction from step 2. A second bad reply makes the thread wait with a note.
-- **Plan phases:** a plan phase is any Markdown heading of level 1–3 shaped `<word> <number>: <title>` (`.`, `-`, `–` or `—` also work as separators). So `## Phase 1: Setup` and `## Fase 1: Setup` both count, because agents write in the user's language. A plan with no phase is a bad block (`ark block: plan has no "## Phase N: <title>" headings`) and gets the usual correction.
+- **Plan phases:** a plan phase is any Markdown heading of level 1–3 shaped `<word> <number>: <title>` (`.`, `-`, `–` or `-` also work as separators). So `## Phase 1: Setup` and `## Fase 1: Setup` both count, because agents write in the user's language. A plan with no phase is a bad block (`ark block: plan has no "## Phase N: <title>" headings`) and gets the usual correction.
 - **Approvals:**
   - the card shows the agent, the tool, and the command or file;
   - pending approval seqs live on `Thread.approvals`, while `status` stays `running`, and the badge shows when `status === 'waiting'` or `approvals` is not empty;
@@ -89,13 +89,13 @@
 
 1. **The project has uncommitted changes when the user clicks Start developer.** The worktree starts from HEAD, so they are not in it. The user expects to be told. → Task 6: the build-start note names the base commit and says uncommitted changes are not included.
 2. **The project is not a Git repo, or has no commit yet.** The user expects a clear error, with the thread still in planning and the button still there. → Task 6 test.
-3. **The plan's phase headings are in Italian or use a dash** (`## Fase 2 — API`). The user expects the phases to be found. → Task 3 test.
+3. **The plan's phase headings are in Italian or use a dash** (`## Fase 2 - API`). The user expects the phases to be found. → Task 3 test.
 4. **An approval is answered after its turn ended** (pause, crash, timeout). The user expects "This request is no longer pending", not a crash or a stuck card. → Task 6 test.
 5. **The phase diff is huge** (a lockfile, generated files). The user expects the review to still run, on a truncated diff, with the reviewer told to read the files. → Task 3 test (`NOTES.review` truncation) and Task 6 (the conductor passes `truncated`).
 
 ---
 
-### Task 1: Workspace — Git and checks in a worktree
+### Task 1: Workspace - Git and checks in a worktree
 
 **Files:**
 - Create: `src/main/services/threads/workspace.ts`
@@ -129,11 +129,11 @@ test('addWorktree creates the branch in a new folder and leaves the repo on its 
 test('addWorktree throws git stderr when the branch exists')  // toThrow(/already exists/)
 test('commitAll commits new and changed files, and returns undefined when clean', async () => {
   writeFileSync(join(wt, 'new.txt'), 'x');
-  const sha = await workspace.commitAll(wt, 'ark: phase 1 — demo');
+  const sha = await workspace.commitAll(wt, 'ark: phase 1 - demo');
   expect(sha).toMatch(/^[0-9a-f]{40}$/);
   expect(await workspace.commitAll(wt, 'again')).toBeUndefined();
   expect(await workspace.diff(wt, base)).toContain('+x');
-  expect(await workspace.log(wt, base)).toContain('ark: phase 1 — demo');
+  expect(await workspace.log(wt, base)).toContain('ark: phase 1 - demo');
 });
 test('projectChecks keeps the known scripts in order', () => {
   // package.json scripts: { build, dev, test, lint }
@@ -223,7 +223,7 @@ Expected: PASS (nothing changed in behavior).
 
 ---
 
-### Task 3: Protocol — build prompts, notes, review block, plan phases
+### Task 3: Protocol - build prompts, notes, review block, plan phases
 
 **Files:**
 - Modify: `src/main/services/threads/protocol.ts`
@@ -232,7 +232,7 @@ Expected: PASS (nothing changed in behavior).
 **Interfaces:**
 - Consumes: Task 2 types; `CheckResult` from Task 1.
 - Produces:
-  - `parsePhases(markdown: string): { title: string; text: string }[]`: a heading `^#{1,3}[ \t]+\S+[ \t]+\d+[ \t]*[:.\-–—][ \t]*(.+)$` (multiline) starts a phase. `text` runs from the heading to the next phase heading, heading included, trimmed.
+  - `parsePhases(markdown: string): { title: string; text: string }[]`: a heading `^#{1,3}[ \t]+\S+[ \t]+\d+[ \t]*[:.\-–-][ \t]*(.+)$` (multiline) starts a phase. `text` runs from the heading to the next phase heading, heading included, trimmed.
   - `toControl` / `parseReply` accept `review`:
     - `{"review":"pass"}` → `{kind:'review', pass:true, findings:[]}`;
     - `{"review":"changes","findings":[…]}` → `pass:false`, with 1–20 findings, each a non-empty string of at most 2000 characters;
@@ -263,10 +263,10 @@ Expected: PASS (nothing changed in behavior).
 
 ```ts
 test('parsePhases finds Phase, Fase and dash headings', () => {
-  const md = '# Plan\nintro\n## Phase 1: Setup\na\n### Fase 2 — API\nb\n## Notes\nc';
+  const md = '# Plan\nintro\n## Phase 1: Setup\na\n### Fase 2 - API\nb\n## Notes\nc';
   expect(parsePhases(md)).toEqual([
     { title: 'Setup', text: '## Phase 1: Setup\na' },
-    { title: 'API', text: '### Fase 2 — API\nb\n## Notes\nc' },
+    { title: 'API', text: '### Fase 2 - API\nb\n## Notes\nc' },
   ]);
 });
 test('parsePhases is empty for a plan without numbered headings')
@@ -288,14 +288,14 @@ test('NOTES.review cuts a long diff and points to the worktree', () => {
 test('NOTES.develop asks for npm ci only when node_modules is missing')
 ```
 
-- [ ] **Step 2: Run them and see them fail** — `npx vitest run tests/main/thread-protocol.test.ts`
+- [ ] **Step 2: Run them and see them fail** - `npx vitest run tests/main/thread-protocol.test.ts`
 - [ ] **Step 3: Implement the interfaces above in `protocol.ts`**
 - [ ] **Step 4: Run them and see them pass,** then run `npm test` (the existing protocol tests must still pass)
 - [ ] **Step 5: Commit** (`feat: build protocol, review block, plan phases`)
 
 ---
 
-### Task 4: Engines — the build permission profile and approvals
+### Task 4: Engines - the build permission profile and approvals
 
 **Files:**
 - Modify:
@@ -373,14 +373,14 @@ test('turn does not reject on an approval event and answer reaches the session')
 test('a build agent gets the build claude args')
 ```
 
-- [ ] **Step 2: Run them and see them fail** — `npx vitest run tests/main/isolation.test.ts tests/main/claude-session.test.ts tests/main/codex-session.test.ts tests/main/agent-runner.test.ts`
+- [ ] **Step 2: Run them and see them fail** - `npx vitest run tests/main/isolation.test.ts tests/main/claude-session.test.ts tests/main/codex-session.test.ts tests/main/agent-runner.test.ts`
 - [ ] **Step 3: Implement the interfaces above.** Fake sessions in the existing tests need an `answer` method, which can be a no-op.
 - [ ] **Step 4: Run them and see them pass,** then `npm test` and `npm run typecheck`
 - [ ] **Step 5: Commit** (`feat: build permission profile and approval routing on both engines`)
 
 ---
 
-### Task 5: Build rules — the pure state machine
+### Task 5: Build rules - the pure state machine
 
 **Files:**
 - Create: `src/main/services/threads/build-rules.ts`
@@ -466,14 +466,14 @@ test('afterManager finishes the thread only when every phase is done')
 test('openPoints lists the findings of reviews after a seq')
 ```
 
-- [ ] **Step 2: Run them and see them fail** — `npx vitest run tests/main/build-rules.test.ts`
+- [ ] **Step 2: Run them and see them fail** - `npx vitest run tests/main/build-rules.test.ts`
 - [ ] **Step 3: Implement `build-rules.ts`.** It is pure: no I/O, and it never mutates its input, so copy `build`, `phases` and `p`.
 - [ ] **Step 4: Run them and see them pass**
 - [ ] **Step 5: Commit** (`feat: build rules state machine`)
 
 ---
 
-### Task 6: Conductor — start the build, run the loop, route approvals
+### Task 6: Conductor - start the build, run the loop, route approvals
 
 **Files:**
 - Modify: `src/main/services/threads/conductor.ts`, `src/main/services/threads/store.ts` (`recover`)
@@ -517,7 +517,7 @@ test('openPoints lists the findings of reviews after a seq')
    - **`fix`**: the same developer session, or a fresh one with `NOTES.develop` first when none is alive. The input is the unseen transcript (as `run()` builds it today), plus `NOTES.checksFailed(results)`, `NOTES.fix` or `NOTES.userFix`. Timeout `BUILD_TURN_MS`. Then the after-turn steps.
    - **After every developer turn:**
      - append the reply;
-     - `commitAll(worktree, 'ark: phase <n> — <title>')`, and set `p.commit` when it returns a sha;
+     - `commitAll(worktree, 'ark: phase <n> - <title>')`, and set `p.commit` when it returns a sha;
      - `runChecks(worktree, projectChecks(worktree))`;
      - append the note `Checks passed: <list>.`, `Checks failed: <list>.` or `No checks found in package.json.`;
      - `afterChecks`.
@@ -577,14 +577,14 @@ test('a message during a running build turn does not redirect the turn')
 test('recover clears pending approvals')
 ```
 
-- [ ] **Step 2: Run them and see them fail** — `npx vitest run tests/main/conductor.test.ts tests/main/thread-store.test.ts`
+- [ ] **Step 2: Run them and see them fail** - `npx vitest run tests/main/conductor.test.ts tests/main/thread-store.test.ts`
 - [ ] **Step 3: Implement the behavior above**
 - [ ] **Step 4: Run them and see them pass,** then `npm test` (the step-2 conductor tests must still pass) and `npm run typecheck`
 - [ ] **Step 5: Commit** (`feat: build loop, worktree start and approvals in the conductor`)
 
 ---
 
-### Task 7: Wiring — main, IPC, preload, API types
+### Task 7: Wiring - main, IPC, preload, API types
 
 **Files:**
 - Modify:
@@ -601,7 +601,7 @@ test('recover clears pending approvals')
 
 ---
 
-### Task 8: Live tests — approvals on real engines
+### Task 8: Live tests - approvals on real engines
 
 **Files:**
 - Modify: `tests/live/engines.live.test.ts` (or add `tests/live/build.live.test.ts`, following the existing live-test setup)
@@ -625,7 +625,7 @@ test('recover clears pending approvals')
 
 ---
 
-### Task 9: Renderer — phase cards, approval cards, badge
+### Task 9: Renderer - phase cards, approval cards, badge
 
 **Files:**
 - Modify:
@@ -656,7 +656,7 @@ test('recover clears pending approvals')
 - The phase card reads the live `thread.build.phases[index]`, so it updates without a new message.
 
 - [ ] **Step 1: Write the failing tests** for `needsYou` (waiting, approvals pending, neither) and `decisionsOf` (last wins)
-- [ ] **Step 2: Run them and see them fail** — `npx vitest run tests/shared/thread-view.test.ts`
+- [ ] **Step 2: Run them and see them fail** - `npx vitest run tests/shared/thread-view.test.ts`
 - [ ] **Step 3: Implement the helpers and the cards.** Wire `answer` through the existing `run()` in `ThreadView`, so the buttons wait on `inflight`.
 - [ ] **Step 4: Run** `npm run typecheck && npm run lint && npm test && npm run build`. Expected: PASS.
 - [ ] **Step 5: Look at it.** Build, then start on a separate profile as described in `docs/handoff/2026-11-05-ark-ui-chat-redo.md` ("Da sapere"; never use `%APPDATA%\ark`). Use a fake thread in phase `build` with two phases (one `done`, one `review`), a pending approval and a `decision`. Check the cards with a CDP screenshot, and check that the sidebar shows ✋ for the thread with the approval.

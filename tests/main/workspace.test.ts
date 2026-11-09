@@ -64,11 +64,11 @@ test('addWorktree throws git stderr when the branch exists', async () => {
 test('commitAll commits new and changed files, and returns undefined when clean', async () => {
   await workspace.addWorktree(repo, wt, 'ark/demo-1234abcd');
   writeFileSync(join(wt, 'new.txt'), 'x');
-  const sha = await workspace.commitAll(wt, 'ark: phase 1 — demo');
+  const sha = await workspace.commitAll(wt, 'ark: phase 1 - demo');
   expect(sha).toMatch(/^[0-9a-f]{40}$/);
   expect(await workspace.commitAll(wt, 'again')).toBeUndefined();
   expect(await workspace.diff(wt, base)).toContain('+x');
-  expect(await workspace.log(wt, base)).toContain('ark: phase 1 — demo');
+  expect(await workspace.log(wt, base)).toContain('ark: phase 1 - demo');
 });
 
 test("Ark's own git runs none of the project's hooks", async () => {
@@ -83,7 +83,7 @@ test("Ark's own git runs none of the project's hooks", async () => {
   await workspace.addWorktree(repo, wt, 'ark/demo-1234abcd');
   expect(existsSync(join(root, 'post-checkout-ran'))).toBe(false);
   writeFileSync(join(wt, 'new.txt'), 'x');
-  expect(await workspace.commitAll(wt, 'ark: phase 1 — demo')).toMatch(/^[0-9a-f]{40}$/);
+  expect(await workspace.commitAll(wt, 'ark: phase 1 - demo')).toMatch(/^[0-9a-f]{40}$/);
   expect(existsSync(NO_HOOKS)).toBe(false);
 });
 

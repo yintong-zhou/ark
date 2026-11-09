@@ -1,4 +1,4 @@
-# Ark — Where coding agents work together
+# Ark - Where coding agents work together
 
 ## Overview
 
@@ -93,12 +93,12 @@ No deadlines: phased development, following the chosen priority order.
 
 | Milestone                                           | Deadline |
 | --------------------------------------------------- | -------- |
-| Phase 0 — Agent detection and stats                 | None     |
-| Phase 1 — Thread-based chat and agent orchestration | None     |
-| Phase 2 — File editor and terminal                  | None     |
-| Phase 3 — Full Git management                       | None     |
-| Phase 4 — Built-in browser with area selection      | None     |
-| Extra features — placement in phases to be defined  | None     |
+| Phase 0 - Agent detection and stats                 | None     |
+| Phase 1 - Thread-based chat and agent orchestration | None     |
+| Phase 2 - File editor and terminal                  | None     |
+| Phase 3 - Full Git management                       | None     |
+| Phase 4 - Built-in browser with area selection      | None     |
+| Extra features - placement in phases to be defined  | None     |
 
 
 ## IT Services agent profiles

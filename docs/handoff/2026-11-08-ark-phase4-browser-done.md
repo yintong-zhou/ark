@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-08-ark-phase3-done.md
 tags: [ark, electron, phase4, browser, webcontentsview, done]
 ---
 
-# Handoff — Ark Fase 4 (browser integrato con selezione di un'area) completa
+# Handoff - Ark Fase 4 (browser integrato con selezione di un'area) completa
 
 ## Obiettivo
 

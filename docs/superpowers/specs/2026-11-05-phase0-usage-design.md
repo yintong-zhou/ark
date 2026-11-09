@@ -1,4 +1,4 @@
-# Ark Phase 0 — Agent detection and usage — Design
+# Ark Phase 0 - Agent detection and usage - Design
 
 Date: 2026-11-05 · Source brief: `PROJECT.md` (Phase 0) · Visual rules: `brand-guidelines.md` · Working rules: `AGENTv2.md`
 
@@ -47,7 +47,7 @@ Ark only **shows** the numbers. The user makes the decisions.
 
 Visual reference: the mockup the user chose (option **B · Compact**), `.superpowers/brainstorm/474-1793878794/content/usage-layout.html`.
 
-### 4.1 Main window — Usage (Compact is the default)
+### 4.1 Main window - Usage (Compact is the default)
 - Header: title "Usage", a Detailed / Compact toggle, and a **Refresh** button (the accent-coloured CTA).
 - Table, one row per active session: session (project folder name), agent · model, **context** bar + %, **5-hour** bar + % + time to reset, **weekly** bar + % + time to reset.
 - Context bar: a fixed tick at **50%** (the user's handoff threshold). **[call]** For now it's a constant; making it configurable is left for later.
@@ -104,7 +104,7 @@ Each agent has an adapter in `src/main/services/adapters/` that maps everything 
 - **Detection:** `codex --version`.
 - **Account:** `codex login status` (output: "Logged in using ChatGPT"). Email and plan come from `codex app-server` when it exposes them.
 - **Limits:** `codex app-server` (JSON-RPC), `account/rateLimits/read` at startup and on **Refresh**. TypeScript types are generated from the installed version (`codex app-server generate-ts`), as `PROJECT.md` asks.
-- **Sessions (context) — [call]:** sessions the user starts in their own terminal aren't visible to app-server. Ark therefore reads, **read-only**, the local rollout files `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. Sample from this machine (Codex 0.165.0), last `token_count` event:
+- **Sessions (context) - [call]:** sessions the user starts in their own terminal aren't visible to app-server. Ark therefore reads, **read-only**, the local rollout files `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. Sample from this machine (Codex 0.165.0), last `token_count` event:
   ```json
   {"type":"event_msg","payload":{"type":"token_count",
     "info":{"total_token_usage":{...},"last_token_usage":{"input_tokens":101260,"cached_input_tokens":99200,"output_tokens":7615,"reasoning_output_tokens":1534,"total_tokens":108875},"model_context_window":258400},
@@ -115,7 +115,7 @@ Each agent has an adapter in `src/main/services/adapters/` that maps everything 
   Session id, cwd and model come from the session's metadata line (the builder checks the exact shape). Context % uses Codex's own formula (the builder looks it up in the Codex source for this version) so it matches what the Codex CLI shows. These `rate_limits` also update the account windows between Refresh clicks, newest `resets_at`/timestamp wins.
 - Only files touched in the last 30 minutes are tailed; reading is incremental (from the last offset).
 
-### 5.3 OpenCode — [call]
+### 5.3 OpenCode - [call]
 Detection only (`opencode --version`) and the "not installed" state. The `opencode serve` adapter (tokens and cost per session; windows depend on the provider) is built once OpenCode is installed and can be tested. The adapter interface (§6) stays open to it.
 
 ### 5.4 API keys

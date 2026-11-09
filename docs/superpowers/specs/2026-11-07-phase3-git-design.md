@@ -1,4 +1,4 @@
-# Ark Phase 3 — Git management — Design
+# Ark Phase 3 - Git management - Design
 
 Date: 2026-11-07 · Source brief: `PROJECT.md` (feature 5, Phase 3) · Builds on: `docs/superpowers/specs/2026-11-07-phase2-editor-terminal-design.md` · Visual rules: `brand-guidelines.md` · Working rules: `AGENTv2.md`, `CLAUDE.md`
 

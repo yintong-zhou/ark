@@ -1,4 +1,4 @@
-# Ark Phase 1, Step 4 — Auto routing and cost — Implementation Plan
+# Ark Phase 1, Step 4 - Auto routing and cost - Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -59,8 +59,8 @@
 **Interfaces:**
 - Produces:
   - `export const SWITCH_AT = 90;`
-  - `export const tierUp = (t: Tier): Tier` — light → standard, standard → heavy, heavy → heavy.
-  - `export function claudeLimited(st: { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined, nowSec: number): boolean` — true when either window has `resetsAt > nowSec` and `usedPct >= SWITCH_AT`.
+  - `export const tierUp = (t: Tier): Tier` - light → standard, standard → heavy, heavy → heavy.
+  - `export function claudeLimited(st: { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined, nowSec: number): boolean` - true when either window has `resetsAt > nowSec` and `usedPct >= SWITCH_AT`.
   - `export type RunPlan = { engine: EngineId; tier: Tier; model?: string; rerouted?: true }`
   - `resolveRun(agent, installed, claudeLimited = false)`: for `kind: 'auto'`, when `claudeLimited && agent.tier !== 'heavy' && installed.codex`, the engine is `codex` with `rerouted: true`. Everything else as today.
   - `ChatStarted = { chatId; engine; model; rerouted?: true }`
@@ -90,7 +90,7 @@ expect(resolveRun(agent({ kind: 'engine', engine: 'claude' }), both, true)).toEq
 expect(resolveRun(agent({ kind: 'model', engine: 'claude', model: 'opus' }, 'standard'), both, true)).toEqual({ engine: 'claude', tier: 'standard', model: 'opus' });
 ```
 
-In `tests/main/agent-runner.test.ts`: `test('a limited Claude moves an auto agent to Codex')` — deps with both engines installed and `claudeLimited: () => true`, an auto light agent → `startCodex` is called, `startClaude` is not, and the result has `engine: 'codex', rerouted: true`.
+In `tests/main/agent-runner.test.ts`: `test('a limited Claude moves an auto agent to Codex')` - deps with both engines installed and `claudeLimited: () => true`, an auto light agent → `startCodex` is called, `startClaude` is not, and the result has `engine: 'codex', rerouted: true`.
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -172,9 +172,9 @@ Expected: PASS.
 **Interfaces:**
 - Consumes: `tierUp` (Task 1).
 - Produces:
-  - `Control` `next`: `{ kind: 'next'; agent: string; hard?: true }` — set only when the block has `"hard": true` (any other value: absent).
+  - `Control` `next`: `{ kind: 'next'; agent: string; hard?: true }` - set only when the block has `"hard": true` (any other value: absent).
   - `Step` turn: `{ do: 'turn'; agent: string; note?: string; hard?: true }`.
-  - `Speak.hard?: true` — the fresh session starts with `{ ...def, tier: tierUp(def.tier) }`.
+  - `Speak.hard?: true` - the fresh session starts with `{ ...def, tier: tierUp(def.tier) }`.
 - Protocol line, appended to the `next` bullet of `MANAGER_PROTOCOL` (exact copy): `Add "hard":true when the task is hard: that one turn runs on a stronger model.`
 
 - [ ] **Step 1: Write the failing tests**
@@ -232,7 +232,7 @@ Expected: PASS.
 - Produces:
   - `export type WindowMove = { from: number; to: number; resetsAt: number };`
   - `export type ThreadWindows = Partial<Record<EngineId, { fiveHour?: WindowMove; weekly?: WindowMove }>>;` and `Thread.windows?: ThreadWindows`.
-  - `export function moveWindows(have: ThreadWindows | undefined, engine: EngineId, reading: { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined, nowSec: number): ThreadWindows | undefined` — per window: an expired or missing reading changes nothing; no move yet → `{ from: usedPct, to: usedPct, resetsAt }`; same window (resets within 60 s, as `mergeWindow`) → `to = max(to, usedPct)`; a later window → `{ from: 0, to: usedPct, resetsAt }`. Returns `have` itself when nothing changed.
+  - `export function moveWindows(have: ThreadWindows | undefined, engine: EngineId, reading: { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined, nowSec: number): ThreadWindows | undefined` - per window: an expired or missing reading changes nothing; no move yet → `{ from: usedPct, to: usedPct, resetsAt }`; same window (resets within 60 s, as `mergeWindow`) → `to = max(to, usedPct)`; a later window → `{ from: 0, to: usedPct, resetsAt }`. Returns `have` itself when nothing changed.
   - `ConductorDeps.windows: (engine: EngineId) => { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined`
   - `NOTES.rerouted(name: string)` (exact copy): `` `Claude is at ${SWITCH_AT}% or more of a usage window: ${name} runs on Codex.` ``
 
@@ -289,7 +289,7 @@ Expected: PASS.
 - Consumes: `ThreadWindows` (Task 4), `TokenLine` component.
 - Produces:
   - `export function tokensBy(messages: ThreadMessage[], key: (m: AgentMessage) => string): Record<string, TokenCount>`; `tokensByAgent(messages)` becomes `tokensBy(messages, (m) => m.agent)`.
-  - `export function windowLines(w: ThreadWindows | undefined): string[]` — one line per window, Claude first, 5-hour before weekly, exact copy `` `${'Claude' | 'Codex'} ${'5h' | 'weekly'} ${from}% → ${to}%` ``. Empty when no engine reported a percentage.
+  - `export function windowLines(w: ThreadWindows | undefined): string[]` - one line per window, Claude first, 5-hour before weekly, exact copy `` `${'Claude' | 'Codex'} ${'5h' | 'weekly'} ${from}% → ${to}%` ``. Empty when no engine reported a percentage.
   - `NOTES.summary` takes `{ branch, phases, tokens: string[], windows: string[] }`; when `windows` is non-empty it appends `\nUsage windows (including your other sessions):\n- …`.
 
 - [ ] **Step 1: Write the failing tests**

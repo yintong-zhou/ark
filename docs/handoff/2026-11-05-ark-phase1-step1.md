@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-05-ark-phase0.md
 tags: [ark, electron, phase1, agent-teams, isolation, claude-code, codex]
 ---
 
-# Handoff — Ark Fase 1, passo 1 (motori e catalogo)
+# Handoff - Ark Fase 1, passo 1 (motori e catalogo)
 
 ## Obiettivo
 
@@ -78,9 +78,9 @@ Il passo 1 serve a scegliere un agente dal catalogo e chattarci su Claude Code o
 
 ## File toccati
 
-- `docs/superpowers/specs/2026-11-05-phase1-agent-teams-design.md` — design della Fase 1 (nuovo, committato).
-- `docs/superpowers/plans/2026-11-05-phase1-step1-engines-catalog.md` — piano del passo 1 (nuovo).
-- `docs/handoff/2026-11-05-ark-phase1-step1.md` — questo file.
+- `docs/superpowers/specs/2026-11-05-phase1-agent-teams-design.md` - design della Fase 1 (nuovo, committato).
+- `docs/superpowers/plans/2026-11-05-phase1-step1-engines-catalog.md` - piano del passo 1 (nuovo).
+- `docs/handoff/2026-11-05-ark-phase1-step1.md` - questo file.
 - Già su `main`, con la PR #2:
   - `src/main/services/usage.ts`: `each()` e `ready()`;
   - `src/main/ipc/index.ts`: `usage:get` → `ready()`;

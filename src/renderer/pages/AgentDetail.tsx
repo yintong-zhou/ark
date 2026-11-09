@@ -48,10 +48,10 @@ export function AgentDetail({ id, state, now }: { id: AgentId; state: UsageState
                   return (
                     <tr key={s.id} className={`border-t border-divider ${st === 'active' ? '' : 'text-muted'}`}>
                       <td className="py-1 pr-2">{s.project || 'unknown project'}</td>
-                      <td className="py-1 pr-2">{s.model ?? '—'}</td>
-                      <td className="py-1 pr-2 text-right">{s.contextPct !== undefined ? `${Math.round(s.contextPct)}%` : '—'}</td>
-                      <td className="py-1 pr-2 text-right">{s.tokens?.toLocaleString('en-US') ?? '—'}</td>
-                      <td className="py-1 pr-2 text-right">{s.costUsd !== undefined ? `$${s.costUsd.toFixed(2)}` : '—'}</td>
+                      <td className="py-1 pr-2">{s.model ?? '-'}</td>
+                      <td className="py-1 pr-2 text-right">{s.contextPct !== undefined ? `${Math.round(s.contextPct)}%` : '-'}</td>
+                      <td className="py-1 pr-2 text-right">{s.tokens?.toLocaleString('en-US') ?? '-'}</td>
+                      <td className="py-1 pr-2 text-right">{s.costUsd !== undefined ? `$${s.costUsd.toFixed(2)}` : '-'}</td>
                       <td className="py-1">{formatAge(now - s.lastSeen)} ago</td>
                     </tr>
                   );

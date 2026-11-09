@@ -671,7 +671,7 @@ ${NOTES.userFix}` : NOTES.userFix;
         if (!r) return;
         t = r.t;
         turn(undefined); // the commit and the checks are Ark's own work: a git failure is not the developer's
-        const sha = await ws.commitAll(b.worktree, `ark: phase ${b.current + 1} — ${p.title}`);
+        const sha = await ws.commitAll(b.worktree, `ark: phase ${b.current + 1} - ${p.title}`);
         if (!live()) return;
         if (sha) t = withPhase(t, (q) => { q.commit = sha; }).thread; // saved with the checks note
         const results = await ws.runChecks(b.worktree, ws.projectChecks(b.worktree));

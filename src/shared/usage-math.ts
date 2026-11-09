@@ -24,7 +24,7 @@ const SAME_WINDOW_S = 60; // agents report the same reset with a few seconds of 
 
 /**
  * Keep the most recent window. Readings of the same window (resets within jitter) keep the higher
- * usage, because usage never goes down until the window resets — so an older reading can't win.
+ * usage, because usage never goes down until the window resets - so an older reading can't win.
  */
 export function mergeWindow(cur?: UsageWindow, next?: UsageWindow): UsageWindow | undefined {
   if (!cur) return next;

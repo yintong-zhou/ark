@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-06-ark-phase1-step4-done.md
 tags: [ark, electron, phase2, step1, files, editor, monaco, done]
 ---
 
-# Handoff — Ark Fase 2, passo 1 (file ed editor), completato
+# Handoff - Ark Fase 2, passo 1 (file ed editor), completato
 
 ## Obiettivo
 

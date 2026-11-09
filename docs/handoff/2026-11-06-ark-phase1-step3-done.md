@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-06-ark-phase1-step3.md
 tags: [ark, electron, phase1, step3, build, worktree, approvals, done]
 ---
 
-# Handoff — Ark Fase 1, passo 3 (fasi di build), completato
+# Handoff - Ark Fase 1, passo 3 (fasi di build), completato
 
 ## A che punto siamo
 

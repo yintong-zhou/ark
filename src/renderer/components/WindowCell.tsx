@@ -8,7 +8,7 @@ import { Bar } from './Bar';
  */
 export function WindowCell({ w, now, label, updatedAt }: { w?: UsageWindow; now: number; label: string; updatedAt?: number }) {
   const v = windowView(w, now);
-  if (v.kind === 'none') return <span className="text-muted">—</span>;
+  if (v.kind === 'none') return <span className="text-muted">-</span>;
   if (v.kind === 'reset') return <span className="text-muted">reset, awaiting data</span>;
   const age = staleAge(updatedAt, now);
   return (

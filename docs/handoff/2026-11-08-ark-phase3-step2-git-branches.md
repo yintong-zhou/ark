@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-07-ark-phase3-step1-git-status.md
 tags: [ark, electron, phase3, step2, git, branches, sync, worktree, merge]
 ---
 
-# Handoff — Ark Fase 3, passo 2 (branch, sync, worktree, merge del thread)
+# Handoff - Ark Fase 3, passo 2 (branch, sync, worktree, merge del thread)
 
 ## Obiettivo
 

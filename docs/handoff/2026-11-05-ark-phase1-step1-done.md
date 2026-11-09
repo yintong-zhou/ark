@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-05-ark-phase1-step1.md
 tags: [ark, electron, phase1, agent-teams, isolation, claude-code, codex]
 ---
 
-# Handoff — Ark Fase 1, passo 1 completato
+# Handoff - Ark Fase 1, passo 1 completato
 
 ## Obiettivo
 

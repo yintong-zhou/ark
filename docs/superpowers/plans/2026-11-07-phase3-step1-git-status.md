@@ -74,9 +74,9 @@
   - `groups puts a file in staged and changes, conflicts alone`: `MM` entry in both staged and changes; `UU` only in conflicts; `??` only in changes.
   - `letter maps chars per side`: `{x:'M',y:'D'}` → staged `M`, changes `D`, tree `D`; `{x:'A',y:'.'}` tree `A`; `T`→`M`; `C`→`A`; untracked → `U` on changes and tree; conflict tree `!`.
   - `changedDirs lists every ancestor folder`: rels `a/b/c.ts`, `d.ts` → `Set{'a','a/b'}`.
-- [ ] **Step 2: Run** `npx vitest run tests/shared/git.test.ts` — expected FAIL (module not found).
-- [ ] **Step 3: Implement `src/shared/git.ts`.** Split on `\0`, read tokens in order; a `2` line consumes the next token as `orig`. Field counts before the path: `1` has 8 space-separated fields, `2` has 9, `u` has 10, `?` has 1 — split with a limit so the path keeps its spaces. Ignore `!` lines and unknown headers.
-- [ ] **Step 4: Run** the same command — expected PASS.
+- [ ] **Step 2: Run** `npx vitest run tests/shared/git.test.ts` - expected FAIL (module not found).
+- [ ] **Step 3: Implement `src/shared/git.ts`.** Split on `\0`, read tokens in order; a `2` line consumes the next token as `orig`. Field counts before the path: `1` has 8 space-separated fields, `2` has 9, `u` has 10, `?` has 1 - split with a limit so the path keeps its spaces. Ignore `!` lines and unknown headers.
+- [ ] **Step 4: Run** the same command - expected PASS.
 - [ ] **Step 5: Commit** `feat(git): status model and parsers`.
 
 ### Task 2: Git runner and repo operations
@@ -113,10 +113,10 @@
   - `show reads HEAD and index, reports missing, binary and large`;
   - `a merge conflict shows as conflict and merging; empty message commits with Git's message after staging; mergeAbort clears it` (two branches editing the same line; `sh(dir, 'merge', 'other')` expected to fail);
   - `a status started during a commit waits for it` (`Promise.all([commit(...), status(dir)])` both resolve, and the status shows no staged entries).
-- [ ] **Step 2: Run** `npx vitest run tests/main/git.test.ts` — expected FAIL.
+- [ ] **Step 2: Run** `npx vitest run tests/main/git.test.ts` - expected FAIL.
 - [ ] **Step 3: Implement `run.ts`** with `execFile('git', ['-c', \`core.hooksPath=${NO_HOOKS}\`, ...args], { cwd: dir, ... })`; for `input`, write it to `child.stdin` and end it.
 - [ ] **Step 4: Implement `repo.ts`** with pathspec lists sent as `rels.join('\0')` on stdin with `--pathspec-from-file=- --pathspec-file-nul`.
-- [ ] **Step 5: Run** the same command — expected PASS.
+- [ ] **Step 5: Run** the same command - expected PASS.
 - [ ] **Step 6: Commit** `feat(git): runner and repo operations`.
 
 ### Task 3: IPC, preload and the busy-thread rule
@@ -143,10 +143,10 @@
     ```
   - channels `git:status`, `git:show`, `git:stage`, `git:unstage`, `git:discard`, `git:commit`, `git:merge-abort`.
 
-- [ ] **Step 1: Write the failing test** in `tests/main/files-guard.test.ts`: `normRels takes a list of entries and refuses the rest` — `['a', 'b/c']` passes; `'a'`, `[1]`, `['..\\x']`, `['']`, an array of 5001 `'a'` all throw `Invalid path`.
-- [ ] **Step 2: Run** `npx vitest run tests/main/files-guard.test.ts` — expected FAIL.
+- [ ] **Step 1: Write the failing test** in `tests/main/files-guard.test.ts`: `normRels takes a list of entries and refuses the rest` - `['a', 'b/c']` passes; `'a'`, `[1]`, `['..\\x']`, `['']`, an array of 5001 `'a'` all throw `Invalid path`.
+- [ ] **Step 2: Run** `npx vitest run tests/main/files-guard.test.ts` - expected FAIL.
 - [ ] **Step 3: Implement `normRels`**, then the handlers in `ipc/index.ts`: each resolves `dirOf(r)`; write handlers (stage, unstage, discard, commit, merge-abort) first throw the busy error when the root is a thread whose `store.get(id)?.status === 'running'`, then run the op, then return `status(dir)`. `side` must be `'head'` or `'index'`; `message` a string of at most 100 000 chars; `all` through `bool`. Discard's trash is `(abs) => shell.trashItem(abs)`. Add the preload entries.
-- [ ] **Step 4: Run** `npx vitest run tests/main/files-guard.test.ts` and `npm run typecheck` — expected PASS.
+- [ ] **Step 4: Run** `npx vitest run tests/main/files-guard.test.ts` and `npm run typecheck` - expected PASS.
 - [ ] **Step 5: Commit** `feat(git): ipc and preload`.
 
 ### Task 4: Renderer status store
@@ -170,9 +170,9 @@
   - `act stores the returned status and clears busy on failure`;
   - `a disabled root never calls git`.
   Drive mount/unmount through exported `show(root)` / `hide(root)` that `useGit`'s effect calls, so the test needs no React renderer.
-- [ ] **Step 2: Run** `npx vitest run tests/renderer/git-store.test.ts` — expected FAIL.
+- [ ] **Step 2: Run** `npx vitest run tests/renderer/git-store.test.ts` - expected FAIL.
 - [ ] **Step 3: Implement** the store (module-level `Map<key, GitState>`, `useSyncExternalStore`, one `onChanged` subscription and one `focus` listener made on first use, one `setInterval` while any root is shown).
-- [ ] **Step 4: Run** — expected PASS.
+- [ ] **Step 4: Run** - expected PASS.
 - [ ] **Step 5: Commit** `feat(git): renderer status store`.
 
 ### Task 5: Git view, third sidebar tab and tree letters
@@ -189,7 +189,7 @@
 - [ ] **Step 2: GitView.tsx** per spec §5.1 minus step-2 items (no Fetch/Pull/Push buttons, no branch menu, no worktree or thread-branch sections): branch row text (`branch` or `detached at <oid.slice(0,7)>`, `↑n ↓m` when `upstream`), message field (Ctrl+Enter commits), Commit / Commit all CTA with the disable rules of §5.1, the hooks note, the merge banner, the three groups with header actions and row actions, discard confirms with the Global Constraints copy, the busy note with every write control disabled while `busyThread`, `No changes`, and `Showing first 5000 changes` when `truncated`. Message clears after a successful commit. Untracked-ness for the discard copy is `e.x === '?'`.
 - [ ] **Step 3: FileTree.tsx.** With `git`, read `useGit(root, git)`; files show `letter(e, 'tree')` right-aligned in `text-meta text-muted` (`!` in `text-secondary`); folders in `changedDirs` show a muted `•`.
 - [ ] **Step 4: Icons.** Add line icons in the existing style for stage (reuse `PlusIcon`), unstage (minus), discard (counter-clockwise arrow) and open file.
-- [ ] **Step 5: Run** `npm run typecheck` and `npm run lint` — expected PASS.
+- [ ] **Step 5: Run** `npm run typecheck` and `npm run lint` - expected PASS.
 - [ ] **Step 6: Commit** `feat(git): git view and tree status`.
 
 ### Task 6: Diff tabs
@@ -210,12 +210,12 @@
 - [ ] **Step 1: Write the failing tests** in `tests/renderer/tabs-store.test.ts`:
   - `openDiff opens one tab per file and side, never a model`: two calls with the same args → one doc; a `staged` and a `changes` → two docs named `a.ts (staged)` / `a.ts (changes)`; `files.read` not called; `models.length` unchanged;
   - `a disk change never reloads a diff tab`: `changed(rootKey, ['a.ts'])` with only a diff tab open → `files.stat` not called.
-- [ ] **Step 2: Run** `npx vitest run tests/renderer/tabs-store.test.ts` — expected FAIL.
+- [ ] **Step 2: Run** `npx vitest run tests/renderer/tabs-store.test.ts` - expected FAIL.
 - [ ] **Step 3: Implement `openDiff`** and the skips.
-- [ ] **Step 4: Run** — expected PASS.
+- [ ] **Step 4: Run** - expected PASS.
 - [ ] **Step 5: DiffView.tsx.** Monaco `createDiffEditor` with `readOnly: true`, `originalEditable: false`, theme `ark-dark`, the font of `Editor.tsx`, `automaticLayout: true`. Sides per spec §5.2: changes = `show(index)` vs `files.read` (a read that throws is the empty text); staged = `show(head)` vs `show(index)`; `missing` is empty text. Binary or large on either side shows the editor's placeholder copy. Reload both sides whenever `useGit(root, true).status` changes, calling `setValue` only when the text differs. When the rel is no longer in the doc's group, show `No changes`. Header: rel path and an **Open file** button. Dispose models and the editor on unmount.
 - [ ] **Step 6: Wire it.** `Threads.tsx` renders `DiffView` when the active doc has `diff`, `Editor` otherwise; GitView rows call `onOpenDiff(rel, side)` (conflicts call `onOpenFile`).
-- [ ] **Step 7: Run** `npm run typecheck`, `npm run lint`, `npm test` — expected PASS.
+- [ ] **Step 7: Run** `npm run typecheck`, `npm run lint`, `npm test` - expected PASS.
 - [ ] **Step 8: Commit** `feat(git): diff tabs`.
 
 ### Task 7: Docs and check in the built app
@@ -225,6 +225,6 @@
 
 - [ ] **Step 1: README.** Describe the Git view, the letters, diffs, Commit vs Commit all, discard to the Recycle Bin for new files, "Runs without Git hooks", the busy-worktree rule. Plain, like the Files section.
 - [ ] **Step 2: CLAUDE.md.** In Layout add `services/git/` (the Git UI's runner and operations) and `src/renderer/git/` (status store). In Rules add: "The Git UI runs git only through `services/git/run.ts` (no hooks, literal pathspecs, no prompts)."
-- [ ] **Step 3: Run** `npm run typecheck`, `npm run lint`, `npm test`, `npm run build` — all PASS.
+- [ ] **Step 3: Run** `npm run typecheck`, `npm run lint`, `npm test`, `npm run build` - all PASS.
 - [ ] **Step 4: Check in the built app** with the CDP recipe from `docs/handoff/2026-11-07-ark-phase2-step2-done.md`, on a temp repo as the project in a scratchpad profile: edit a file → `M` in the tree and a row in Changes; open its diff; stage; commit with a message; `No changes`; create a conflict with the terminal (`git merge`) → conflicts group and banner; **Abort merge**. Take a screenshot of the Git view.
 - [ ] **Step 5: Commit** `docs: git view`.

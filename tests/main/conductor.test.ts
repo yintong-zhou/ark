@@ -186,7 +186,7 @@ test('IT Services team participates in planning, username mentions and assigned 
   runner.reply('project-manager', ark({ team: ids.map((agent) => ({ agent, reason: 'Relevant specialist' })) }));
   const t = c.create(projectId, 'Plan an IT service');
   await idle();
-  expect(runner.turns[0].text).toContain('frontend_dev: Gon — Frontend dev');
+  expect(runner.turns[0].text).toContain('frontend_dev: Gon - Frontend dev');
   c.approveTeam(t.id, ids);
   runner.reply('project-manager', ark({ next: 'dev_manager' }), ark({ ask: 'Continue?' }));
   runner.reply('dev_manager', 'Objective: implement the approved service. Owner: @frontend_dev.');
@@ -642,7 +642,7 @@ test('a phase runs develop, checks, code review, security review, then the summa
   expect(pm.text).toContain('- Setup: 0 review notes, commit sssssss');
   expect(pm.text).toContain('Developer (haiku): 10 in / 5 out');
   const wt = join(worktrees, id.slice(0, 8));
-  expect(ws.calls).toContainEqual(['commitAll', wt, 'ark: phase 1 — Setup']);
+  expect(ws.calls).toContainEqual(['commitAll', wt, 'ark: phase 1 - Setup']);
   expect(ws.calls).toContainEqual(['runChecks', wt, ['typecheck', 'test']]);
   expect(store.messages(id).some((m) => m.kind === 'phase' && m.index === 0)).toBe(true);
   expect(notes(id)).toContain('Checks passed: typecheck, test.');

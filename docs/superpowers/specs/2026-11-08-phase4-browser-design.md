@@ -1,4 +1,4 @@
-# Ark Phase 4 — Built-in browser with area selection — Design
+# Ark Phase 4 - Built-in browser with area selection - Design
 
 Date: 2026-11-08 · Source brief: `PROJECT.md` (feature 6, Phase 4) · Builds on: `docs/superpowers/specs/2026-11-07-phase2-editor-terminal-design.md` (tab strip, module-level stores) · Visual rules: `brand-guidelines.md` · Working rules: `AGENTv2.md`, `CLAUDE.md`
 

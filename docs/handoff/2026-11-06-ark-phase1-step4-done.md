@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-06-ark-phase1-step3-done.md
 tags: [ark, electron, phase1, step4, auto-routing, cost, rate-limits, done]
 ---
 
-# Handoff — Ark Fase 1, passo 4 (routing Auto e costi), completato
+# Handoff - Ark Fase 1, passo 4 (routing Auto e costi), completato
 
 ## Obiettivo
 
@@ -127,7 +127,7 @@ Spec: `docs/superpowers/specs/2026-11-05-phase1-agent-teams-design.md`, §7 e §
    - il branch principale resta intatto;
    - il blocco Thread cost è visibile;
    - la lista della prova manuale nell'handoff del passo 3 resta valida (card, badge, I1–I4).
-3. Poi apri la **Fase 2 — File editor e terminale** (`PROJECT.md`, tabella delle milestone): brainstorming, spec, piano.
+3. Poi apri la **Fase 2 - File editor e terminale** (`PROJECT.md`, tabella delle milestone): brainstorming, spec, piano.
 4. **Minor rimandati**, a bassa priorità, da fare quando si tocca la zona:
    - il test di pausa del turno hard non verifica lo stop della chat heavy;
    - `tierOf` duplica una query nei test del conductor;

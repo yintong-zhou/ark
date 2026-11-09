@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-07-ark-phase2-step2-done.md
 tags: [ark, electron, phase3, step1, git, status, staging, commit, diff]
 ---
 
-# Handoff — Ark Fase 3, passo 1 (Git: stato, staging, commit, diff)
+# Handoff - Ark Fase 3, passo 1 (Git: stato, staging, commit, diff)
 
 ## Obiettivo
 

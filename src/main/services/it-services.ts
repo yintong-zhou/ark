@@ -24,7 +24,7 @@ When your manager is absent, ask the coordinator or the user instead of inventin
 function profile(id: string, alias: string, role: string, manager: string, mission: string, responsibilities: string, l1: string, l3: string): AgentDef {
   return {
     id,
-    name: `${alias} — ${role}`,
+    name: `${alias} - ${role}`,
     description: `@${id}. ${mission} Reports to @${manager}.`,
     engine: { kind: 'auto' },
     tier: 'standard',

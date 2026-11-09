@@ -1,4 +1,4 @@
-# Ark Phase 2 — File editor and terminal — Design
+# Ark Phase 2 - File editor and terminal - Design
 
 Date: 2026-11-07 · Source brief: `PROJECT.md` (feature 4, Phase 2) · Builds on: `docs/superpowers/specs/2026-11-05-phase1-agent-teams-design.md` · Visual rules: `brand-guidelines.md` · Working rules: `AGENTv2.md`, `CLAUDE.md`
 

@@ -26,7 +26,7 @@ export function TeamPanel({ thread, messages, agents }: { thread: Thread; messag
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {groups.map((g) => (
           <section key={g.title}>
-            <h3 className="section px-2 pb-[4px] pt-2 font-body font-normal text-muted">{g.title} — {g.ids.length}</h3>
+            <h3 className="section px-2 pb-[4px] pt-2 font-body font-normal text-muted">{g.title} - {g.ids.length}</h3>
             <ul>
               {g.ids.map((id) => {
                 const name = agents.find((a) => a.id === id)?.name ?? id;

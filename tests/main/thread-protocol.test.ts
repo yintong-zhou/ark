@@ -82,11 +82,12 @@ test('formatForAgent names an image and pastes a text file in', () => {
 });
 
 test('parsePhases finds Phase, Fase and dash headings', () => {
-  const md = '# Plan\nintro\n## Phase 1: Setup\na\n## Fase 2 — API\nb\n## Notes\nc';
+  const md = '# Plan\nintro\n## Phase 1: Setup\na\n## Fase 2 - API\nb\n## Notes\nc';
   expect(parsePhases(md)).toEqual([
     { title: 'Setup', text: '## Phase 1: Setup\na' },
-    { title: 'API', text: '## Fase 2 — API\nb\n## Notes\nc' },
+    { title: 'API', text: '## Fase 2 - API\nb\n## Notes\nc' },
   ]);
+  expect(parsePhases('## Phase 1 \u2014 API')[0].title).toBe('API');
 });
 test('parsePhases counts only headings at the level of the first phase: numbered sub-headings stay in their phase', () => {
   const md = '# Plan\n## Phase 1: Setup\n### Step 1: init\nx\n### Task 2: config\ny\n## Phase 2: API\n### Step 1: routes\nz';

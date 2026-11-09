@@ -7,7 +7,7 @@ prev: docs/handoff/2026-11-08-ark-phase4-browser-done.md
 tags: [ark, browser, git, selezione, rifiniture]
 ---
 
-# Handoff — Rifiniture del browser e dei branch Git
+# Handoff - Rifiniture del browser e dei branch Git
 
 ## Obiettivo
 

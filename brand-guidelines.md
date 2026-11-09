@@ -1,10 +1,10 @@
-# Brand Guidelines — Ark — Where coding agents work together
+# Brand Guidelines - Ark - Where coding agents work together
 
 > Generated with Brand Spec Sheet on 11/5/2026. Updated 11/5/2026 with a chat-app layer (channels, threads, members), same fonts and colors.
 
 ## The project
 
-- **Name**: Ark — Where coding agents work together
+- **Name**: Ark - Where coding agents work together
 - **Description**: Ark is a local, open-source desktop app (React + Electron) that merges the channel-and-thread structure of Discord/Slack with a Visual Studio Code–style IDE. It orchestrates the coding agents installed on your machine (Claude Code, Codex, OpenCode) as a single agentic system.
 - **Target audience**: Developers and AI enthusiasts
 - **Sector**: Tech / Software
@@ -45,7 +45,7 @@ Accent stays for calls to action. The only other place it may appear is a 2px le
 - Chat sizes: author name 15px Outfit 600; message body 15px Hanken Grotesk 400; timestamp and section headers 12px Hanken Grotesk 400.
 - Section headers in the sidebar (`Projects`, `Team`) are small caps style: 12px, letter-spacing 0.04em, muted.
 
-## Layout — the chat layer
+## Layout - the chat layer
 
 Ark borrows the chat-app skeleton, not its decoration:
 
@@ -59,7 +59,7 @@ Ark borrows the chat-app skeleton, not its decoration:
 - **Reactions**: pills under the message, Raised background, emoji + count, fully rounded ends. The user's own reaction gets a 1px Light neutral outline.
 - **Cards inside messages** (team, question, plan): Raised background, 4px radius, max width ~640px, 16px padding. A reply or summary preview is linked to its message by a thin elbow line on the left, like a thread reply.
 - **Sidebar rows**: 32px tall, `#` style glyph or agent avatar, name, then right-aligned state. Unread or "waiting for you" uses a small pill in Secondary text on Dark neutral, not a coloured badge.
-- **Team panel**: grouped by role with muted headers and a count (`Team — 3`). Each row: avatar, name, model, and a presence dot (speaking: Secondary; waiting for you: Accent; idle: Light neutral at 40%).
+- **Team panel**: grouped by role with muted headers and a count (`Team - 3`). Each row: avatar, name, model, and a presence dot (speaking: Secondary; waiting for you: Accent; idle: Light neutral at 40%).
 - **Composer**: pinned to the bottom of the thread, Content tone field with 4px radius, mention chips on the left of the actions, Send as the only Accent element.
 
 ## Tone of voice
@@ -77,7 +77,7 @@ Studio-lit product shots on a single neutral background, one clear focal point p
 - **Corner radius**: 2–4px for surfaces, cards, inputs and buttons; full circle only for avatars and presence dots; reaction and state pills use fully rounded ends.
 - A tight 8-column grid, consistent gutters, alignment used as the main decorative device.
 
-## Logo — clear space
+## Logo - clear space
 
 The logo sits alone on a flat field in at least 90% of applications. Never scale it non-proportionally or add effects. In the app it appears once, at the top of the project rail.
 

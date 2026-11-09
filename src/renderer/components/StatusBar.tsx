@@ -68,7 +68,7 @@ function Reading({ title, w, now }: { title: string; w?: UsageWindow; now: numbe
           <span>{formatDuration(v.resetIn)}</span>
         </>
       ) : (
-        <span>{v.kind === 'reset' ? 'reset' : '—'}</span>
+        <span>{v.kind === 'reset' ? 'reset' : '-'}</span>
       )}
     </span>
   );

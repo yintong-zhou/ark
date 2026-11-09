@@ -1,4 +1,4 @@
-# Ark Phase 1 — Agent teams in threads — Design
+# Ark Phase 1 - Agent teams in threads - Design
 
 Date: 2026-11-05 · Source brief: `PROJECT.md` (Phase 1) · Builds on: `docs/superpowers/specs/2026-11-05-phase0-usage-design.md` · Visual rules: `brand-guidelines.md` · Working rules: `AGENTv2.md` · Mockups: `.superpowers/brainstorm/30747-1793885178/content/` (`thread-team.html`, `catalog-and-team.html`, `build-phases.html`)
 
