@@ -25,6 +25,8 @@ const api: ArkApi = {
   settings: {
     getView: () => ipcRenderer.invoke('settings:get-view'),
     setView: (v) => ipcRenderer.invoke('settings:set-view', v),
+    getHandoffThresholds: () => ipcRenderer.invoke('settings:get-handoff-thresholds'),
+    setHandoffThreshold: (engine, percent) => ipcRenderer.invoke('settings:set-handoff-threshold', engine, percent),
   },
   catalog: {
     list: () => ipcRenderer.invoke('catalog:list'),

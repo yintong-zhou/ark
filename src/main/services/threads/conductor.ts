@@ -31,6 +31,7 @@ export type ConductorDeps = {
   catalog: Pick<Catalog, 'get' | 'list'>;
   runner: Pick<AgentRunner, 'startAgent' | 'turn' | 'stop' | 'answer' | 'onEvent'>;
   workspace: Workspace;
+  handoffThreshold?: (engine: EngineId) => number; // percent used
   worktrees: string; // root folder of the threads' worktrees
   windows: (engine: EngineId) => { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined; // the account's current usage windows
 };
@@ -506,7 +507,7 @@ export class Conductor {
     // The handoff (live sessions only; build sessions are short).
     // A failed handoff loses only the handoff: the session is dropped (the next turn replays the
     // transcript from the last handoff) and the reply's own step still runs.
-    if (!o.build && needsHandoff(result.contextUsed ?? result.tokens.input, result.contextWindow)) {
+    if (!o.build && needsHandoff(result.contextUsed ?? result.tokens.input, result.contextWindow, engine ? (this.deps.handoffThreshold?.(engine) ?? 40) / 100 : undefined)) {
       let h: TurnResult | Error;
       try {
         h = await runner.turn(chatId, '[Ark] ' + NOTES.handoff);

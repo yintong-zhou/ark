@@ -2,7 +2,6 @@ import type { EngineId } from './agent-file';
 import type { ThreadWindows, WindowMove } from './thread';
 import type { UsageWindow } from './types';
 
-export const HANDOFF_TICK = 50; // the user's handoff threshold on the context bar (%)
 export const IDLE_MS = 30 * 60e3;
 export const RECENT_MS = 12 * 3600e3;
 export const KEEP_MS = 7 * 86400e3;

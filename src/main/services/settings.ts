@@ -1,18 +1,32 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { EngineId } from '@shared/agent-file';
 import type { ViewMode } from '@shared/types';
 
 const file = (userData: string) => join(userData, 'settings.json');
-
-export function readView(userData: string): ViewMode {
+function read(userData: string): Record<string, unknown> {
   try {
-    return JSON.parse(readFileSync(file(userData), 'utf8')).view === 'detailed' ? 'detailed' : 'compact';
-  } catch {
-    return 'compact';
-  }
+    const value: unknown = JSON.parse(readFileSync(file(userData), 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  } catch { return {}; }
 }
-
-export function writeView(userData: string, v: ViewMode): void {
+function write(userData: string, value: Record<string, unknown>): void {
   mkdirSync(userData, { recursive: true });
-  writeFileSync(file(userData), JSON.stringify({ view: v }, null, 2));
+  writeFileSync(file(userData), JSON.stringify(value, null, 2));
+}
+export function readView(userData: string): ViewMode {
+  return read(userData).view === 'detailed' ? 'detailed' : 'compact';
+}
+export function writeView(userData: string, v: ViewMode): void {
+  write(userData, { ...read(userData), view: v });
+}
+export function readHandoffThresholds(userData: string): Record<EngineId, number> {
+  const raw = read(userData).handoffThresholds;
+  const values = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const get = (id: EngineId) => typeof values[id] === 'number' && Number.isInteger(values[id]) && values[id] >= 1 && values[id] <= 100 ? values[id] : 40;
+  return { claude: get('claude'), codex: get('codex') };
+}
+export function writeHandoffThreshold(userData: string, engine: EngineId, percent: number): void {
+  if ((engine !== 'claude' && engine !== 'codex') || !Number.isInteger(percent) || percent < 1 || percent > 100) throw new Error('invalid handoff threshold');
+  write(userData, { ...read(userData), handoffThresholds: { ...readHandoffThresholds(userData), [engine]: percent } });
 }

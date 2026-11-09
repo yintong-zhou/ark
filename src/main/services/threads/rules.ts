@@ -75,6 +75,6 @@ export function mentionOf(text: string, team: string[]): string | undefined {
 }
 
 /** True when the context has filled at least HANDOFF_AT of the window. Unknown window: never. */
-export function needsHandoff(used: number, contextWindow: number | undefined): boolean {
-  return !!contextWindow && used / contextWindow >= HANDOFF_AT;
+export function needsHandoff(used: number, contextWindow: number | undefined, threshold = HANDOFF_AT): boolean {
+  return !!contextWindow && used / contextWindow >= threshold;
 }

@@ -170,8 +170,10 @@ test('mentionOf ignores ids outside the team and e-mail addresses', () => {
   expect(mentionOf('no mention', members)).toBeUndefined();
 });
 
-test('needsHandoff is false without a window and true at exactly 50%', () => {
+test('needsHandoff is false without a window and true at exactly 40%', () => {
   expect(needsHandoff(1_000_000, undefined)).toBe(false);
-  expect(needsHandoff(49, 100)).toBe(false);
+  expect(needsHandoff(39, 100)).toBe(false);
+  expect(needsHandoff(59, 100, 0.6)).toBe(false);
+  expect(needsHandoff(60, 100, 0.6)).toBe(true);
   expect(needsHandoff(HANDOFF_AT * 100, 100)).toBe(true);
 });

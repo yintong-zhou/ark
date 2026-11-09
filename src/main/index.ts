@@ -16,6 +16,7 @@ import { engineStatus, readEngines } from './services/engines/config';
 import { cleanEnv } from './services/engines/isolation';
 import { HistoryStore } from './services/history';
 import { indexSkills } from './services/skills';
+import { readHandoffThresholds } from './services/settings';
 import type { StatuslinePaths } from './services/statusline';
 import { Conductor } from './services/threads/conductor';
 import { ThreadStore } from './services/threads/store';
@@ -115,7 +116,7 @@ app.whenReady().then(() => {
   });
   const store = new ThreadStore(userData);
   store.recover();
-  const conductor = new Conductor({ store, catalog, runner, workspace, worktrees: join(userData, 'worktrees'), windows: (e) => usage.get().agents.find((a) => a.id === e) });
+  const conductor = new Conductor({ store, catalog, runner, workspace, handoffThreshold: (engine) => readHandoffThresholds(userData)[engine], worktrees: join(userData, 'worktrees'), windows: (e) => usage.get().agents.find((a) => a.id === e) });
   const win = createWindow();
   conductor.onUpdate((u) => {
     if (!win.isDestroyed()) win.webContents.send('threads:update', u);

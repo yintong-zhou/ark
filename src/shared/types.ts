@@ -85,7 +85,7 @@ export interface ArkApi {
     connect(): Promise<StatuslineStatus>;
     disconnect(): Promise<StatuslineStatus>;
   };
-  settings: { getView(): Promise<ViewMode>; setView(v: ViewMode): Promise<void> };
+  settings: { getView(): Promise<ViewMode>; setView(v: ViewMode): Promise<void>; getHandoffThresholds(): Promise<Record<EngineId, number>>; setHandoffThreshold(engine: EngineId, percent: number): Promise<void> };
   catalog: {
     list(): Promise<CatalogList>;
     addItServices(): Promise<{ added: string[]; skipped: string[] }>;

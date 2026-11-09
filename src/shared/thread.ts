@@ -4,7 +4,7 @@ import type { TokenCount } from './types';
 
 export const MANAGER = 'project-manager';
 export const PLANNING_BUDGET = 20;
-export const HANDOFF_AT = 0.5;
+export const HANDOFF_AT = 0.4;
 export type Project = { id: string; name: string; dir: string; git: boolean };
 export type Phase = 'team' | 'planning' | 'build' | 'done';
 export type ThreadStatus = 'running' | 'waiting' | 'idle' | 'error'; // waiting = for the user

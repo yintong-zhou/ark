@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import type { EngineId } from '@shared/agent-file';
 import type { AgentStatus, Session, StatuslineStatus, UsageState, ViewMode } from '@shared/types';
-import { HANDOFF_TICK, formatAge, sessionState } from '@shared/usage-math';
+import { formatAge, sessionState } from '@shared/usage-math';
 import { AGENT_NAME, type Navigate } from '../agents';
 import { AgentTag } from '../components/AgentTag';
 import { Bar } from '../components/Bar';
@@ -17,8 +18,11 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
   const [view, setView] = useState<ViewMode>('compact');
   const [statusline, setStatusline] = useState<StatuslineStatus>('connected');
   const [refreshing, setRefreshing] = useState(false);
+  const [thresholds, setThresholds] = useState<Record<EngineId, number>>({ claude: 40, codex: 40 });
+  const [thresholdError, setThresholdError] = useState('');
   useEffect(() => {
     window.ark.settings.getView().then(setView);
+    window.ark.settings.getHandoffThresholds().then(setThresholds).catch(() => setThresholdError('Could not load handoff settings.'));
     window.ark.statusline.status().then(setStatusline);
   }, []);
 
@@ -63,6 +67,25 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
         </>
       }
     >
+      <section className="flex flex-col gap-1 border-b border-divider pb-2">
+        <h2 className="text-body">Handoff settings</h2>
+        <p className="text-muted">Context used at the end of a thread turn. Applies to Claude and Codex planning sessions.</p>
+        <div className="flex gap-3">
+          {(['claude', 'codex'] as const).map((engine) => (
+            <label key={engine} className="flex items-center gap-1">
+              {AGENT_NAME[engine]}
+              <input aria-label={AGENT_NAME[engine] + ' handoff threshold'} type="number" min={1} max={100} step={1}
+                defaultValue={thresholds[engine]} key={engine + ':' + thresholds[engine]} className="w-6 rounded-sm bg-raised px-1 text-secondary"
+                onBlur={(e) => {
+                  const percent = Number(e.currentTarget.value);
+                  if (!Number.isInteger(percent) || percent < 1 || percent > 100) { e.currentTarget.value = String(thresholds[engine]); setThresholdError('Enter a whole number from 1 to 100.'); return; }
+                  void window.ark.settings.setHandoffThreshold(engine, percent).then(() => { setThresholds((old) => ({ ...old, [engine]: percent })); setThresholdError(''); }).catch(() => setThresholdError('Could not save handoff settings.'));
+                }} />%
+            </label>
+          ))}
+        </div>
+        {thresholdError && <p role="alert">{thresholdError}</p>}
+      </section>
       {claudeInstalled && statusline !== 'connected' && (
         <div className="flex items-center justify-between gap-2 rounded-sm bg-raised p-2">
           <span>Claude Code sessions aren&apos;t reported yet.</span>
@@ -73,9 +96,9 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
       {state === null ? (
         <p className="text-muted">Looking for agents on this machine.</p>
       ) : view === 'compact' ? (
-        <CompactTable sessions={live} byId={byId} now={now} onNavigate={onNavigate} />
+        <CompactTable sessions={live} byId={byId} now={now} onNavigate={onNavigate} thresholds={thresholds} />
       ) : (
-        <Detailed agents={agents} sessions={live} now={now} onNavigate={onNavigate} />
+        <Detailed agents={agents} sessions={live} now={now} onNavigate={onNavigate} thresholds={thresholds} />
       )}
 
       {view === 'compact' && withoutSessions.length > 0 && (
@@ -116,11 +139,11 @@ function AgentSummary({ a, now }: { a: AgentStatus; now: number }) {
   );
 }
 
-function ContextCell({ s }: { s: Session }) {
+function ContextCell({ s, thresholds }: { s: Session; thresholds: Record<EngineId, number> }) {
   if (s.contextPct === undefined) return <span className="text-muted">-</span>;
   return (
     <span className="flex items-center gap-1 whitespace-nowrap">
-      <Bar label="Context" wide pct={s.contextPct} ticks={[HANDOFF_TICK]} />
+      <Bar label="Context" wide pct={s.contextPct} ticks={s.agent === 'opencode' ? [] : [thresholds[s.agent]]} />
       <span className="w-5 text-right text-secondary">{Math.round(s.contextPct)}%</span>
     </span>
   );
@@ -131,8 +154,8 @@ function Updated({ s, now }: { s: Session; now: number }) {
   return sessionState(s.lastSeen, now) === 'idle' ? <span>idle {age}</span> : <span>{age} ago</span>;
 }
 
-function CompactTable({ sessions, byId, now, onNavigate }: {
-  sessions: Session[]; byId: Map<string, AgentStatus>; now: number; onNavigate: Navigate;
+function CompactTable({ sessions, byId, now, onNavigate, thresholds }: {
+  sessions: Session[]; byId: Map<string, AgentStatus>; now: number; onNavigate: Navigate; thresholds: Record<EngineId, number>;
 }) {
   if (sessions.length === 0) {
     return <p className="max-w-[60ch] text-muted">No open sessions. Start Claude Code or Codex in a terminal and they show up here.</p>;
@@ -168,7 +191,7 @@ function CompactTable({ sessions, byId, now, onNavigate }: {
                   </div>
                 </div>
               </td>
-              <td className="py-1 pr-2"><ContextCell s={s} /></td>
+              <td className="py-1 pr-2"><ContextCell s={s} thresholds={thresholds} /></td>
               {a?.account?.method === 'apiKey' ? (
                 <td className="py-1 pr-2" colSpan={2}><ApiKeyTotals tokens={s.tokens} cost={s.costUsd} /></td>
               ) : (
@@ -186,8 +209,8 @@ function CompactTable({ sessions, byId, now, onNavigate }: {
   );
 }
 
-function Detailed({ agents, sessions, now, onNavigate }: {
-  agents: AgentStatus[]; sessions: Session[]; now: number; onNavigate: Navigate;
+function Detailed({ agents, sessions, now, onNavigate, thresholds }: {
+  agents: AgentStatus[]; sessions: Session[]; now: number; onNavigate: Navigate; thresholds: Record<EngineId, number>;
 }) {
   return (
     <div className="grid grid-cols-2 gap-5">
@@ -223,7 +246,7 @@ function Detailed({ agents, sessions, now, onNavigate }: {
             <span className="text-meta text-muted">
               <Meta parts={[AGENT_NAME[s.agent], s.model, s.contextSize ? `${Math.round(s.contextSize / 1000)}k context` : undefined]} />
             </span>
-            <Row label="Context"><ContextCell s={s} /></Row>
+            <Row label="Context"><ContextCell s={s} thresholds={thresholds} /></Row>
           </div>
         ))}
       </section>

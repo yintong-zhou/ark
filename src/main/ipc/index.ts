@@ -22,7 +22,7 @@ import { checkMergeable, gitRoot } from '../services/git/rules';
 import { pruneWorktrees, removeWorktree, worktreeRows, type WorktreeDeps } from '../services/git/worktrees';
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
-import { readView, writeView } from '../services/settings';
+import { readHandoffThresholds, writeHandoffThreshold, readView, writeView } from '../services/settings';
 import type { SkillEntry } from '../services/skills';
 import {
   connectStatusline,
@@ -151,6 +151,12 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('settings:set-view', (v) => {
     if (v !== 'compact' && v !== 'detailed') throw new Error('invalid view');
     writeView(userData, v);
+  });
+
+  handle('settings:get-handoff-thresholds', () => readHandoffThresholds(userData));
+  handle('settings:set-handoff-threshold', (engine, percent) => {
+    if ((engine !== 'claude' && engine !== 'codex') || typeof percent !== 'number') throw new Error('invalid handoff threshold');
+    writeHandoffThreshold(userData, engine, percent);
   });
 
   handle('catalog:list', () => catalog.list());
