@@ -4,7 +4,6 @@
 |---|---|
 | Version | 1.0 |
 | Document owner | `@head_of_engineering` (human) |
-| Status | Draft pending approval |
 | Last updated | 2026-11-09 |
 
 ---

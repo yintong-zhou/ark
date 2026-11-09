@@ -1,18 +1,35 @@
+<div align="center">
+
+<img src="resources/logo.png" alt="Ark logo" width="120">
+
 # Ark
 
-Where coding agents work together. Ark is a local, open-source desktop app for Windows that brings the coding agents on
-your machine (Claude Code, Codex, OpenCode) into one place.
+**Where coding agents work together.**
 
-## Phase 0: usage at a glance
+</div>
 
-Ark currently shows, for the agents installed on your machine:
+Ark is a local, open-source desktop app for Windows that brings the coding agents on your machine (Claude Code, Codex,
+OpenCode) into one place. It runs on your own subscriptions: no server, no account, nothing leaves your computer.
+
+- **[Usage](#usage-at-a-glance)**: context, 5-hour and weekly limits of each agent.
+- **[Agents](#agents)**: a catalog of role-based agents, including the IT Services team.
+- **[Threads](#threads)**: a team of agents plans with you, then builds in an isolated Git worktree.
+- **[Task board](#task-board)**, **[Files and editor](#files-and-editor)**, **[Terminal](#terminal)**,
+  **[Git](#git)** and **[Browser](#browser)**: the tools to follow the work without leaving Ark.
+
+> [!NOTE]
+> OpenCode is detected, but running it from Ark is on hold. Execution works with Claude Code and Codex.
+
+## Usage at a glance
+
+Ark shows, for the agents installed on your machine:
 
 - **Each open session's context**: how full it is, with a tick at 50%, so you can decide when to compact or hand off.
 - **The 5-hour and weekly limits** of each agent, with time to reset. A tick on the weekly bar marks where usage would
   be if you spread the week evenly.
 - **History** of the last 7 days, and **which account** each agent is signed in with.
 
-Ark only reads. It never runs the agents and never sends anything anywhere.
+The usage view only reads. It never runs the agents and never sends anything anywhere.
 
 | Agent       | Where the numbers come from                                                                |
 | ----------- | ------------------------------------------------------------------------------------------ |
@@ -28,9 +45,10 @@ Ark backs up `settings.json` before changing it, and **Disconnect** restores the
 own `statusLine` in `.claude/settings*.json` won't report to Ark. Limits appear after a session's first response, on Pro
 and Max plans.
 
-**Before uninstalling Ark, click Disconnect** so Claude Code goes back to your own status line. Otherwise
-`settings.json` keeps pointing at Ark's script. If you already uninstalled, restore the `statusLine` entry from the
-latest backup in `%APPDATA%\ark\backups`.
+> [!IMPORTANT]
+> Before uninstalling Ark, click **Disconnect** so Claude Code goes back to your own status line. Otherwise
+> `settings.json` keeps pointing at Ark's script. If you already uninstalled, restore the `statusLine` entry from the
+> latest backup in `%APPDATA%\ark\backups`.
 
 ## Agents
 
@@ -85,11 +103,14 @@ transcript on disk in `%APPDATA%\ark\threads`, so it survives closing Ark.
 - **Planning**: the project manager gives the floor to one agent at a time. Only one agent speaks per turn, and each
   agent sees only its own skills, as in Chat. After 20 agent turns without a plan, the manager summarizes and asks you
   how to continue.
-- **`@you`**: an agent that needs your decision tags you. The thread is marked **Your turn** (an Accent bar on the message and the thread) and the team pauses until
-  you answer, with the quick replies the agent offers or in your own words. You can also write at any time (to steer the
-  team, or `@` an agent to talk to it) and **Pause** a running turn.
-- **Mentions and tags**: type `@` to pick an agent and `#` to label the thread (`#bug`, `#ui`). A tag stays on the thread, shows as a chip in the message and in the project's sidebar, and a click on it narrows the thread list.
-- **Files and images**: attach with the paperclip, a drop or a paste (up to 5 per message). Images (png, jpg, gif, webp, 5 MB each) reach the agents as images; text and code files (200 KB each) are pasted into the message they read. Other types are refused, since agents only see what Ark gives them. Attachments live in the thread's `files` folder.
+- **`@you`**: an agent that needs your decision tags you. The thread is marked **Your turn** (an Accent bar on the
+  message and the thread) and the team pauses until you answer, with the quick replies the agent offers or in your own
+  words. You can also write at any time (to steer the team, or `@` an agent to talk to it) and **Pause** a running turn.
+- **Mentions and tags**: type `@` to pick an agent and `#` to label the thread (`#bug`, `#ui`). A tag stays on the
+  thread, shows as a chip in the message and in the project's sidebar, and a click on it narrows the thread list.
+- **Files and images**: attach with the paperclip, a drop or a paste (up to 5 per message). Images (png, jpg, gif, webp,
+  5 MB each) reach the agents as images; text and code files (200 KB each) are pasted into the message they read. Other
+  types are refused, since agents only see what Ark gives them. Attachments live in the thread's `files` folder.
 - **Emoji**: the smiley in the composer opens a grid of emoji.
 - **Reactions**: react 👍 or 👎 to any agent message. A reaction does not start a turn: the agents see it on their next turn ("the user reacted 👍 to ...").
 - **The plan card**: when the planner finishes, its plan appears as a card in the thread and is saved as `plan.md` in the
@@ -235,6 +256,8 @@ If `npm run dev` fails with "Electron uninstall", npm skipped Electron's downloa
 
 Other scripts: `npm test`, `npm run test:live`, `npm run typecheck`, `npm run lint`, and `npm run dist`, which builds the Windows installer
 into `dist/`.
+
+User data (agents, threads, worktrees, backups) lives in `%APPDATA%\ark`. Product scope is in [PROJECT.md](PROJECT.md).
 
 ## License
 
