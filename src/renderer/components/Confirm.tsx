@@ -38,7 +38,7 @@ function ConfirmDialog({ request }: { request: Request }) {
     emit();
   };
   return (
-    <dialog ref={ref} aria-labelledby="confirm-title" aria-describedby="confirm-message" onCancel={(e) => { e.preventDefault(); answer(false); }} className="m-auto w-[min(440px,calc(100vw-32px))] rounded-sm border border-divider bg-sidebar p-0 text-secondary shadow-xl backdrop:bg-black/60">
+    <dialog ref={ref} aria-labelledby="confirm-title" aria-describedby="confirm-message" onCancel={(e) => { e.preventDefault(); answer(false); }} className="surface-floating m-auto w-[min(440px,calc(100vw-32px))] rounded-lg bg-sidebar p-0 text-secondary backdrop:bg-primary/80">
       <div className="flex flex-col gap-2 p-3">
         <h2 id="confirm-title" className="text-title">Confirm action</h2>
         <p id="confirm-message" className="break-words text-body text-neutral-light">{request.message}</p>

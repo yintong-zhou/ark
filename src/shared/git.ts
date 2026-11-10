@@ -77,6 +77,18 @@ export function groups(entries: GitEntry[]): { conflicts: GitEntry[]; staged: Gi
   };
 }
 
+/** Commit controls: stage ordinary changes first; conflicts and running worktrees never commit. */
+export function commitState(status: GitStatus, message: string, locked: boolean) {
+  const { conflicts, staged, changes } = groups(status.entries);
+  const all = !status.merging && staged.length === 0 && conflicts.length === 0;
+  return {
+    all,
+    stageFirst: all && changes.length > 0,
+    canStage: !locked && changes.length > 0,
+    canCommit: !locked && conflicts.length === 0 && (status.merging || (staged.length + changes.length > 0 && message.trim() !== '')),
+  };
+}
+
 /** One letter per row: M modified (T too), A added (C too), D, R, U untracked, ! conflict. */
 export function letter(e: GitEntry, side: GitSide | 'tree'): string {
   const ch = (c: string): string => (c === '?' ? 'U' : c === 'T' ? 'M' : c === 'C' ? 'A' : c);

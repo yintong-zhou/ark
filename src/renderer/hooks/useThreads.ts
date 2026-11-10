@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentDef } from '@shared/agent-file';
 import type { Upload } from '@shared/attachments';
+import type { PermissionMode } from '@shared/permissions';
 import type { Project, Thread, ThreadMessage, ThreadUpdate } from '@shared/thread';
 import { mergeMessages } from '@shared/thread-view';
 import { readable } from '../errors';
@@ -60,8 +61,8 @@ export function useThreads() {
   }, []);
 
   /** Starts a thread and selects it. Rejects when main refuses (no Project manager in the catalog, say). */
-  const create = useCallback(async (projectId: string, text: string, files?: Upload[]) => {
-    const t = await window.ark.threads.create(projectId, text, files);
+  const create = useCallback(async (projectId: string, text: string, files?: Upload[], mode?: PermissionMode) => {
+    const t = await window.ark.threads.create(projectId, text, files, mode);
     setThreads((ts) => upsert(ts, t));
     void select(t.id);
   }, [select]);

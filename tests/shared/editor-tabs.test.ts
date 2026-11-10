@@ -88,3 +88,9 @@ test('dirsToRefresh picks the expanded folders a change lands in', () => {
   expect(new Set(dirsToRefresh(['', 'src'], ['src']))).toEqual(new Set(['', 'src']));
   expect(dirsToRefresh(['', 'src'], null)).toEqual(['', 'src']);
 });
+
+test('ignore rule changes refresh expanded folders including nested and ignored parents', () => {
+  const expanded = ['', 'src', 'src/nested', 'cache'];
+  expect(dirsToRefresh(expanded, ['src/.gitignore'])).toEqual(expanded);
+  expect(dirsToRefresh(expanded, ['.gitignore'])).toEqual(expanded);
+});

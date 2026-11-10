@@ -7,7 +7,7 @@ export type RootRef = { kind: 'project'; id: string } | { kind: 'thread'; id: st
 
 export const rootKey = (r: RootRef): string => `${r.kind}:${r.id}`;
 
-export type FileEntry = { name: string; kind: 'dir' | 'file' | 'link' };
+export type FileEntry = { name: string; kind: 'dir' | 'file' | 'link'; ignored?: boolean };
 export type DirListing = { entries: FileEntry[]; truncated: boolean };
 export type ReadResult =
   | { kind: 'text'; text: string; mtimeMs: number; bom: boolean; readonly: boolean }

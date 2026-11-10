@@ -50,6 +50,7 @@ export const touches = (rels: string[] | null, rel: string): boolean =>
 /** The expanded folders whose listing a batch of changes can alter. */
 export function dirsToRefresh(expanded: string[], rels: string[] | null): string[] {
   if (rels === null) return expanded;
+  if (rels.some((r) => r === '.gitignore' || r.endsWith('/.gitignore'))) return expanded;
   const open = new Set(expanded);
   const hit = new Set<string>();
   for (const r of rels) for (const d of [parentOf(r), r]) if (open.has(d)) hit.add(d);

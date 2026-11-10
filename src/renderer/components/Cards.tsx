@@ -5,12 +5,12 @@ import { Avatar, initials } from './Avatar';
 import { BUTTON_INSET, CTA, FIELD_INSET } from './ui';
 
 /**
- * A card inside a message: Raised, 4px round, 640px at most. A thin elbow joins it to the message
+ * A card inside a message: a softly raised surface, 640px at most. A thin elbow joins it to the message
  * above, the way a thread reply is joined; it lands on the card's first line (22px line + 16px padding).
  */
 function Card({ children }: { children: ReactNode }) {
   return (
-    <div className="relative ml-2 mt-1 max-w-[640px] rounded-sm bg-raised p-2 before:absolute before:-left-2 before:-top-1 before:h-[35px] before:w-2 before:rounded-bl-sm before:border-b before:border-l before:border-neutral-light/30">
+    <div className="surface-card relative ml-2 mt-1.5 max-w-[640px] rounded-md bg-raised p-2 before:absolute before:-left-2 before:-top-1.5 before:h-[39px] before:w-2 before:rounded-bl-sm before:border-b before:border-l before:border-neutral-light/20">
       {children}
     </div>
   );

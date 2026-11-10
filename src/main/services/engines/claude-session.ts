@@ -1,6 +1,7 @@
 import type { ChatEvent, UsageWindow } from '@shared/types';
 import { num, obj, str } from '../json';
 import { checkClaudeInit } from './isolation';
+import { isProjectCheck } from './approval-policy';
 import { jsonLines, nodeSpawn, spawnCommand, type EngineSession, type SpawnFn } from './session';
 
 const STDERR_TAIL = 500;
@@ -39,7 +40,8 @@ export function startClaudeSession(o: {
   let model = '';
   let lastRequest: number | undefined; // context filled by the turn's last request (the final assistant event)
   let stderr = '';
-  const pending = new Map<string, Record<string, unknown>>(); // approval request_id -> the tool input to echo back
+  const pending = new Map<string, { input: Record<string, unknown>; tool: string }>();
+  let shellStateKnown = true; // arbitrary approved commands can change cwd, aliases or the shell environment
 
   child.stderr.on('data', (d: Buffer | string) => (stderr = (stderr + d.toString()).slice(-STDERR_TAIL)));
   child.on('exit', (code) => {
@@ -79,9 +81,11 @@ export function startClaudeSession(o: {
         return void child.stdin.write(JSON.stringify(error) + '\n');
       }
       const input = obj(req.input) ?? {};
-      pending.set(id, input);
+      const tool = str(req.tool_name) ?? '';
+      pending.set(id, { input, tool });
       const detail = str(input.command) ?? str(input.file_path) ?? str(req.description) ?? JSON.stringify(input).slice(0, 500);
-      emit({ type: 'approval', id, tool: str(req.display_name) ?? str(req.tool_name) ?? 'tool', detail });
+      emit({ type: 'approval', id, tool: str(req.display_name) ?? str(req.tool_name) ?? 'tool', detail,
+        request: { engine: 'claude', tool, input: shellStateKnown ? input : { ...input, arkShellStateUnknown: true }, cwd: o.cwd } });
     } else if (line.type === 'assistant') {
       const content = obj(line.message)?.content;
       const text = Array.isArray(content)
@@ -128,9 +132,11 @@ export function startClaudeSession(o: {
       child.kill();
     },
     answer(id, allow) {
-      const input = pending.get(id);
-      if (!input || ended) throw new Error('This request is no longer pending');
+      const req = pending.get(id);
+      if (!req || ended) throw new Error('This request is no longer pending');
+      const { input, tool } = req;
       pending.delete(id);
+      if (allow && (tool === 'Bash' || tool === 'PowerShell') && !isProjectCheck(input.command)) shellStateKnown = false;
       const response = allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'The user denied this in Ark.' };
       child.stdin.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: id, response } }) + '\n');
     },

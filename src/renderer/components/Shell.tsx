@@ -1,28 +1,32 @@
 import { useRef, useState, type ReactNode } from 'react';
+import { CloseIcon } from './Icons';
 
 /** The pane that holds the work. Panes manage their own scrolling. */
 export function Main({ children }: { children: ReactNode }) {
-  return <main className="flex min-w-0 flex-1 flex-col bg-content">{children}</main>;
+  return <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-content">{children}</main>;
 }
 
-let sidebarWidth = 240;
+const sidebarWidths = { left: 240, right: 240 };
 const resizeSidebar = (width: number) => Math.max(180, Math.min(600, window.innerWidth - 320, width));
 
-/** The column next to the rail: a 48px title, then rows that scroll, then an optional footer. */
-export function Sidebar({ title, label, children, footer }: { title: string; label: string; children: ReactNode; footer?: ReactNode }) {
-  const [width, setWidth] = useState(sidebarWidth);
+/** A resizable column with a 48px heading or tab bar, scrolling content and an optional footer. */
+export function Sidebar({ title, label, children, footer, side = 'left', header }: {
+  title: string; label: string; children: ReactNode; footer?: ReactNode; side?: 'left' | 'right'; header?: ReactNode;
+}) {
+  const [width, setWidth] = useState(sidebarWidths[side]);
   const drag = useRef({ x: 0, width: 0 });
-  const resize = (next: number) => setWidth(sidebarWidth = resizeSidebar(next));
+  const resize = (next: number) => setWidth(sidebarWidths[side] = resizeSidebar(next));
+  const direction = side === 'left' ? 1 : -1;
   return (
-    <nav aria-label={label} style={{ width }} className="relative flex shrink-0 flex-col border-r border-divider bg-sidebar">
-      <header className="drag flex h-6 shrink-0 items-center border-b border-divider px-2">
-        <h2 className="truncate text-body">{title}</h2>
+    <nav aria-label={label} style={{ width }} className={`relative flex shrink-0 flex-col border-divider bg-sidebar ${side === 'left' ? 'border-r' : 'border-l'}`}>
+      <header className={`drag flex h-6 shrink-0 items-center border-b border-divider ${header ? 'px-1' : 'px-2'}`}>
+        {header ?? <h2 className="truncate text-body">{title}</h2>}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">{children}</div>
+      <div className={`min-h-0 flex-1 overflow-y-auto ${side === 'left' ? 'space-y-0.5 p-1' : ''}`}>{children}</div>
       {footer}
       <div
         role="separator"
-        aria-label="Resize sidebar"
+        aria-label={side === 'left' ? 'Resize sidebar' : 'Resize workspace panel'}
         aria-orientation="vertical"
         aria-valuemin={180}
         aria-valuemax={600}
@@ -34,15 +38,15 @@ export function Sidebar({ title, label, children, footer }: { title: string; lab
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) resize(drag.current.width + e.clientX - drag.current.x);
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) resize(drag.current.width + direction * (e.clientX - drag.current.x));
         }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
             e.preventDefault();
-            resize(width + (e.key === 'ArrowLeft' ? -10 : 10));
+            resize(width + direction * (e.key === 'ArrowLeft' ? -10 : 10));
           }
         }}
-        className="absolute inset-y-0 -right-[3px] z-10 w-[6px] cursor-col-resize touch-none hover:bg-divider focus-visible:bg-divider focus-visible:outline-hidden"
+        className={`absolute inset-y-0 z-10 w-[6px] cursor-col-resize touch-none hover:bg-divider focus-visible:bg-divider focus-visible:outline-hidden ${side === 'left' ? '-right-[3px]' : '-left-[3px]'}`}
       />
     </nav>
   );
@@ -50,7 +54,7 @@ export function Sidebar({ title, label, children, footer }: { title: string; lab
 
 /** A small muted header over a group of rows. */
 export function SideLabel({ children }: { children: ReactNode }) {
-  return <h3 className="section px-1 pb-[4px] pt-2 font-body font-normal text-muted">{children}</h3>;
+  return <h3 className="section px-1 pb-0.5 pt-2 font-body font-normal text-muted">{children}</h3>;
 }
 
 /**
@@ -68,14 +72,14 @@ export function SideRow({ selected = false, waiting = false, onClick, lead, trai
         title={title}
         aria-current={selected ? 'page' : undefined}
         className={`group flex h-4 w-full items-center gap-1 rounded-sm px-1 text-left ${onRemove ? 'pr-4' : ''} ${
-          selected ? 'bg-raised text-secondary' : `hover:bg-raised/50 hover:text-secondary ${waiting ? 'text-secondary' : 'text-muted'}`
+          selected ? 'control-raised bg-raised text-secondary' : `hover:bg-raised/50 hover:text-secondary ${waiting ? 'text-secondary' : 'text-muted'}`
         }`}
       >
         {lead && <span className="flex w-3 shrink-0 items-center justify-center">{lead}</span>}
         <span className="min-w-0 flex-1 truncate">{children}</span>
         {trail}
       </button>
-      {onRemove && <button onClick={onRemove} aria-label={`Delete ${title ?? 'thread'}`} title="Delete thread" className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-secondary">×</button>}
+      {onRemove && <button onClick={onRemove} aria-label={`Delete ${title ?? 'thread'}`} title="Delete thread" className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-secondary [&_svg]:size-2"><CloseIcon /></button>}
     </div>
   );
 }

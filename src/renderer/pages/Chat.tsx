@@ -9,6 +9,8 @@ import { TokenLine } from '../components/TokenLine';
 import { BUTTON, CTA } from '../components/ui';
 import { readable } from '../errors';
 import { useChat } from '../hooks/useChat';
+import { PermissionSelect } from '../components/PermissionSelect';
+import type { PermissionMode } from '@shared/permissions';
 
 /** Chat with one catalog agent, in a project folder the user picks. */
 export function Chat({ agentId }: { agentId: string }) {
@@ -17,6 +19,7 @@ export function Chat({ agentId }: { agentId: string }) {
   const [folder, setFolder] = useState<string | null>(null);
   const [problem, setProblem] = useState<string>();
   const [text, setText] = useState('');
+  const [mode, setMode] = useState<PermissionMode>('ask');
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,7 +43,7 @@ export function Chat({ agentId }: { agentId: string }) {
     if (!folder) return;
     try {
       setProblem(undefined);
-      await start(agentId, folder);
+      await start(agentId, folder, mode);
     } catch (e) {
       setProblem(readable(e));
     }
@@ -62,6 +65,10 @@ export function Chat({ agentId }: { agentId: string }) {
             {folder && <span className="min-w-0 break-all">{folder}</span>}
           </div>
         </section>
+        <div className="flex items-center gap-1">
+          <PermissionSelect value={mode} onChange={setMode} disabled={starting} readOnly />
+          <span className="text-meta text-muted">Read-only advisor</span>
+        </div>
         <div>
           <button onClick={begin} disabled={!folder || starting} className={CTA}>Start chat</button>
         </div>
@@ -72,7 +79,7 @@ export function Chat({ agentId }: { agentId: string }) {
 
   return (
     <>
-      <PaneHeader title={agentName} meta={[started.model, folder ?? ''].filter(Boolean)} />
+      <PaneHeader title={agentName} meta={[started.model, 'Read-only advisor', folder ?? ''].filter(Boolean)} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ol className="flex max-w-[960px] flex-col pb-2">
           {state.entries.map((e, i) => (
@@ -81,6 +88,7 @@ export function Chat({ agentId }: { agentId: string }) {
         </ol>
         <div ref={end} />
       </div>
+      <div className="px-2 pb-0.5 lg:px-3"><PermissionSelect value={mode} onChange={setMode} disabled readOnly /></div>
       <Composer
         label={`Message ${agentName}`}
         placeholder={`Message ${agentName}`}

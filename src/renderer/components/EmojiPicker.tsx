@@ -40,7 +40,7 @@ export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
         <SmileIcon />
       </button>
       {open && (
-        <div role="dialog" aria-label="Emoji" className="absolute bottom-full left-0 z-10 mb-1 grid w-[288px] grid-cols-8 gap-[2px] rounded-sm border border-neutral-light/15 bg-raised p-1">
+        <div role="dialog" aria-label="Emoji" className="surface-floating absolute bottom-full left-0 z-10 mb-1 grid w-[288px] grid-cols-8 gap-[2px] rounded-md bg-sidebar p-1">
           {EMOJI.map((e) => (
             <button
               key={e}

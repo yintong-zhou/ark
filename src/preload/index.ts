@@ -53,7 +53,7 @@ const api: ArkApi = {
   },
   chat: {
     pickFolder: () => ipcRenderer.invoke('chat:pick-folder'),
-    start: (agentId, projectDir) => ipcRenderer.invoke('chat:start', agentId, projectDir),
+    start: (agentId, projectDir, mode) => ipcRenderer.invoke('chat:start', agentId, projectDir, mode),
     send: (chatId, text) => ipcRenderer.invoke('chat:send', chatId, text),
     stop: (chatId) => ipcRenderer.invoke('chat:stop', chatId),
     onEvent: (cb) => {
@@ -74,7 +74,8 @@ const api: ArkApi = {
     list: () => ipcRenderer.invoke('threads:list'),
     remove: (id) => ipcRenderer.invoke('threads:remove', id),
     open: (id) => ipcRenderer.invoke('threads:open', id),
-    create: (projectId, text, files) => ipcRenderer.invoke('threads:create', projectId, text, files),
+    create: (projectId, text, files, mode) => ipcRenderer.invoke('threads:create', projectId, text, files, mode),
+    setPermissionMode: (id, mode) => ipcRenderer.invoke('threads:set-permission-mode', id, mode),
     send: (id, text, files) => ipcRenderer.invoke('threads:send', id, text, files),
     attachment: (id, file) => ipcRenderer.invoke('threads:attachment', id, file),
     approveTeam: (id, agentIds) => ipcRenderer.invoke('threads:approve-team', id, agentIds),

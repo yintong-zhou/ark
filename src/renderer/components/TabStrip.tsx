@@ -1,12 +1,15 @@
-import { closeBrowser, openBrowser, useBrowser } from '../browser/browser-store';
+import { useCallback, useState } from 'react';
+import type { RootRef } from '@shared/files';
+import { closeBrowser, useBrowser } from '../browser/browser-store';
 import { activate, BROWSER_TAB, close, type TabsView } from '../editor/tabs-store';
-import { CloseIcon, GlobeIcon, TerminalIcon } from './Icons';
+import { CloseIcon, PlusIcon } from './Icons';
 import { ICON_BUTTON } from './ui';
 import { EntryIcon } from './EntryIcon';
+import { NewTabMenu } from './NewTabMenu';
 
-const TAB = 'no-drag group flex h-full max-w-[200px] shrink-0 items-center gap-[4px] border-r border-divider px-1 text-meta';
+const TAB = 'no-drag group flex h-4 max-w-[200px] shrink-0 items-center gap-0.5 rounded-sm px-1.5 text-meta';
 
-type Props = { projectId: string; label: string; tabs: TabsView; terminal: { open: boolean; onToggle: () => void } };
+type Props = { projectId: string; root: RootRef; label: string; tabs: TabsView; terminal: { open: boolean; onToggle: () => void } };
 
 /** The page's host and port, or `Browser` before an address. */
 function hostOf(url: string): string {
@@ -17,9 +20,11 @@ function hostOf(url: string): string {
   }
 }
 
-/** The main pane's tabs: the thread first, then the open files and the browser (spec §5.2), and the globe and terminal buttons on the right. */
-export function TabStrip({ projectId, label, tabs, terminal }: Props) {
-  const look = (on: boolean) => (on ? 'bg-content text-secondary' : 'text-muted hover:text-secondary');
+/** The main pane's tabs, followed by a + menu for terminals and the browser. */
+export function TabStrip({ projectId, root, label, tabs, terminal }: Props) {
+  const [menu, setMenu] = useState<{ x: number; y: number }>();
+  const closeMenu = useCallback(() => setMenu(undefined), []);
+  const look = (on: boolean) => (on ? 'control-raised bg-raised text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary');
   const browser = useBrowser(projectId);
   const byKey = new Map(tabs.docs.map((d) => [d.tab.key, d]));
   const closeButton = (name: string, on: boolean, onClose: () => void) => (
@@ -30,14 +35,14 @@ export function TabStrip({ projectId, label, tabs, terminal }: Props) {
         e.stopPropagation();
         onClose();
       }}
-      className={`flex size-2 shrink-0 items-center justify-center rounded-xs hover:bg-raised [&_svg]:size-[12px] ${on ? '' : 'invisible group-hover:visible'}`}
+      className={`flex size-2 shrink-0 items-center justify-center rounded-xs hover:bg-primary/50 [&_svg]:size-[12px] ${on ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
     >
       <CloseIcon />
     </button>
   );
   return (
-    <div className="flex h-4 shrink-0 border-b border-divider bg-sidebar">
-      <div role="tablist" aria-label="Open tabs" className="flex min-w-0 flex-1 overflow-x-auto">
+    <div className="flex h-5 shrink-0 items-center gap-0.5 border-b border-divider bg-sidebar px-1">
+      <div role="tablist" aria-label="Open tabs" className="flex min-w-0 items-center gap-0.5 overflow-x-auto py-0.5">
         <button role="tab" aria-selected={tabs.active === null} onClick={() => activate(projectId, null)} className={`${TAB} ${look(tabs.active === null)}`}>
           <span className="truncate">{label}</span>
         </button>
@@ -86,18 +91,21 @@ export function TabStrip({ projectId, label, tabs, terminal }: Props) {
           );
         })}
       </div>
-      <button aria-label="Browser" title="Browser" onClick={() => void openBrowser(projectId)} className={`${ICON_BUTTON} no-drag rounded-none`}>
-        <GlobeIcon />
-      </button>
       <button
-        aria-label="Terminal"
-        aria-pressed={terminal.open}
-        title="Terminal (Ctrl+`)"
-        onClick={terminal.onToggle}
-        className={`${ICON_BUTTON} no-drag rounded-none ${terminal.open ? 'text-secondary' : ''}`}
+        aria-label="New tab"
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        title="New tab"
+        onMouseDown={(e) => { if (menu) e.stopPropagation(); }}
+        onClick={(e) => {
+          const box = e.currentTarget.getBoundingClientRect();
+          setMenu(menu ? undefined : { x: box.left, y: box.bottom + 4 });
+        }}
+        className={`${ICON_BUTTON} no-drag ${menu ? 'bg-raised/50 text-secondary' : ''}`}
       >
-        <TerminalIcon />
+        <PlusIcon />
       </button>
+      {menu && <NewTabMenu projectId={projectId} root={root} terminal={terminal} at={menu} onClose={closeMenu} />}
     </div>
   );
 }

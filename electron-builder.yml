@@ -17,4 +17,4 @@ nsis:
   include: resources/installer/installer.nsh
 win:
   target: nsis
-  icon: resources/icon.png
+  icon: resources/icon.ico

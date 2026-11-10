@@ -10,7 +10,7 @@ import { DiffView } from '../components/DiffView';
 import { Editor } from '../components/Editor';
 import { FileTree } from '../components/FileTree';
 import { GitView } from '../components/GitView';
-import { CloseIcon, ExplorerIcon, GitBranchIcon, PlusIcon, ThreadIcon } from '../components/Icons';
+import { AgentsIcon, CloseIcon, ExplorerIcon, GitBranchIcon, PlusIcon, ThreadIcon, TrashIcon } from '../components/Icons';
 import { Empty, PaneHeader } from '../components/Page';
 import { Main, Pill, Presence, Sidebar, SideLabel, SideRow } from '../components/Shell';
 import { TabStrip } from '../components/TabStrip';
@@ -18,6 +18,8 @@ import { TeamPanel } from '../components/TeamPanel';
 import { TerminalPanel } from '../components/TerminalPanel';
 import { ThreadView } from '../components/ThreadView';
 import { BUTTON, CTA, ICON_BUTTON } from '../components/ui';
+import { PermissionSelect } from '../components/PermissionSelect';
+import type { PermissionMode } from '@shared/permissions';
 import { onBrowserKey, startSelect, useBrowser } from '../browser/browser-store';
 import { activate, BROWSER_TAB, open as openTab, openDiff, useTabs } from '../editor/tabs-store';
 import type { useThreads } from '../hooks/useThreads';
@@ -33,12 +35,12 @@ type Props = {
   onAddProject: () => void;
 };
 
-/** The sidebar view outlives this screen: back from Usage or Agents, the user finds Files where they left it. */
-type View = 'threads' | 'files' | 'git';
-let lastView: View = 'threads';
+/** The workspace view outlives this screen; threads stay visible in the left column. */
+type View = 'team' | 'files' | 'git';
+let lastView: View = 'team';
 const keepView = (v: View) => (lastView = v);
-const VIEW_LABEL: Record<View, string> = { threads: 'Threads', files: 'Files', git: 'Git' };
-const VIEW_ICON = { threads: ThreadIcon, files: ExplorerIcon, git: GitBranchIcon };
+const VIEW_LABEL: Record<View, string> = { team: 'Team', files: 'Files', git: 'Git' };
+const VIEW_ICON = { team: AgentsIcon, files: ExplorerIcon, git: GitBranchIcon };
 
 /** What a thread row says on the right. */
 const trail = (t: Thread) =>
@@ -47,16 +49,18 @@ const trail = (t: Thread) =>
   : t.status === 'error' ? <Pill label="Something went wrong">⚠️</Pill>
   : null;
 
-/** The workspace: the open project's threads on the left, the thread in the middle, its team on the right. */
+/** Threads on the left, conversation/editor in the middle, Team/Files/Git on the right. */
 export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddProject }: Props) {
   const [text, setText] = useState('');
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>('auto');
   const [filter, setFilter] = useState<string>(); // a #tag the thread list is narrowed to
   const mine = ws.threads.filter((t) => t.projectId === project?.id);
   const thread = draft ? undefined : mine.find((t) => t.id === ws.selected);
   const tags = [...new Set(mine.flatMap((t) => t.tags ?? []))];
   const only = filter && tags.includes(filter) ? filter : undefined;
   const listed = only ? mine.filter((t) => t.tags?.includes(only)) : mine;
-  const [view, setViewState] = useState(lastView);
+  const [selectedView, setViewState] = useState(lastView);
+  const view = selectedView === 'team' && !thread ? 'files' : selectedView;
   const setView = (v: View) => setViewState(keepView(v));
   // Files and Git show the project, or the open thread's worktree once its build has one.
   const worktree = thread?.build && !thread.build.removed ? thread.build.worktree : undefined;
@@ -124,7 +128,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
     if (!project) return false;
     let done = false;
     await attempt(async () => {
-      await ws.create(project.id, t, files.length ? await toUploads(files) : undefined);
+      await ws.create(project.id, t, files.length ? await toUploads(files) : undefined, permissionMode);
       setText('');
       onDraft(false);
       done = true;
@@ -138,74 +142,16 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         title={project?.name ?? 'Projects'}
         label="Threads"
         footer={project && (
-          <div className="flex flex-col gap-1 border-t border-divider p-2">
-            <p className="truncate text-meta text-muted" title={project.dir}>{project.dir}</p>
+          <div className="flex flex-wrap items-center gap-1 border-t border-divider p-1.5">
+            <p className="min-w-0 flex-1 truncate text-meta text-muted" title={project.dir}>{project.dir}</p>
             {!project.git && view !== 'git' && initGit}
             <button onClick={async () => {
               if (await confirmAction(`Remove ${project.name} from Ark? Running threads will be paused. Files and threads are kept; add the folder again to restore it.`)) void attempt(() => ws.removeProject(project.id));
-            }} className={`${BUTTON} self-start`}>Remove project</button>
+            }} aria-label="Remove project" title="Remove project" className={ICON_BUTTON}><TrashIcon /></button>
           </div>
         )}
       >
-        {project && (
-          <div role="tablist" aria-label="Sidebar view" className="flex flex-wrap gap-[4px] px-1 pb-1">
-            {(['threads', 'files', 'git'] as const).map((v) => {
-              const Icon = VIEW_ICON[v];
-              return (
-              <button
-                key={v}
-                role="tab"
-                aria-selected={view === v}
-                onClick={() => setView(v)}
-                className={`flex h-4 items-center gap-[4px] rounded-full px-1 text-body [&_svg]:size-[16px] ${view === v ? 'bg-neutral-light text-primary' : 'bg-raised text-muted hover:text-secondary'}`}
-              >
-                <Icon />
-                {VIEW_LABEL[v]}
-              </button>
-              );
-            })}
-          </div>
-        )}
-        {project && view !== 'threads' ? (
-          <>
-            {worktree && (
-              <select
-                aria-label="Folder"
-                value={rootSel}
-                onChange={(e) => setRootSel(e.target.value as 'project' | 'worktree')}
-                className="mb-1 h-3 w-full rounded-xs bg-raised px-[4px] text-meta text-secondary"
-              >
-                <option value="project">Project</option>
-                <option value="worktree">Worktree · #{thread?.title}</option>
-              </select>
-            )}
-            {view === 'files' ? (
-              <FileTree
-                key={rootKey(root)}
-                root={root}
-                name={root.kind === 'thread' ? `${thread?.title ?? ''} (worktree)` : project.name}
-                onOpen={(rel) => openFile(root, rel)}
-                attempt={attempt}
-                git={project.git}
-              />
-            ) : project.git ? (
-              <GitView
-                key={rootKey(root)}
-                root={root}
-                projectId={project.id}
-                thread={root.kind === 'thread' ? thread : undefined}
-                busyThread={root.kind === 'thread' && thread?.status === 'running'}
-                onOpenFile={(rel) => openFile(root, rel)}
-                onOpenDiff={(rel, side) => openDiff(project.id, root, rel, side)}
-                attempt={attempt}
-                onShowThread={showWorktree}
-                onConflict={() => setRootSel('project')}
-              />
-            ) : (
-              initGit
-            )}
-          </>
-        ) : project ? (
+        {project ? (
           <>
             <SideRow lead={<PlusIcon />} selected={draft} onClick={() => (showThread(), onDraft(true))}>New thread</SideRow>
             <SideLabel>Threads</SideLabel>
@@ -256,7 +202,9 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         {(ws.error ?? problem) && <p role="alert" className="shrink-0 border-b border-divider px-3 py-1 text-muted">{ws.error ?? problem}</p>}
         {project && (
           <TabStrip
+            key={project.id}
             projectId={project.id}
+            root={root}
             tabs={tabs}
             label={draft ? 'New thread' : thread ? `# ${thread.title}` : project.name}
             terminal={{ open: terms.open, onToggle: () => toggleTerminal(project.id, root) }}
@@ -281,9 +229,10 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
               <PaneHeader title="New thread" meta={[`in ${project.name}`]} />
               <div className="flex min-h-0 flex-1 flex-col justify-end">
                 <Empty glyph="💡" title="What do you want to work on?">
-                  The project manager reads it and proposes a team. Nobody starts before you approve.
+                  {permissionMode === 'ask' ? 'The project manager proposes a team and waits for your approval.' : 'The team plans and builds autonomously. You can pause it at any time.'}
                 </Empty>
               </div>
+              <div className="px-2 pb-0.5 lg:px-3"><PermissionSelect value={permissionMode} onChange={setPermissionMode} /></div>
               <Composer
                 label="What do you want to work on?"
                 placeholder="Describe the goal"
@@ -336,7 +285,74 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         )}
       </Main>
 
-      {thread && tabs.active === null && <TeamPanel thread={thread} messages={ws.messages} agents={ws.agents} />}
+      {project && (
+        <Sidebar
+          title="Workspace"
+          label="Workspace"
+          side="right"
+          header={
+            <div role="tablist" aria-label="Workspace view" className="control-inset no-drag flex min-w-0 gap-0.5 overflow-x-auto rounded-md bg-primary p-0.5">
+              {(['team', 'files', 'git'] as const).filter((v) => v !== 'team' || thread).map((v) => {
+                const Icon = VIEW_ICON[v];
+                return (
+                  <button
+                    key={v}
+                    role="tab"
+                    aria-label={VIEW_LABEL[v]}
+                    title={VIEW_LABEL[v]}
+                    aria-selected={view === v}
+                    onClick={() => setView(v)}
+                    className={`flex size-4 shrink-0 items-center justify-center rounded-sm text-body [&_svg]:size-2 ${view === v ? 'control-raised bg-raised text-secondary' : 'text-muted hover:text-secondary'}`}
+                  >
+                    <Icon />
+                  </button>
+                );
+              })}
+            </div>
+          }
+        >
+          {view === 'team' && thread ? (
+            <TeamPanel thread={thread} messages={ws.messages} agents={ws.agents} />
+          ) : (
+            <div className="p-1">
+              {worktree && (
+                <select
+                  aria-label="Folder"
+                  value={rootSel}
+                  onChange={(e) => setRootSel(e.target.value as 'project' | 'worktree')}
+                  className="mb-1 h-3 w-full rounded-xs bg-raised px-[4px] text-meta text-secondary"
+                >
+                  <option value="project">Project</option>
+                  <option value="worktree">Worktree · #{thread?.title}</option>
+                </select>
+              )}
+              {view === 'files' ? (
+                <FileTree
+                  key={rootKey(root)}
+                  root={root}
+                  name={root.kind === 'thread' ? `${thread?.title ?? ''} (worktree)` : project.name}
+                  onOpen={(rel) => openFile(root, rel)}
+                  attempt={attempt}
+                  git={project.git}
+                />
+              ) : project.git ? (
+                <GitView
+                  key={rootKey(root)}
+                  root={root}
+                  projectId={project.id}
+                  thread={root.kind === 'thread' ? thread : undefined}
+                  busyThread={root.kind === 'thread' && thread?.status === 'running'}
+                  onOpenFile={(rel) => openFile(root, rel)}
+                  onOpenDiff={(rel, side) => openDiff(project.id, root, rel, side)}
+                  attempt={attempt}
+                  onShowThread={showWorktree}
+                  onConflict={() => setRootSel('project')}
+                />
+              ) : initGit}
+            </div>
+          )}
+        </Sidebar>
+      )}
     </>
   );
 }

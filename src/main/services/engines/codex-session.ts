@@ -1,6 +1,7 @@
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Permissions } from '@shared/agent-file';
+import type { PermissionMode } from '@shared/permissions';
 import type { ChatEvent } from '@shared/types';
 import { parseRateLimitsResult } from '../adapters/codex-appserver';
 import { num, obj, str } from '../json';
@@ -75,8 +76,14 @@ export async function startCodexSession(o: {
   effort: 'low' | 'medium' | 'high';
   instructions: string;
   permissions: Permissions;
+  permissionMode?: PermissionMode;
   spawn?: SpawnFn;
 }): Promise<EngineSession> {
+  // on-request does not gate destructive commands inside the workspace; never misrepresent it as Auto review.
+  if (o.permissions === 'build' && o.permissionMode === 'auto') {
+    throw new Error('Auto build requires a complete pre-execution approval gate, unavailable in this Codex protocol. Choose Ask for approval or Full access, or use a Claude developer.');
+  }
+  const full = o.permissions === 'build' && o.permissionMode === 'full';
   const open = (args: string[]) => AppServerClient.open(o.exe, args, { cwd: o.cwd, env: o.env, spawn: o.spawn });
 
   // 1. Enumerate with a plain app-server.
@@ -104,8 +111,8 @@ export async function startCodexSession(o: {
     const t = await client.request('thread/start', {
       model: o.model,
       cwd: o.cwd,
-      approvalPolicy: o.permissions === 'build' ? 'on-request' : 'never',
-      sandbox: o.permissions === 'build' ? 'workspace-write' : 'read-only',
+      approvalPolicy: full ? 'never' : o.permissions === 'build' ? 'on-request' : 'never',
+      sandbox: full ? 'danger-full-access' : o.permissions === 'build' ? 'workspace-write' : 'read-only',
       developerInstructions: section ? `${o.instructions}\n\n${section}` : o.instructions,
     });
     const id = str(obj(obj(t)?.thread)?.id);
@@ -138,7 +145,8 @@ export async function startCodexSession(o: {
       const p = obj(params);
       const id = String(rpcId);
       pending.set(id, reply);
-      emit({ type: 'approval', id, tool, detail: commandDetail(str(p?.command), str(p?.cwd)) ?? fileDetail(str(p?.grantRoot), str(p?.reason)) ?? '' });
+      emit({ type: 'approval', id, tool, detail: commandDetail(str(p?.command), str(p?.cwd)) ?? fileDetail(str(p?.grantRoot), str(p?.reason)) ?? '',
+        request: { engine: 'codex', tool, input: p ?? {}, cwd: str(p?.cwd) ?? o.cwd } });
       return true;
     });
   }

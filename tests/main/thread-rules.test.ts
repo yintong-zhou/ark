@@ -13,6 +13,24 @@ const ask: Control = { kind: 'ask', question: 'Q?', choices: [] };
 const plan: Control = { kind: 'plan' };
 const team: Control = { kind: 'team', picks: [{ agent: 'seo', reason: 'r' }], leftOut: '' };
 
+test('autonomous members ask the manager instead of stopping for the user', () => {
+  const d = afterReply(th({ permissionMode: 'auto' }), 'seo', ask, undefined);
+  expect(d.step).toMatchObject({ do: 'turn', agent: MANAGER, note: expect.stringContaining('Q?') });
+});
+
+test('autonomous members can hand off within their team, never to themselves or outsiders', () => {
+  expect(afterReply(th({ permissionMode: 'auto' }), 'seo', next('planner'), undefined).step).toEqual({ do: 'turn', agent: 'planner' });
+  for (const target of ['seo', 'ghost']) {
+    expect(afterReply(th({ permissionMode: 'auto' }), 'seo', next(target), undefined).thread.retried).toBe(true);
+  }
+});
+
+test('autonomous planning budget accepts a manager plan but cannot silently restart discussion', () => {
+  const t = th({ permissionMode: 'auto', summarizing: true, agentTurns: PLANNING_BUDGET });
+  expect(afterReply(t, MANAGER, plan, undefined).step).toEqual({ do: 'wait' });
+  expect(afterReply(t, MANAGER, next('seo'), undefined).step).toMatchObject({ do: 'wait', note: expect.any(String) });
+});
+
 describe('afterReply', () => {
   test('rule 1: the budget summary waits and ignores control and error', () => {
     const d = afterReply(th({ summarizing: true, agentTurns: 20 }), MANAGER, next('seo'), 'boom');

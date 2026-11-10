@@ -1,7 +1,29 @@
 import { expect, test } from 'vitest';
-import { changedDirs, groups, letter, parseRefs, parseStatus, parseWorktrees, type GitEntry } from '@shared/git';
+import { changedDirs, commitState, groups, letter, parseRefs, parseStatus, parseWorktrees, type GitEntry, type GitStatus } from '@shared/git';
 
 const e = (rel: string, x: string, y: string, conflict = false): GitEntry => ({ rel, x, y, conflict });
+
+const commitStatus = (entries: GitEntry[], merging = false): GitStatus => ({ branch: 'main', oid: 'abc', ahead: 0, behind: 0, merging, entries, truncated: false });
+
+test('the Git primary action stages pending changes before committing, preserving commit-all from the menu', () => {
+  const unstaged = commitStatus([e('a.ts', '.', 'M')]);
+  expect(commitState(unstaged, '', false)).toEqual({ all: true, stageFirst: true, canStage: true, canCommit: false });
+  expect(commitState(unstaged, 'Update a', false).canCommit).toBe(true);
+  const staged = commitStatus([e('a.ts', 'M', '.')]);
+  expect(commitState(staged, 'Update a', false)).toEqual({ all: false, stageFirst: false, canStage: false, canCommit: true });
+  expect(commitState(staged, '   ', false).canCommit).toBe(false);
+  expect(commitState(commitStatus([]), 'Nothing', false).canCommit).toBe(false);
+});
+
+test('conflicts and busy worktrees keep commit disabled, while ordinary changes can still be staged separately', () => {
+  const conflicted = commitStatus([e('conflict.ts', 'U', 'U', true), e('a.ts', '.', 'M')], true);
+  expect(commitState(conflicted, 'Resolve', false)).toEqual({ all: false, stageFirst: false, canStage: true, canCommit: false });
+  expect(commitState(commitStatus([e('a.ts', '.', 'M')]), 'Update', true)).toEqual({ all: true, stageFirst: true, canStage: false, canCommit: false });
+});
+
+test('a resolved merge can commit its index with Git\'s message, without staging unrelated worktree changes', () => {
+  expect(commitState(commitStatus([e('a.ts', '.', 'M')], true), '', false)).toEqual({ all: false, stageFirst: false, canStage: true, canCommit: true });
+});
 
 test('parseStatus reads branch, upstream and ahead/behind', () => {
   const out = '# branch.oid abc123\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -1\0';

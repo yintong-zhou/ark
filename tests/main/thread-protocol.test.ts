@@ -59,9 +59,11 @@ test('formatForAgent shows an ask and cuts long reaction quotes', () => {
 });
 
 const agent = (id: string): AgentDef => ({ id, name: id, description: 'd', engine: { kind: 'auto' }, tier: 'light', skills: [], permissions: 'read-only', prompt: 'Base.' });
+const ASK = '\n\nSession policy: Ask for approval. The user confirms the team and starts the developer after the plan.';
 test('withProtocol appends the manager protocol only to the manager', () => {
-  expect(withProtocol(agent(MANAGER)).prompt).toBe('Base.\n\n' + MANAGER_PROTOCOL);
-  expect(withProtocol(agent('planner')).prompt).toBe('Base.\n\n' + MEMBER_PROTOCOL);
+  expect(withProtocol(agent(MANAGER)).prompt).toBe('Base.\n\n' + MANAGER_PROTOCOL + ASK);
+  expect(withProtocol(agent('planner')).prompt).toBe('Base.\n\n' + MEMBER_PROTOCOL + ASK);
+  expect(withProtocol(agent('planner'), 'planning', 'auto').prompt).toContain('Permission mode: auto.');
 });
 test('NOTES', () => {
   expect(NOTES.budget).toContain('20 agent turns');
@@ -119,11 +121,11 @@ test.each([
   [{ review: 'maybe' }],
 ])('parseReply rejects bad review %j', (o) => expect(parseReply(block(o)).error).toMatch(/1 to 20 findings/));
 test('withProtocol gives build roles their build prompt only in the build phase', () => {
-  expect(withProtocol(agent(DEVELOPER), 'build').prompt).toBe('Base.\n\n' + DEVELOPER_PROTOCOL);
-  expect(withProtocol(agent(CODE_REVIEWER), 'build').prompt).toBe('Base.\n\n' + REVIEWER_PROTOCOL);
-  expect(withProtocol(agent(SECURITY_REVIEWER), 'build').prompt).toBe('Base.\n\n' + REVIEWER_PROTOCOL);
-  expect(withProtocol(agent(MANAGER), 'build').prompt).toBe('Base.\n\n' + MANAGER_PROTOCOL);
-  expect(withProtocol(agent(DEVELOPER), 'planning').prompt).toBe('Base.\n\n' + MEMBER_PROTOCOL);
+  expect(withProtocol(agent(DEVELOPER), 'build').prompt).toBe('Base.\n\n' + DEVELOPER_PROTOCOL + ASK);
+  expect(withProtocol(agent(CODE_REVIEWER), 'build').prompt).toBe('Base.\n\n' + REVIEWER_PROTOCOL + ASK);
+  expect(withProtocol(agent(SECURITY_REVIEWER), 'build').prompt).toBe('Base.\n\n' + REVIEWER_PROTOCOL + ASK);
+  expect(withProtocol(agent(MANAGER), 'build').prompt).toBe('Base.\n\n' + MANAGER_PROTOCOL + ASK);
+  expect(withProtocol(agent(DEVELOPER), 'planning').prompt).toBe('Base.\n\n' + MEMBER_PROTOCOL + ASK);
 });
 test("formatForAgent shows a reviewer's findings", () => {
   const r = (control: object) => [m(1, { kind: 'agent', agent: 'planner', text: 'r', model: 'x', tokens: t, control })];

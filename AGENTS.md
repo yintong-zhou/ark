@@ -36,7 +36,8 @@ behavior in `README.md`.
 - Always use a hyphen (-) in place of an em dash (U+2014), in project text and responses.
 - Ark only reads `~/.claude` and `~/.codex`. The one exception is **Connect status line** (edits `settings.json`, with a backup).
 - Agents are isolated: each sees only its own skills; the user's memory, plugins and MCP servers are left out. Don't weaken `engines/isolation.ts`.
-- Agents are read-only by default. Only the developer builds, inside a Git worktree `ark/<title>-<id>`; risky actions need an approval card.
+- Agents are read-only by default. Only the developer builds, inside a Git worktree `ark/<title>-<id>`; risky actions need an approval card,
+  except in a thread the user explicitly set to **Full access** (`src/shared/permissions.ts`). Keep that the only bypass.
 - Ark's own Git runs without project hooks. Keep that.
 - The Git UI runs git only through `services/git/run.ts` (no hooks, literal pathspecs, no prompts).
 - The editor writes only inside a project folder or a thread worktree, when the user saves; the renderer sends a root and a

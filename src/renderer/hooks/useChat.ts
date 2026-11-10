@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { chatReducer, EMPTY_CHAT } from '@shared/chat-log';
 import type { ChatStarted } from '@shared/types';
+import type { PermissionMode } from '@shared/permissions';
 import { readable } from '../errors';
 
 /** One isolated chat: starts the session, feeds its events to the reducer, and stops it on unmount. */
@@ -26,10 +27,10 @@ export function useChat() {
   }, []);
 
   /** Rejects with a readable message when the chat cannot start. */
-  const start = useCallback(async (agentId: string, projectDir: string) => {
+  const start = useCallback(async (agentId: string, projectDir: string, mode?: PermissionMode) => {
     setStarting(true);
     try {
-      const s = await window.ark.chat.start(agentId, projectDir);
+      const s = await window.ark.chat.start(agentId, projectDir, mode);
       if (!mounted.current) {
         // the user left while the engine was starting: nobody owns this session
         void window.ark.chat.stop(s.chatId).catch(() => {});

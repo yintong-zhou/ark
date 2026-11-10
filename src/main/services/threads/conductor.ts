@@ -13,7 +13,9 @@ import {
   type Control, type NewMessage, type Reaction, type Thread, type ThreadMessage, type ThreadUpdate,
 } from '@shared/thread';
 import { taskBoardText, taskInput } from '@shared/tasks';
-import { claudeLimited, tierUp } from '@shared/agent-problems';
+import { chooseThreadEngine, tierUp } from '@shared/agent-problems';
+import { autonomous, modeOf, permissionMode, PERMISSION_LABEL, type PermissionMode } from '@shared/permissions';
+import { decideApproval } from '../engines/approval-policy';
 import { tokensBy, windowLines } from '@shared/thread-view';
 import { mergeTags } from '@shared/tokens';
 import type { ChatEvent, TurnResult, UsageWindow } from '@shared/types';
@@ -61,8 +63,6 @@ export class Conductor {
   // ponytail: live sessions stay open until Ark quits; only the speaker's is stopped when the thread pauses or fails (or hands off). Stopping idle threads' sessions is the upgrade if the process count matters.
   private readonly sessions = new Map<string, Map<string, string>>(); // threadId -> agentId -> chatId
   private readonly engines = new Map<string, EngineId>(); // chatId -> the engine that runs it
-  private readonly rerouted = new Set<string>(); // chats that Auto moved from Claude to Codex
-  private readonly stuck = new Set<string>(); // chats that started on Claude while it was limited (nowhere to move)
   private readonly pending = new Map<string, Map<number, { chatId: string; id: string }>>(); // threadId -> approval seq -> engine request
   private readonly starting = new Set<string>(); // threads whose startDeveloper is in flight
   private readonly deleting = new Set<string>();
@@ -78,13 +78,14 @@ export class Conductor {
     return () => this.listeners.delete(cb);
   }
 
-  create(projectId: string, text: string, files: Upload[] = []): Thread {
+  create(projectId: string, text: string, files: Upload[] = [], mode: PermissionMode = 'auto'): Thread {
     const { store, catalog } = this.deps;
     if (!catalog.get(MANAGER)) throw new Error('Add thread roles in Agents, or fix the project-manager profile if it has errors');
     const project = store.projects().find((p) => p.id === projectId);
     if (!project) throw new Error('Unknown project');
     const title = (text.trim().split('\n')[0].trim() || files[0]?.name || 'New thread').slice(0, TITLE_MAX);
-    let t = store.create(projectId, title);
+    let t = { ...store.create(projectId, title), permissionMode: permissionMode(mode) };
+    store.save(t);
     const tags = mergeTags(undefined, text);
     if (tags.length) store.save((t = { ...t, tags }));
     this.emit(t, [store.append(t.id, this.userMessage(t.id, text, files))]);
@@ -124,6 +125,22 @@ export class Conductor {
     const d = approveTeam(t, agentIds, names);
     const note = this.deps.store.append(threadId, { kind: 'note', text: `Team approved: ${d.thread.team.map((id) => names[id] ?? id).join(', ')}.` });
     this.settle(d.thread, d.step, [note]);
+  }
+
+  /** Policy changes are effective only after every old session and approval has been invalidated. */
+  setPermissionMode(threadId: string, value: unknown): void {
+    const mode = permissionMode(value);
+    const t = this.thread(threadId);
+    if (modeOf(t) === mode) return;
+    if (this.starting.has(threadId)) throw new Error('Wait for the developer to finish starting before changing permissions');
+    this.halt(t);
+    for (const agent of [...(this.sessions.get(threadId)?.keys() ?? [])]) this.dropSession(threadId, agent);
+    // A thread waiting on the user keeps its card (team, plan or ask) and who asked; only a running one goes idle.
+    const cur = this.thread(threadId);
+    const waiting = cur.status === 'waiting';
+    const next: Thread = { ...cur, permissionMode: mode, ...(!waiting && { status: 'idle', speaking: undefined, waitingOn: undefined }) };
+    this.deps.store.save(next);
+    this.emit(next, [this.deps.store.append(threadId, { kind: 'note', text: `Permissions changed to ${PERMISSION_LABEL[mode]}. Sessions stopped${waiting ? '.' : '; send a message to continue.'}` })]);
   }
 
   react(threadId: string, seq: number, emoji: Reaction): void {
@@ -170,13 +187,16 @@ export class Conductor {
     let plan = planOf(t);
     if (this.starting.has(threadId)) throw new Error('The developer is already starting');
     this.starting.add(threadId);
+    const entryGen = this.generation.get(threadId);
     try {
       const project = store.projects().find((p) => p.id === t.projectId);
       if (!project) throw new Error('Unknown project');
       const head = await ws.head(project.dir);
+      if (this.generation.get(threadId) !== entryGen) return;
       if (!head) throw new Error('The project needs a Git repository with at least one commit');
       // git -C walks up: a folder inside another repository would build that one.
       if (!(await ws.isRepoRoot(project.dir))) throw new Error('The project folder must be the root of its Git repository');
+      if (this.generation.get(threadId) !== entryGen) return;
       for (const role of BUILD_ROLES) if (!catalog.get(role)) throw new Error(`Add the ${role} agent in Agents, or fix its profile if it has errors`);
       if (catalog.get(DEVELOPER)!.permissions !== 'build') throw new Error('The developer agent needs permissions: build');
       t = this.thread(threadId); // re-read: the thread may have moved during the await
@@ -240,7 +260,7 @@ export class Conductor {
   /** Stops the running turn; nothing it would have said is recorded. Does nothing when no turn runs. */
   pause(threadId: string): void {
     const t = this.thread(threadId);
-    if (t.status !== 'running') return;
+    if (t.status !== 'running' && !this.starting.has(threadId)) return;
     this.halt(t);
     this.save({ ...t, status: 'idle', speaking: undefined }, []);
   }
@@ -316,7 +336,7 @@ export class Conductor {
   private save(t: Thread, added: ThreadMessage[]): void {
     // A turn works on its own copy; user edits and pending approvals live only on disk.
     const disk = this.deps.store.get(t.id);
-    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), tasks: disk?.tasks, approvals: disk?.approvals };
+    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), permissionMode: disk?.permissionMode, tasks: disk?.tasks, approvals: disk?.approvals };
     this.deps.store.save(next);
     this.emit(next, added);
   }
@@ -335,6 +355,17 @@ export class Conductor {
       for (const [threadId, chats] of this.sessions) {
         for (const [agent, c] of chats) {
           if (c !== chatId) continue;
+          const t = this.thread(threadId);
+          const mode = modeOf(t);
+          const decision = agent === DEVELOPER && t.build && mode !== 'ask'
+            ? mode === 'full' ? { allow: true, reason: 'Full access selected by the user' } : decideApproval(e.request, t.build.worktree)
+            : { allow: false, reason: '' };
+          if (decision.allow) {
+            this.deps.runner.answer(chatId, e.id, true); // throws when the session ended: no "Allowed" note then
+            const note = this.deps.store.append(threadId, { kind: 'note', text: `Allowed ${e.tool}: ${e.detail}. ${decision.reason}.` });
+            this.emit(t, [note]);
+            return;
+          }
           const m = this.deps.store.append(threadId, { kind: 'approval', agent, tool: e.tool, detail: e.detail });
           let mine = this.pending.get(threadId);
           if (!mine) this.pending.set(threadId, (mine = new Map()));
@@ -364,8 +395,6 @@ export class Conductor {
 
   private stopChat(chatId: string): void {
     this.engines.delete(chatId);
-    this.rerouted.delete(chatId);
-    this.stuck.delete(chatId);
     try {
       this.deps.runner.stop(chatId);
     } catch {
@@ -448,14 +477,6 @@ export class Conductor {
 
     // The session.
     const project = store.projects().find((p) => p.id === t.projectId);
-    // An auto agent's live session follows the 90% switch: off Claude when it is limited, back when it is not (heavy work never moves).
-    // Build sessions are left alone: a restart would skip the worktree settings check in runBuild.
-    const limited = claudeLimited(this.deps.windows('claude'), Date.now() / 1000);
-    const liveChat = chats.get(agent);
-    const live0 = liveChat ? catalog.get(agent) : undefined;
-    if (liveChat && !o.build && live0?.engine.kind === 'auto' && live0.tier !== 'heavy') {
-      if ((limited && this.engines.get(liveChat) === 'claude' && !this.stuck.has(liveChat)) || (!limited && this.rerouted.has(liveChat))) this.dropSession(id, agent);
-    }
     let chatId = chats.get(agent);
     const fresh = !chatId;
     if (!chatId) {
@@ -463,7 +484,9 @@ export class Conductor {
       if (!def) throw new Error('Unknown agent');
       const dir = o.build?.cwd ?? project?.dir;
       if (!dir) throw new Error('Unknown project');
-      const started = await runner.startAgent(withProtocol(o.hard ? { ...def, tier: tierUp(def.tier) } : def, o.build ? 'build' : undefined), dir, o.build?.permissions);
+      const mode = modeOf(t);
+      const preferred = chooseThreadEngine(agent, t.assignments ?? {}, { claude: this.deps.windows('claude'), codex: this.deps.windows('codex') }, mode, Date.now() / 1000);
+      const started = await runner.startAgent(withProtocol(o.hard ? { ...def, tier: tierUp(def.tier) } : def, o.build ? 'build' : undefined, mode), dir, o.build?.permissions, mode, preferred);
       chatId = started.chatId;
       if (!live()) {
         this.stopChat(chatId); // paused while starting: the session was never registered
@@ -471,9 +494,10 @@ export class Conductor {
       }
       chats.set(agent, chatId);
       this.engines.set(chatId, started.engine);
-      if (started.rerouted) this.rerouted.add(chatId);
-      else if (limited && started.engine === 'claude') this.stuck.add(chatId);
-      if (started.rerouted) this.save(t, [store.append(id, { kind: 'note', text: NOTES.rerouted(names[agent] ?? agent) })]);
+      const previous = t.assignments?.[agent];
+      t = { ...t, assignments: { ...t.assignments, [agent]: { engine: started.engine, model: started.model } } };
+      const changed = !previous || previous.engine !== started.engine || previous.model !== started.model;
+      this.save(t, changed ? [store.append(id, { kind: 'note', text: `${names[agent] ?? agent} runs on ${started.engine === 'codex' ? 'Codex' : 'Claude Code'} (${started.model}).` })] : []);
     }
 
     // The input.
@@ -525,7 +549,7 @@ export class Conductor {
     const parsed = parseReply(result.text);
     const bad = o.check?.(parsed.control, parsed.body);
     const { body, control, error } = bad ? { body: parsed.body, control: undefined, error: bad } : parsed;
-    const msg = store.append(id, { kind: 'agent', agent, text: body, model: result.model, tokens: result.tokens, ...(control ? { control } : {}) });
+    const msg = store.append(id, { kind: 'agent', agent, text: body, model: result.model, engine, tokens: result.tokens, ...(control ? { control } : {}) });
     if (control?.kind === 'plan' && (t.phase === 'team' || t.phase === 'planning')) store.writePlan(id, body);
     t = { ...t, cursors: { ...t.cursors, [agent]: upTo } };
     this.save(t, [msg]);
@@ -574,6 +598,7 @@ export class Conductor {
           // A pick the catalog cannot start would leave the team card unusable: a bad reply, corrected once by the rules.
           const unknown = agent === MANAGER && control?.kind === 'team' ? control.picks.find((p) => !catalog.get(p.agent)) : undefined;
           if (unknown) return `ark block: unknown agent: ${unknown.agent}`;
+          if (agent === MANAGER && control?.kind === 'team' && control.picks.some((p) => p.agent === MANAGER)) return 'ark block: the manager is already on the team';
           // A plan the build cannot split into phases: the same.
           if (control?.kind === 'plan' && !parsePhases(body).length) return 'ark block: plan has no "## Phase N: <title>" headings';
           return undefined;
@@ -588,9 +613,24 @@ export class Conductor {
       // so a wait gives way to it as if it had been sent now.
       const interrupt = this.interrupts.get(id);
       this.interrupts.delete(id);
+      if (autonomous(t) && !error && !interrupt && t.phase === 'team' && agent === MANAGER && control?.kind === 'team') {
+        const d = approveTeam(t, control.picks.map((p) => p.agent), this.names());
+        if (d.step.do === 'turn') d.step.note = 'The session policy authorizes this team. Lead the planning and resolve routine decisions within the team.';
+        this.settle(d.thread, d.step, [store.append(id, { kind: 'note', text: 'Team selected automatically under the session permission policy.' })]);
+        return;
+      }
       let d = afterReply(t, agent, control, error, interrupt);
       if (d.step.do === 'wait' && interrupt) d = afterUser(d.thread, interrupt.to);
       this.settle(d.thread, d.step, [], d.step.do === 'wait' && control?.kind === 'ask' ? agent : undefined);
+      if (autonomous(t) && !error && !interrupt && t.phase === 'planning' && control?.kind === 'plan' && d.step.do === 'wait') {
+        try {
+          await this.startDeveloper(id);
+        } catch (e) {
+          const current = this.thread(id);
+          if (modeOf(current) !== modeOf(t)) return;
+          this.save({ ...current, status: 'waiting', speaking: undefined }, [store.append(id, { kind: 'note', text: `The automatic build could not start: ${e instanceof Error ? e.message : String(e)}` })]);
+        }
+      }
     } catch (e) {
       if (!live()) return; // 'stopped' after a pause, or anything once the thread moved on
       this.dropSession(id, agent);
