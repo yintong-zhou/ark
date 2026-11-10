@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
@@ -34,6 +34,13 @@ test('keeps imports outside the project as text', () => {
   const outside = project({ 'secret.md': 'SECRET' });
   const dir = project({ 'CLAUDE.md': `@${join(outside, 'secret.md')}\n@../nope.md\n` });
   expect(codexProjectRules(dir)).toBe(`@${join(outside, 'secret.md')}\n@../nope.md`);
+});
+
+test('ignores a top CLAUDE.md that links outside the project', () => {
+  const outside = project({ 'secret.md': 'SECRET' });
+  const dir = project({});
+  try { symlinkSync(join(outside, 'secret.md'), join(dir, 'CLAUDE.md'), 'file'); } catch { return; } // no symlink rights on this machine
+  expect(codexProjectRules(dir)).toBeUndefined();
 });
 
 test('stops at depth 3 on a cycle', () => {

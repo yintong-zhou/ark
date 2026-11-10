@@ -45,7 +45,9 @@ export function codexProjectRules(projectDir: string): string | undefined {
       .join('\n')
       .trimEnd();
   };
-  return expand(realpathSync(claude), 0);
+  const top = realpathSync(claude);
+  if (!isInside(root, top)) return undefined; // a CLAUDE.md that is a link to a file outside the project
+  return expand(top, 0);
 }
 
 const IMPORT_DEPTH = 4; // Claude Code follows at most four hops of @imports
