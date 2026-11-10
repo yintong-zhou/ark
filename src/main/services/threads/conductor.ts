@@ -65,6 +65,8 @@ export class Conductor {
   private readonly sessions = new Map<string, Map<string, string>>(); // threadId -> agentId -> chatId
   private readonly engines = new Map<string, EngineId>(); // chatId -> the engine that runs it
   private readonly pending = new Map<string, Map<number, { chatId: string; id: string }>>(); // threadId -> approval seq -> engine request
+  // threadId -> the pending project code card; in memory only, so after a restart the card shows as expired and is asked again.
+  private readonly consent = new Map<string, { seq: number; done: (allow: boolean | undefined) => void }>();
   private readonly starting = new Set<string>(); // threads whose startDeveloper is in flight
   private readonly deleting = new Set<string>();
 
@@ -243,10 +245,18 @@ export class Conductor {
   /** Answers a pending approval card. */
   answer(threadId: string, seq: number, allow: boolean): void {
     const t = this.thread(threadId);
+    const drop = (a: number[]) => a.filter((s) => s !== seq);
+    const consent = this.consent.get(threadId);
+    if (consent?.seq === seq && t.approvals?.includes(seq)) {
+      this.consent.delete(threadId);
+      this.deps.store.save({ ...t, projectCode: allow ? 'allowed' : 'denied' }); // for the rest of the thread
+      this.setApprovals(threadId, drop, [this.deps.store.append(threadId, { kind: 'decision', target: seq, allow })]);
+      consent.done(allow);
+      return;
+    }
     const req = this.pending.get(threadId)?.get(seq);
     if (!req || !t.approvals?.includes(seq)) throw new Error('This request is no longer pending');
     this.pending.get(threadId)!.delete(seq);
-    const drop = (a: number[]) => a.filter((s) => s !== seq);
     try {
       this.deps.runner.answer(req.chatId, req.id, allow);
     } catch {
@@ -297,7 +307,7 @@ export class Conductor {
   stopAll(): void {
     for (const [id, n] of this.generation) this.generation.set(id, n + 1);
     this.interrupts.clear();
-    for (const id of [...this.pending.keys()]) this.dropApprovals(id);
+    for (const id of new Set([...this.pending.keys(), ...this.consent.keys()])) this.dropApprovals(id);
     for (const chats of this.sessions.values()) for (const chatId of chats.values()) this.stopChat(chatId);
     this.sessions.clear();
     for (const t of this.deps.store.threads()) {
@@ -340,7 +350,7 @@ export class Conductor {
   private save(t: Thread, added: ThreadMessage[]): void {
     // A turn works on its own copy; user edits and pending approvals live only on disk.
     const disk = this.deps.store.get(t.id);
-    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), permissionMode: disk?.permissionMode, tasks: disk?.tasks, approvals: disk?.approvals };
+    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), permissionMode: disk?.permissionMode, projectCode: disk?.projectCode, tasks: disk?.tasks, approvals: disk?.approvals };
     this.deps.store.save(next);
     this.emit(next, added);
   }
@@ -362,7 +372,7 @@ export class Conductor {
           const t = this.thread(threadId);
           const mode = modeOf(t);
           const decision = agent === DEVELOPER && t.build && mode !== 'ask'
-            ? mode === 'full' ? { allow: true, reason: 'Full access selected by the user' } : decideApproval(e.request, t.build.worktree)
+            ? mode === 'full' ? { allow: true, reason: 'Full access selected by the user' } : decideApproval(e.request, t.build.worktree, this.projectCode(threadId))
             : { allow: false, reason: '' };
           if (decision.allow) {
             this.deps.runner.answer(chatId, e.id, true); // throws when the session ended: no "Allowed" note then
@@ -388,13 +398,40 @@ export class Conductor {
     }
   }
 
-  /** Forgets the thread's pending approvals (only that chat's, when given); their cards show as expired. */
+  /**
+   * Forgets the thread's pending approvals (only that chat's, when given); their cards show as expired. Without a chat
+   * the project code card goes too, answered `undefined`: it belongs to the thread, not to a turn.
+   */
   private dropApprovals(threadId: string, chatId?: string): void {
     const mine = this.pending.get(threadId);
     const gone = [...(mine ?? [])].filter(([, r]) => !chatId || r.chatId === chatId).map(([seq]) => seq);
-    if (!gone.length) return;
     for (const s of gone) mine!.delete(s);
-    this.setApprovals(threadId, (a) => a.filter((s) => !gone.includes(s)), []);
+    const consent = chatId ? undefined : this.consent.get(threadId);
+    if (consent) {
+      this.consent.delete(threadId);
+      gone.push(consent.seq);
+    }
+    if (!gone.length) return;
+    try {
+      this.setApprovals(threadId, (a) => a.filter((s) => !gone.includes(s)), []);
+    } finally {
+      consent?.done(undefined);
+    }
+  }
+
+  /** True when the thread may run the repository's code unsandboxed: Full access, or the user allowed it. */
+  private projectCode(threadId: string): boolean {
+    const t = this.deps.store.get(threadId);
+    return !!t && (modeOf(t) === 'full' || t.projectCode === 'allowed');
+  }
+
+  /** Shows the project code card; resolves with the answer, or undefined when the card is dropped (pause, quit...). */
+  private askProjectCode(t: Thread, commands: string[]): Promise<boolean | undefined> {
+    return new Promise((done) => {
+      const m = this.deps.store.append(t.id, { kind: 'approval', agent: DEVELOPER, tool: NOTES.consentTool, detail: NOTES.consent(commands) });
+      this.setApprovals(t.id, (a) => [...a, m.seq], [m]);
+      this.consent.set(t.id, { seq: m.seq, done });
+    });
   }
 
   private stopChat(chatId: string): void {
@@ -490,7 +527,7 @@ export class Conductor {
       if (!dir) throw new Error('Unknown project');
       const mode = modeOf(t);
       const preferred = chooseThreadEngine(agent, t.assignments ?? {}, { claude: this.deps.windows('claude'), codex: this.deps.windows('codex') }, mode, Date.now() / 1000);
-      const started = await runner.startAgent(withProtocol(o.hard ? { ...def, tier: tierUp(def.tier) } : def, o.build ? 'build' : undefined, mode), dir, o.build?.permissions, mode, preferred);
+      const started = await runner.startAgent(withProtocol(o.hard ? { ...def, tier: tierUp(def.tier) } : def, o.build ? 'build' : undefined, mode), dir, o.build?.permissions, mode, preferred, this.projectCode(id));
       chatId = started.chatId;
       if (!live()) {
         this.stopChat(chatId); // paused while starting: the session was never registered
@@ -655,6 +692,12 @@ export class Conductor {
     const turn = (agent: string | undefined, added: ThreadMessage[] = []) =>
       this.save((t = { ...t, status: 'running', speaking: agent, waitingOn: undefined }), added);
     let blockedOn: string[] | undefined; // the failed checks, when the phase blocked on them
+    // Project code consent, once per thread: outside Full access, the first time the worktree has checks to run.
+    const askConsent = async (dir: string, checks: string[]) => {
+      const disk = store.get(id);
+      if (!checks.length || !disk || modeOf(disk) === 'full' || disk.projectCode) return;
+      await this.askProjectCode(t, ws.checkCommands(dir));
+    };
     let asker: string | undefined;
     if (step.do !== 'wait' && step.do !== 'finish') turn(undefined);
     try {
@@ -722,6 +765,11 @@ export class Conductor {
         const unread = this.unreadByDeveloper(t);
         if (unread !== undefined && !(step.do === 'fix' && step.why === 'user')) note = note ? `${note}
 ${NOTES.userFix}` : NOTES.userFix;
+        // A fresh developer session: its preallowed check commands are fixed when it starts, so ask before.
+        if (!this.sessions.get(id)?.has(DEVELOPER)) {
+          await askConsent(b.worktree, ws.projectChecks(b.worktree));
+          if (!live()) return;
+        }
         turn(DEVELOPER);
         const setup = setupHints(b.worktree);
         const lead = NOTES.develop({
@@ -739,12 +787,16 @@ ${NOTES.userFix}` : NOTES.userFix;
         const sha = await ws.commitAll(b.worktree, `ark: phase ${b.current + 1} - ${p.title}`);
         if (!live()) return;
         if (sha) t = withPhase(t, (q) => { q.commit = sha; }).thread; // saved with the checks note
-        const results = await ws.runChecks(b.worktree, ws.projectChecks(b.worktree));
+        const checks = ws.projectChecks(b.worktree);
+        await askConsent(b.worktree, checks); // checks the developer added during the turn
+        if (!live()) return;
+        const denied = checks.length > 0 && !this.projectCode(id);
+        const results = denied ? [] : await ws.runChecks(b.worktree, checks);
         if (!live()) return;
         const failed = results.filter((x) => !x.ok).map((x) => x.script);
         const skipped = results.filter((x) => x.skipped).map((x) => x.script);
         const passed = results.filter((x) => x.ok && !x.skipped).map((x) => x.script);
-        const text = (!results.length ? 'No checks found (npm check scripts, ruff or pytest).'
+        const text = denied ? NOTES.checksDenied : (!results.length ? 'No checks found (npm check scripts, ruff or pytest).'
           : failed.length ? `Checks failed: ${failed.join(', ')}.` : passed.length ? `Checks passed: ${passed.join(', ')}.` : 'No check could run.') +
           (skipped.length ? ` Skipped, tool not installed: ${skipped.join(', ')}.` : '');
         this.save(t, [store.append(id, { kind: 'note', text })]);

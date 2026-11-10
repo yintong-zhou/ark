@@ -10,6 +10,7 @@ import { SEED_AGENTS } from '../fixtures/catalog-agents';
 import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
 import { Conductor } from '../../src/main/services/threads/conductor';
 import { ThreadStore } from '../../src/main/services/threads/store';
+import { NOTES } from '../../src/main/services/threads/protocol';
 import type { CheckResult } from '../../src/main/services/threads/workspace';
 
 type Reply = string | Error | { text: string; tokens: TokenCount; contextWindow: number; contextUsed?: number };
@@ -35,13 +36,15 @@ function fakeRunner() {
   const r = {
     started: [] as AgentDef[],
     starts: [] as { id: string; dir: string; permissions: string }[],
+    codes: [] as { id: string; mode?: string; projectCode?: boolean }[], // what each start was told about project code
     answers: [] as [string, string, boolean][],
     turns: [] as { agent: string; chatId: string; text: string; images?: ImageInput[] }[],
     stopped: [] as string[],
     gate: undefined as Promise<void> | undefined, // when set, startAgent waits for it
     reports: { engine: 'claude' as 'claude' | 'codex', rerouted: false }, // what startAgent says about the engine
-    startAgent: async (agent: AgentDef, dir: string, permissions?: string) => {
+    startAgent: async (agent: AgentDef, dir: string, permissions?: string, mode?: string, _engine?: string, projectCode?: boolean) => {
       r.started.push(agent);
+      r.codes.push({ id: agent.id, mode, projectCode });
       r.starts.push({ id: agent.id, dir, permissions: permissions ?? 'read-only' });
       await r.gate;
       const chatId = `c${++n}`;
@@ -98,6 +101,8 @@ function fakeWorkspace() {
     diff: async (dir: string, base: string) => (w.calls.push(['diff', dir, base]), w.diffText),
     log: async () => '',
     projectChecks: () => w.checks,
+    // As the real one types them: a root script is `npm run <s>`, and test is also `npm test`.
+    checkCommands: () => w.checks.flatMap((s) => (/^\w+$/.test(s) ? [`npm run ${s}`, ...(s === 'test' ? ['npm test'] : [])] : [s])),
     runChecks: async (dir: string, scripts: string[]) => {
       w.calls.push(['runChecks', dir, scripts]);
       return w.results.shift() ?? scripts.map((script) => ({ script, ok: true, tail: '' }));
@@ -575,6 +580,15 @@ async function until(ok: () => boolean) {
 const agentsOf = (from = 0) => runner.turns.slice(from).map((x) => x.agent);
 const notes = (id: string) => store.messages(id).flatMap((m) => (m.kind === 'note' ? [m.text] : []));
 const devTurns = () => runner.turns.filter((x) => x.agent === 'developer');
+/** The project code consent cards of the thread, pending or not. */
+const consentCards = (id: string) => store.messages(id).filter((m) => m.kind === 'approval' && m.tool === NOTES.consentTool);
+const pendingConsent = (id: string) => consentCards(id).find((m) => thread(id).approvals?.includes(m.seq));
+/** Waits for the thread's pending project code card and answers it. */
+async function allowProjectCode(id: string, allow = true) {
+  await until(() => !!pendingConsent(id));
+  c.answer(id, pendingConsent(id)!.seq, allow);
+}
+const devCodes = () => runner.codes.filter((x) => x.id === 'developer').map((x) => x.projectCode);
 
 test('new sessions default to Auto and progress from team to finished build without manual gates', async () => {
   runner.reply('project-manager', TEAM, ark({ next: 'planner' }), 'Done.');
@@ -608,16 +622,28 @@ test('a policy change keeps the card the thread waits on, and its cursors', asyn
   expect(thread(id).waitingOn).toBe(before.waitingOn);
 });
 
-test('Auto approves a structured check but still presents sensitive and unstructured requests', async () => {
+test('Auto: a developer check command is allowed only after consent; sensitive and unstructured requests still ask', async () => {
   const { id } = await planned();
   c.setPermissionMode(id, 'auto');
-  await c.startDeveloper(id);
+  await c.startDeveloper(id); // no checks yet: no consent card
   await until(() => devTurns().length === 1);
+  expect(consentCards(id)).toHaveLength(0);
   const chat = devTurns()[0].chatId;
   const cwd = thread(id).build!.worktree;
-  runner.emit(chat, { type: 'approval', id: 'check', tool: 'Bash', detail: 'npm test', request: { engine: 'claude', tool: 'Bash', input: { command: 'npm test' }, cwd } });
-  expect(runner.answers).toContainEqual([chat, 'check', true]);
-  runner.emit(chat, { type: 'approval', id: 'install', tool: 'Bash', detail: 'npm ci', request: { engine: 'claude', tool: 'Bash', input: { command: 'npm ci' }, cwd } });
+  const bash = (rid: string, command: string) =>
+    runner.emit(chat, { type: 'approval', id: rid, tool: 'Bash', detail: command, request: { engine: 'claude', tool: 'Bash', input: { command }, cwd } });
+  bash('before', 'npm test');
+  expect(runner.answers).not.toContainEqual([chat, 'before', true]);
+  expect(thread(id).approvals).toHaveLength(1);
+  // The developer added a test script: Ark asks before its first check run.
+  ws.checks = ['test'];
+  runner.reply('developer', 'Built.');
+  await allowProjectCode(id);
+  await until(() => runner.turns.at(-1)?.agent === 'code-reviewer');
+  expect(ws.calls).toContainEqual(['runChecks', cwd, ['test']]);
+  bash('after', 'npm test');
+  expect(runner.answers).toContainEqual([chat, 'after', true]);
+  bash('install', 'npm ci');
   runner.emit(chat, { type: 'approval', id: 'spoof', tool: 'Bash', detail: 'npm test' });
   expect(thread(id).approvals).toHaveLength(2);
   expect(runner.answers).not.toContainEqual([chat, 'install', true]);
@@ -719,6 +745,7 @@ test('a phase runs develop, checks, code review, security review, then the summa
   runner.reply('security-reviewer', PASS);
   runner.reply('project-manager', 'All done: branch ready.');
   await c.startDeveloper(id);
+  await allowProjectCode(id);
   await idle();
   expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'security-reviewer', 'project-manager']);
   const [dev, code, sec, pm] = runner.turns.slice(from);
@@ -759,6 +786,7 @@ test('red checks send the developer back in the same session with the failure ta
   runner.reply('security-reviewer', PASS);
   runner.reply('project-manager', 'Done.');
   await c.startDeveloper(id);
+  await allowProjectCode(id);
   await idle();
   const dev = devTurns();
   expect(dev).toHaveLength(2);
@@ -834,6 +862,7 @@ test('red checks after two rounds block on the failed scripts', async () => {
   runner.reply('developer', 'v1', 'v2', 'v3');
   runner.reply('project-manager', ark({ ask: 'Tests keep failing. How to continue?' }));
   await c.startDeveloper(id);
+  await allowProjectCode(id);
   await idle();
   expect(runner.turns.at(-1)!.text).toMatch(/blocked after 2 rounds\. Open points:\n- test\n/);
   expect(thread(id)).toMatchObject({ status: 'waiting', waitingOn: 'project-manager' });
@@ -935,6 +964,7 @@ test('a message during a running build turn does not redirect the turn', async (
   expect(thread(id)).toMatchObject({ status: 'running', speaking: 'developer' });
   expect(devTurns()).toHaveLength(1);
   runner.reply('developer', 'v1', 'v2');
+  await allowProjectCode(id); // the checks appeared during the turn: asked before Ark runs them
   await until(() => devTurns().length === 2);
   expect(devTurns()[1].chatId).toBe(devChat);
   expect(devTurns()[1].text).toContain('[User] Use tabs, please');
@@ -1195,6 +1225,7 @@ test('a live build session is not restarted by the 90% switch', async () => {
   runner.reply('security-reviewer', PASS);
   runner.reply('project-manager', 'Done.');
   await c.startDeveloper(id);
+  await allowProjectCode(id);
   await idle();
   expect(runner.started.filter((a) => a.id === 'developer')).toHaveLength(1);
 });
@@ -1313,4 +1344,140 @@ test('task edits and pending approvals survive each other during a developer tur
   await until(() => runner.turns.at(-1)?.agent === 'code-reviewer');
   expect(thread(id)).toMatchObject({ tasks: [], approvals: [] });
   expect(runner.turns.at(-1)?.text).toContain('Current task board: no tasks');
+});
+
+// ---- Project code consent, once per thread ----
+
+const runsChecks = () => ws.calls.some((x) => x[0] === 'runChecks');
+/** Replies for a build that passes every review, one developer turn per phase. */
+const passingBuild = (phases = 1) => {
+  runner.reply('developer', ...Array.from({ length: phases }, (_, i) => `phase ${i + 1}`));
+  runner.reply('code-reviewer', ...Array(phases).fill(PASS));
+  runner.reply('security-reviewer', ...Array(phases).fill(PASS));
+  runner.reply('project-manager', 'Done.');
+};
+
+test('asks once per thread before the first developer turn when the worktree has checks', async () => {
+  const { id } = await planned(PLAN2);
+  ws.checks = ['test'];
+  passingBuild(2);
+  await c.startDeveloper(id);
+  await until(() => !!pendingConsent(id));
+  const card = pendingConsent(id)!;
+  expect(card).toMatchObject({ kind: 'approval', agent: 'developer', tool: "this repository's code", detail: NOTES.consent(['npm run test', 'npm test']) });
+  expect(card.kind === 'approval' && card.detail).toBe(
+    "Ark will run this repository's checks (npm run test, npm test) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow only if you would run this code yourself.");
+  expect(thread(id).approvals).toEqual([card.seq]);
+  expect(devCodes()).toEqual([]); // no developer session yet
+  expect(runsChecks()).toBe(false);
+  c.answer(id, card.seq, true);
+  expect(store.messages(id)).toContainEqual(expect.objectContaining({ kind: 'decision', target: card.seq, allow: true }));
+  await idle();
+  expect(devCodes()).toEqual([true, true]);
+  expect(ws.calls.filter((x) => x[0] === 'runChecks')).toHaveLength(2);
+  expect(consentCards(id)).toHaveLength(1); // phase 2: no new card
+  expect(thread(id)).toMatchObject({ projectCode: 'allowed', phase: 'done', approvals: [] });
+});
+
+test('a denial skips Ark checks and preallows nothing, and is not asked again', async () => {
+  const { id } = await planned(PLAN2);
+  ws.checks = ['test'];
+  passingBuild(2);
+  await c.startDeveloper(id);
+  await allowProjectCode(id, false);
+  await idle();
+  expect(devCodes()).toEqual([false, false]);
+  expect(runsChecks()).toBe(false);
+  expect(notes(id).filter((n) => n === 'Checks not run: you did not allow project code in this thread.')).toHaveLength(2);
+  expect(notes(id).some((n) => n.startsWith('Checks passed') || n.startsWith('No checks found'))).toBe(false);
+  expect(agentsOf().filter((a) => a === 'code-reviewer')).toHaveLength(2); // each phase went on to the code review
+  expect(consentCards(id)).toHaveLength(1);
+  expect(thread(id)).toMatchObject({ projectCode: 'denied', phase: 'done' });
+});
+
+test('no checks, no card; checks added later are asked before the first check run', async () => {
+  const { id } = await planned();
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  runner.reply('project-manager', 'Done.');
+  await c.startDeveloper(id);
+  await until(() => devTurns().length === 1);
+  expect(consentCards(id)).toHaveLength(0);
+  expect(devCodes()).toEqual([false]);
+  ws.checks = ['test']; // the developer adds a package.json during its turn
+  runner.reply('developer', 'Added the tests.');
+  await until(() => !!pendingConsent(id));
+  expect(runsChecks()).toBe(false);
+  c.answer(id, pendingConsent(id)!.seq, true);
+  await idle();
+  expect(ws.calls).toContainEqual(['runChecks', thread(id).build!.worktree, ['test']]);
+  expect(thread(id)).toMatchObject({ projectCode: 'allowed', phase: 'done' });
+});
+
+test('Full access asks nothing and stores nothing', async () => {
+  const { id } = await planned();
+  c.setPermissionMode(id, 'full');
+  ws.checks = ['test'];
+  passingBuild();
+  await c.startDeveloper(id);
+  await idle();
+  expect(consentCards(id)).toHaveLength(0);
+  expect(devCodes()).toEqual([true]);
+  expect(runsChecks()).toBe(true);
+  expect(thread(id).projectCode).toBeUndefined();
+  expect(thread(id).phase).toBe('done');
+});
+
+test('a pending consent card expires on pause and is asked again', async () => {
+  const { id } = await planned();
+  ws.checks = ['test'];
+  await c.startDeveloper(id);
+  await until(() => !!pendingConsent(id));
+  const first = pendingConsent(id)!;
+  c.pause(id);
+  expect(thread(id)).toMatchObject({ status: 'idle', approvals: [] });
+  expect(() => c.answer(id, first.seq, true)).toThrow('This request is no longer pending');
+  expect(thread(id).projectCode).toBeUndefined();
+  expect(devTurns()).toHaveLength(0);
+  passingBuild();
+  c.send(id, 'Go on');
+  await allowProjectCode(id);
+  await idle();
+  expect(consentCards(id)).toHaveLength(2);
+  expect(thread(id)).toMatchObject({ projectCode: 'allowed', phase: 'done' });
+  expect(runsChecks()).toBe(true);
+});
+
+test('switching to Full with the card pending, then back to Ask, asks again', async () => {
+  const { id } = await planned();
+  ws.checks = ['test'];
+  await c.startDeveloper(id);
+  await until(() => !!pendingConsent(id));
+  const first = pendingConsent(id)!;
+  c.setPermissionMode(id, 'full');
+  expect(thread(id).approvals).toEqual([]);
+  expect(() => c.answer(id, first.seq, true)).toThrow('This request is no longer pending');
+  c.setPermissionMode(id, 'ask');
+  expect(thread(id).projectCode).toBeUndefined();
+  passingBuild();
+  c.send(id, 'Go on');
+  await allowProjectCode(id, false);
+  await idle();
+  expect(consentCards(id)).toHaveLength(2);
+  expect(thread(id)).toMatchObject({ projectCode: 'denied', phase: 'done' });
+  expect(runsChecks()).toBe(false);
+});
+
+test('Codex developer with consent denied: no checks, same Codex start', async () => {
+  const { id } = await planned();
+  runner.reports = { engine: 'codex', rerouted: false };
+  ws.checks = ['test'];
+  passingBuild();
+  await c.startDeveloper(id);
+  await allowProjectCode(id, false);
+  await idle();
+  expect(runner.codes.filter((x) => x.id === 'developer')).toEqual([{ id: 'developer', mode: 'ask', projectCode: false }]);
+  expect(thread(id).assignments?.developer?.engine).toBe('codex');
+  expect(runsChecks()).toBe(false);
+  expect(notes(id)).toContain(NOTES.checksDenied);
 });

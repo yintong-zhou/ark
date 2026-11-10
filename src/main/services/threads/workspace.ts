@@ -206,6 +206,15 @@ export const workspace = {
     ];
   },
 
+  /**
+   * projectChecks as a developer types them: root names become `npm run <s>` (and test also `npm test`); subfolder and
+   * Python checks stay as they are. The one list the Claude developer may run without a card once project code is allowed.
+   */
+  checkCommands(dir: string): string[] {
+    return workspace.projectChecks(dir).flatMap((s) =>
+      (CHECK_SCRIPTS as readonly string[]).includes(s) ? [`npm run ${s}`, ...(s === 'test' ? ['npm test'] : [])] : [s]);
+  },
+
   /** Runs every script in turn, even after a failure. */
   async runChecks(dir: string, scripts: string[], timeoutMs = CHECK_MS): Promise<CheckResult[]> {
     const results: CheckResult[] = [];

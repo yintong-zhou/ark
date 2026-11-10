@@ -4,7 +4,6 @@ import { splitFrontmatter, type Permissions } from '@shared/agent-file';
 import type { PermissionMode } from '@shared/permissions';
 import { obj, str } from '../json';
 import { ARK_PLUGIN } from '../skills';
-import { CHECK_SCRIPTS } from '../threads/workspace';
 
 /** Env vars that tie a child to the Claude Code session Ark itself may be running in. */
 export const STRIPPED_ENV = [
@@ -39,16 +38,13 @@ export function claudeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...cleanEnv(env), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' };
 }
 
-/** The exact check commands a build agent may run without a card (spec §6.4); any other command still asks. */
-const CHECK_COMMANDS = [...CHECK_SCRIPTS.map((s) => `npm run ${s}`), 'npm test'];
-const CHECK_RULES = ['Bash', 'PowerShell'].flatMap((tool) => CHECK_COMMANDS.map((c) => `${tool}(${c})`));
-
 /**
  * Claude Code: only the project's settings, no MCP, only our plugin, and a tool whitelist: read-only
  * agents get no edit, write or shell; build agents get them, with prompts routed to Ark over stdio,
- * except the project's checks.
+ * except, in Ask, the exact `checks` commands (given only once the user allowed project code).
  */
-export function claudeArgs(o: { model: string; roleFile: string; pluginDir: string; permissions: Permissions; permissionMode?: PermissionMode }): string[] {
+export function claudeArgs(o: { model: string; roleFile: string; pluginDir: string; permissions: Permissions; permissionMode?: PermissionMode; checks?: string[] }): string[] {
+  const rules = ['Bash', 'PowerShell'].flatMap((tool) => (o.checks ?? []).map((c) => `${tool}(${c})`));
   return [
     '-p',
     '--input-format',
@@ -70,7 +66,7 @@ export function claudeArgs(o: { model: string; roleFile: string; pluginDir: stri
           ? ['--dangerously-skip-permissions']
           : o.permissionMode === 'auto'
             ? ['--allowedTools', 'Skill', '--permission-mode', 'default', '--permission-prompt-tool', 'stdio']
-            : ['--allowedTools', ...CHECK_RULES, '--permission-mode', 'acceptEdits', '--permission-prompt-tool', 'stdio'])]
+            : [...(rules.length ? ['--allowedTools', ...rules] : []), '--permission-mode', 'acceptEdits', '--permission-prompt-tool', 'stdio'])]
       : ['--tools', 'Read,Glob,Grep,Skill']),
   ];
 }

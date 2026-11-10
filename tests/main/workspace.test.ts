@@ -112,6 +112,14 @@ test('projectChecks keeps the known scripts in order', () => {
   expect(workspace.projectChecks(d)).toEqual(['lint', 'test', 'build']);
 });
 
+test('checkCommands lists the checks as typed commands', () => {
+  const d = pkg({ test: 't', lint: 'l', dev: 'd' });
+  mkdirSync(join(d, 'web'));
+  writeFileSync(join(d, 'web', 'package.json'), JSON.stringify({ scripts: { lint: 'l' } }));
+  writeFileSync(join(d, 'pyproject.toml'), '[project]\nname = "x"\n\n[tool.ruff]\nline-length = 100\n');
+  expect(workspace.checkCommands(d)).toEqual(['npm run lint', 'npm run test', 'npm test', 'npm --prefix web run lint', 'ruff check .']);
+});
+
 test('projectChecks finds npm checks in subfolders and the Python checks, and setupHints what the worktree lacks', () => {
   const d = pkg({ test: 't' });
   const sub = (name: string, scripts: object) => {

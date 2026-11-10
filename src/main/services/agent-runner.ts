@@ -13,6 +13,7 @@ import { CLAUDE_TIER_MODEL, CODEX_TIER_EFFORT, codexTierModel, resolveRun, type 
 import { claudeImportProblem, codexProjectRules } from './engines/project-rules';
 import type { EngineSession } from './engines/session';
 import { buildSkillFolder, type SkillEntry } from './skills';
+import { workspace } from './threads/workspace';
 
 export type RunnerDeps = {
   catalog: Pick<Catalog, 'get'>;
@@ -54,7 +55,8 @@ export class AgentRunner {
     return this.startAgent(agent, projectDir, 'read-only', mode);
   }
 
-  async startAgent(agent: AgentDef, projectDir: string, permissions: Permissions = 'read-only', permissionMode: PermissionMode = 'ask', preferredEngine?: EngineId): Promise<ChatStarted> {
+  /** `projectCode`: the user allowed the repository's checks in this thread, so a Claude build session may run them without a card. */
+  async startAgent(agent: AgentDef, projectDir: string, permissions: Permissions = 'read-only', permissionMode: PermissionMode = 'ask', preferredEngine?: EngineId, projectCode = false): Promise<ChatStarted> {
     const engines = await this.deps.engines();
     if (this.stopping) throw new Error('Ark is closing');
     const info = (id: EngineId) => engines.find((e) => e.id === id);
@@ -96,7 +98,7 @@ export class AgentRunner {
         session = this.deps.startClaude({
           exe,
           cwd: projectDir,
-          args: claudeArgs({ model, roleFile, pluginDir, permissions, permissionMode }),
+          args: claudeArgs({ model, roleFile, pluginDir, permissions, permissionMode, checks: permissions === 'build' && projectCode ? workspace.checkCommands(projectDir) : [] }),
           env: claudeEnv(this.deps.env()),
           expectedFolders: built.folders,
           forbidden,

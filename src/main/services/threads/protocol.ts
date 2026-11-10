@@ -57,6 +57,12 @@ export const NOTES = {
   checksFailed: (results: CheckResult[]) =>
     'These checks failed. Fix them; Ark re-runs the checks.\n' +
     results.filter((r) => !r.ok).map((r) => `- ${r.script}:\n${r.tail}`).join('\n'),
+  // Project code consent: the approval card's tool and detail ("Developer wants to use this repository's code"), and the
+  // checks note after a denial. The copy must say the repository's code runs with the user's permissions.
+  consentTool: "this repository's code",
+  consent: (commands: string[]) =>
+    `Ark will run this repository's checks (${commands.join(', ')}) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow only if you would run this code yourself.`,
+  checksDenied: 'Checks not run: you did not allow project code in this thread.',
   fix: 'The reviewers asked for changes (their findings are above). Fix them; Ark re-runs the checks and the reviews.',
   userFix: 'The user replied (above). Continue the phase.',
   review: (o: { kind: 'code' | 'security'; phase: string; diff: string; worktree: string }) =>

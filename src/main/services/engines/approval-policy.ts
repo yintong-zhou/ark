@@ -13,8 +13,8 @@ const PY_CHECK = new RegExp(String.raw`^(?:(?:python3?|py|\.venv[\\/](?:Scripts|
 export const isProjectCheck = (command: unknown): boolean =>
   typeof command === 'string' && (NPM_CHECK.test(command) || (PY_CHECK.test(command) && !/(?:^|[\s=\/])\.\.(?:[\/\s]|$)/.test(command)));
 
-/** Positive allowlist only. Unrecognized inputs and shell syntax always reach the user. */
-export function decideApproval(request: ApprovalRequest | undefined, root: string): { allow: boolean; reason: string } {
+/** Positive allowlist only. Unrecognized inputs and shell syntax always reach the user; a project check only once `projectCode` (the user's consent) is given. */
+export function decideApproval(request: ApprovalRequest | undefined, root: string, projectCode: boolean): { allow: boolean; reason: string } {
   const ask = { allow: false, reason: 'Sensitive or unrecognized action' };
   if (!request || request.engine !== 'claude') return ask;
   const { input, tool, cwd } = request;
@@ -25,7 +25,7 @@ export function decideApproval(request: ApprovalRequest | undefined, root: strin
     if (process.platform === 'win32' ? actual.toLowerCase() !== base.toLowerCase() : actual !== base) return ask;
     if (tool === 'Bash' || tool === 'PowerShell') {
       const cmd = input.command;
-      if (isProjectCheck(cmd)) {
+      if (projectCode && isProjectCheck(cmd)) {
         return { allow: true, reason: 'Project check in the build worktree' };
       }
     } else if (tool === 'Edit' || tool === 'Write') {

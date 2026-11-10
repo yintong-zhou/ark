@@ -358,6 +358,24 @@ test('start() is always read-only; startAgent with build gets the build profile'
   expect(c.codexCalls.map((x) => x.permissions)).toEqual(['read-only', 'build']);
 });
 
+test('a Claude build start preallows the project checks only with project code consent', async () => {
+  const def = agent({ permissions: 'build' });
+  writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { test: 't' } }));
+  const t = setup({ agent: def });
+  await t.runner.startAgent(def, project, 'build', 'ask', undefined, true);
+  expect(t.claudeCalls[0].args).toContain('Bash(npm run test)');
+  expect(t.claudeCalls[0].args).toContain('PowerShell(npm test)');
+  await t.runner.startAgent(def, project, 'build', 'ask', undefined, false);
+  await t.runner.startAgent(def, project, 'build', 'ask');
+  for (const call of t.claudeCalls.slice(1)) expect((call.args as string[]).some((x) => /^(Bash|PowerShell)\(/.test(x))).toBe(false);
+  // Codex starts the same either way.
+  const c = setup({ claude: false, agent: def });
+  await c.runner.startAgent(def, project, 'build', 'ask', undefined, true);
+  await c.runner.startAgent(def, project, 'build', 'ask', undefined, false);
+  const strip = (x: Record<string, unknown>) => ({ ...x, privateRoot: undefined, expectedFolders: undefined });
+  expect(strip(c.codexCalls[0])).toEqual(strip(c.codexCalls[1]));
+});
+
 /** Writes <dir>/.claude/settings.json, as a project would. */
 const writeSettings = (dir: string, o: object) => {
   mkdirSync(join(dir, '.claude'), { recursive: true });
