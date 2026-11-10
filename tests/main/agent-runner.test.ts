@@ -357,3 +357,25 @@ test('start() is always read-only; startAgent with build gets the build profile'
   await c.runner.startAgent(def, project, 'build');
   expect(c.codexCalls.map((x) => x.permissions)).toEqual(['read-only', 'build']);
 });
+
+/** Writes <dir>/.claude/settings.json, as a project would. */
+const writeSettings = (dir: string, o: object) => {
+  mkdirSync(join(dir, '.claude'), { recursive: true });
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify(o));
+};
+
+test('refuses to start Claude on project settings outside the allowlist, before spawning', async () => {
+  const t = setup();
+  writeSettings(project, { env: { ANTHROPIC_BASE_URL: 'http://x' } });
+  // read-only chat, the path that had no check
+  await expect(t.runner.start('tester', project)).rejects.toThrow(/settings\.json sets env/);
+  expect(t.claudeCalls).toHaveLength(0);
+});
+
+test('a Claude settings file does not block a Codex session', async () => {
+  const t = setup({ claude: false });
+  writeSettings(project, { hooks: { Stop: [{}] } });
+  const r = await t.runner.start('tester', project);
+  expect(r.engine).toBe('codex');
+  expect(t.codexCalls).toHaveLength(1);
+});

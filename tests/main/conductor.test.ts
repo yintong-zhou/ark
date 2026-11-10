@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
@@ -976,67 +976,6 @@ test('a git failure after a developer turn is noted as the build, not the develo
   expect(last(id)).toMatchObject({ kind: 'note', text: 'The build stopped: pre-commit hook failed' });
   expect(thread(id).status).toBe('error');
   expect(runner.stopped).not.toContain(devChat);
-});
-
-/** Writes the project's Claude settings into the thread's worktree, as a project or a developer would. */
-const claudeSettings = (id: string, o: object) => {
-  const dir = join(worktrees, id.slice(0, 8), '.claude');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'settings.json'), JSON.stringify(o));
-  return join(dir, 'settings.json');
-};
-
-test('startDeveloper refuses a worktree whose Claude settings skip the card, once, and starts no session', async () => {
-  const { id } = await planned();
-  const file = claudeSettings(id, { permissions: { allow: ['Bash(*)'] } });
-  const started = runner.started.length;
-  const notesBefore = notes(id).length;
-  await expect(c.startDeveloper(id)).rejects.toThrow(file); // the error is what the user sees: no second copy as a note
-  expect(notes(id)).toHaveLength(notesBefore);
-  expect(thread(id).phase).toBe('planning');
-  expect(runner.started).toHaveLength(started);
-  expect(ws.calls.some((x) => x[0] === 'commitAll')).toBe(false);
-});
-
-test('a new developer session is refused while the worktree settings add hooks; the build resumes once they are gone', async () => {
-  const { id } = await planned(PLAN2);
-  runner.reply('code-reviewer', PASS, PASS);
-  runner.reply('project-manager', 'Done.');
-  runner.reply('developer', 'phase 1');
-  await c.startDeveloper(id);
-  await until(() => runner.turns.at(-1)?.agent === 'security-reviewer'); // the review's settings check has passed
-  const file = claudeSettings(id, { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo ok' }] }] } }); // written while it ran
-  runner.reply('security-reviewer', PASS, PASS);
-  await idle();
-  expect(notes(id).at(-1)).toBe(`The build stopped: ${file} sets hooks, which would act without an approval card. Remove them on the build branch, then try again.`);
-  expect(thread(id)).toMatchObject({ status: 'error', build: { current: 1 } });
-  expect(thread(id).build!.phases[1].base).toBe('abcdef0123456789'); // a resume has the phase's diff base
-  expect(devTurns()).toHaveLength(1);
-  expect(runner.started.filter((a) => a.id === 'developer')).toHaveLength(1);
-  rmSync(file);
-  runner.reply('developer', 'phase 2');
-  c.send(id, 'Removed the hook');
-  await idle();
-  expect(devTurns()[1].text).toContain('You start phase 2/2.');
-  expect(thread(id).phase).toBe('done');
-});
-
-test('a review is refused while the worktree settings hold a hook, so the last phase is checked too', async () => {
-  const { id } = await developing();
-  const file = claudeSettings(id, { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo ok' }] }] } }); // the developer wrote it in this phase
-  runner.reply('developer', 'v1');
-  await idle();
-  expect(notes(id).at(-1)).toBe(`The build stopped: ${file} sets hooks, which would act without an approval card. Remove them on the build branch, then try again.`);
-  expect(thread(id).status).toBe('error');
-  expect(runner.started.some((a) => a.id === 'code-reviewer')).toBe(false);
-  rmSync(file);
-  runner.reply('developer', 'Removed the hook.');
-  runner.reply('code-reviewer', PASS);
-  runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
-  c.send(id, 'Removed the hook');
-  await idle();
-  expect(thread(id).phase).toBe('done');
 });
 
 test('a message to a finished build gets a note and reaches nobody', async () => {

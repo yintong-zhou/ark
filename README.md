@@ -155,8 +155,8 @@ worktrees and original folder. Running threads are paused. Add the same folder a
 - **Approvals**: build agents can edit files in the worktree, but anything risky (installing packages, network commands,
   commands outside the worktree) shows an approval card with the agent, the tool and the command. **Allow** or **Deny**
   it; a card that was not answered before its turn ended shows "Expired". A thread that waits on an approval gets a badge.
-  Ark refuses to start a developer session when the worktree's `.claude/settings.json` sets `permissions.allow`,
-  `permissions.defaultMode` or `hooks` (they would act without a card) or is not valid JSON; the note names the file.
+  Ark refuses to start any Claude session when the project's `.claude/settings.json` sets anything beyond `$schema` and
+  `permissions.deny` / `permissions.ask` (hooks, env, allow rules and the like could skip a card) or is not valid JSON; the error names the file.
 - **Checks**: after each developer turn Ark runs the checks it finds: the `typecheck`, `lint`, `test` and `build` scripts of
   `package.json` at the root and in direct subfolders (`npm --prefix web run test`), `ruff check .` when the Python project
   configures ruff, and `python -m pytest -q` when it configures pytest or has a `tests` folder. The developer is told the

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test } from 'vitest';
 import {
   ancestorInstructions,
   checkClaudeInit,
@@ -10,6 +10,7 @@ import {
   checkCodexSkills,
   claudeArgs,
   claudeEnv,
+  claudeSettingsProblem,
   cleanEnv,
   codexArgs,
 } from '../../src/main/services/engines/isolation';
@@ -206,4 +207,65 @@ test('ancestorInstructions lists CLAUDE.md and CLAUDE.local.md above the folder,
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+let root: string;
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), 'ark-settings-'));
+});
+afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+/** Writes <dir>/.claude/settings.json from text or an object. */
+const writeSettings = (dir: string, s: unknown) => {
+  mkdirSync(join(dir, '.claude'), { recursive: true });
+  writeFileSync(join(dir, '.claude', 'settings.json'), typeof s === 'string' ? s : JSON.stringify(s));
+};
+
+test('claudeSettingsProblem accepts a missing file', () => {
+  expect(claudeSettingsProblem(root)).toBeUndefined();
+});
+
+test.each([
+  [{}], [{ $schema: 'https://json.schemastore.org/claude-code-settings.json' }],
+  [{ permissions: {} }], [{ permissions: { deny: ['Bash'], ask: ['Edit'] } }],
+])('claudeSettingsProblem accepts settings that cannot run anything: %j', (s) => {
+  writeSettings(root, s);
+  expect(claudeSettingsProblem(root)).toBeUndefined();
+});
+
+test.each([
+  [{ hooks: { PreToolUse: [], Stop: [{}] } }, 'hooks'],
+  [{ env: { ANTHROPIC_BASE_URL: 'http://x' } }, 'env'],
+  [{ apiKeyHelper: 'x' }, 'apiKeyHelper'],
+  [{ outputStyle: 'x' }, 'outputStyle'],
+  [{ permissions: { allow: ['Bash'] } }, 'permissions.allow'],
+  [{ permissions: { defaultMode: 'bypassPermissions' } }, 'permissions.defaultMode'],
+  [{ permissions: { additionalDirectories: ['C:/'] } }, 'permissions.additionalDirectories'],
+  [{ permissions: 'x' }, 'permissions'],
+  [{ env: {} }, 'env'], // unknown means refused, even when empty
+])('claudeSettingsProblem refuses any other key: %j', (s, key) => {
+  writeSettings(root, s);
+  const p = claudeSettingsProblem(root);
+  expect(p).toContain(join(root, '.claude', 'settings.json'));
+  expect(p).toContain(`sets ${key},`);
+});
+
+test('claudeSettingsProblem names every offending key at once', () => {
+  writeSettings(root, { env: {}, hooks: { Stop: [{}] }, permissions: { allow: ['x'] } });
+  expect(claudeSettingsProblem(root)).toContain('sets env, hooks, permissions.allow,');
+});
+
+test('claudeSettingsProblem reads a settings file that starts with a UTF-8 BOM', () => {
+  const BOM = String.fromCharCode(0xfeff);
+  writeSettings(root, BOM + '{}');
+  expect(claudeSettingsProblem(root)).toBeUndefined();
+  writeSettings(root, BOM + JSON.stringify({ hooks: { Stop: [{}] } }));
+  expect(claudeSettingsProblem(root)).toContain('sets hooks,');
+});
+
+test('claudeSettingsProblem fails closed on a file it cannot parse', () => {
+  writeSettings(root, '{ "permissions": { "allow": [ // trailing');
+  expect(claudeSettingsProblem(root)).toMatch(/settings\.json is not valid JSON/);
+  writeSettings(root, '[]');
+  expect(claudeSettingsProblem(root)).toMatch(/is not valid JSON/);
 });

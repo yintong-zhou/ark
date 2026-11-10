@@ -27,7 +27,7 @@ import { afterBuildUser, afterChecks, afterManager, afterReview, openPoints, sta
 import { formatForAgent, NOTES, parsePhases, parseReply, withProtocol } from './protocol';
 import { afterReply, afterUser, approveTeam, mentionOf, needsHandoff, type Step } from './rules';
 import type { ThreadStore } from './store';
-import { branchName, claudeSettingsProblem, setupHints, type Workspace } from './workspace';
+import { branchName, setupHints, type Workspace } from './workspace';
 
 export type ConductorDeps = {
   store: ThreadStore;
@@ -214,8 +214,6 @@ export class Conductor {
       const made = existsSync(worktree) && (await ws.isRepoRoot(worktree)) && !!(await ws.head(worktree));
       if (this.generation.get(threadId) !== gen) return; // Ark closed meanwhile: nothing was created
       if (!made) await ws.addWorktree(project.dir, worktree, branch);
-      const bad = claudeSettingsProblem(worktree);
-      if (bad) throw new Error(bad); // the user sees this error over the composer: no note as well
       const dir = join(worktree, 'docs', 'plans');
       mkdirSync(dir, { recursive: true });
       const planFile = join(dir, `${new Date().toLocaleDateString('sv-SE')}-${agentId(t.title)}.md`); // sv-SE: local YYYY-MM-DD
@@ -673,9 +671,6 @@ export class Conductor {
           const agent = step.who === 'code' ? CODE_REVIEWER : SECURITY_REVIEWER;
           const diff = await ws.diff(b.worktree, p.base!);
           if (!live()) return;
-          // The reviewers load the worktree's .claude/settings.json too, and the developer may have written it this phase.
-          const bad = claudeSettingsProblem(b.worktree);
-          if (bad) throw new Error(bad);
           turn(agent);
           this.dropSession(id, agent); // a fresh session per review
           const r = await this.speak(t, agent, gen, {
@@ -723,9 +718,6 @@ export class Conductor {
         } else {
           note = step.why === 'checks' ? NOTES.checksFailed(step.results ?? []) : step.why === 'review' ? NOTES.fix : NOTES.userFix;
         }
-        // A fresh session loads the worktree's .claude/settings.json: refuse one that would skip the approval card.
-        const bad = this.sessions.get(id)?.has(DEVELOPER) ? undefined : claudeSettingsProblem(b.worktree);
-        if (bad) throw new Error(bad);
         // The user wrote something the developer has not read: a fresh session starts just before it, and every turn says so.
         const unread = this.unreadByDeveloper(t);
         if (unread !== undefined && !(step.do === 'fix' && step.why === 'user')) note = note ? `${note}

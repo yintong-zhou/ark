@@ -75,6 +75,35 @@ export function claudeArgs(o: { model: string; roleFile: string; pluginDir: stri
   ];
 }
 
+const SETTINGS_TOP = new Set(['$schema', 'permissions']);
+const SETTINGS_PERMISSIONS = new Set(['deny', 'ask']);
+
+/**
+ * Why a Claude session must not start in `dir`: Claude Code loads its .claude/settings.json (--setting-sources project),
+ * and hooks, env, an API key helper, allow rules, a default mode or extra directories there could run commands, change the
+ * environment or skip approval cards. Allowlist: only `$schema` and `permissions.deny|ask` (which only restrict) pass;
+ * unknown means refused. Undefined when the file is missing or clean; a file that is not a JSON object fails closed.
+ */
+export function claudeSettingsProblem(dir: string): string | undefined {
+  const file = join(dir, '.claude', 'settings.json');
+  if (!existsSync(file)) return undefined;
+  let s: Record<string, unknown> | undefined;
+  try {
+    s = obj(JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))); // editors on Windows write a BOM
+  } catch {
+    // unreadable or not JSON: s stays undefined
+  }
+  if (!s) return `${file} is not valid JSON, so Ark cannot tell whether it skips the approval cards. Fix or remove it, then try again.`;
+  const keys = Object.keys(s).flatMap((k) => {
+    if (k !== 'permissions') return SETTINGS_TOP.has(k) ? [] : [k];
+    const perms = obj(s.permissions);
+    return perms ? Object.keys(perms).filter((x) => !SETTINGS_PERMISSIONS.has(x)).map((x) => `permissions.${x}`) : [k];
+  });
+  return keys.length
+    ? `${file} sets ${keys.join(', ')}, which Ark does not allow in agent sessions: they could run commands, change the environment or skip approval cards. Remove them, then try again.`
+    : undefined;
+}
+
 /**
  * CLAUDE.md / CLAUDE.local.md in the folders above `dir`: Claude Code loads them with no switch to
  * stop it. The folder's own file does not count, it is kept by design.

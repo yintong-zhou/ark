@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { agentId } from '@shared/agent-file';
-import { obj } from '../json';
 
 /** Git and project checks inside a thread's worktree. The project's own checked-out branch is never touched. */
 
@@ -216,34 +215,6 @@ export const workspace = {
 };
 
 export type Workspace = typeof workspace;
-
-/**
- * Why a build session must not start in `dir`: Claude Code loads its .claude/settings.json (--setting-sources project),
- * and allow rules, a default mode, extra directories, hooks or an API key helper there would act without an approval
- * card. Undefined when the file is
- * missing or sets none of them; a file that is not a JSON object fails closed.
- */
-export function claudeSettingsProblem(dir: string): string | undefined {
-  const file = join(dir, '.claude', 'settings.json');
-  if (!existsSync(file)) return undefined;
-  let s: Record<string, unknown> | undefined;
-  try {
-    s = obj(JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, ''))); // editors on Windows write a BOM
-  } catch {
-    // unreadable or not JSON: s stays undefined
-  }
-  if (!s) return `${file} is not valid JSON, so Ark cannot tell whether it skips the approval cards. Fix or remove it, then try again.`;
-  const set = (v: unknown) => v !== undefined && !(Array.isArray(v) ? !v.length : obj(v) && !Object.keys(v as object).length);
-  const perms = obj(s.permissions);
-  const keys = [
-    set(perms?.allow) && 'permissions.allow',
-    perms?.defaultMode !== undefined && 'permissions.defaultMode',
-    set(perms?.additionalDirectories) && 'permissions.additionalDirectories',
-    set(s.hooks) && 'hooks',
-    set(s.apiKeyHelper) && 'apiKeyHelper',
-  ].filter(Boolean);
-  return keys.length ? `${file} sets ${keys.join(', ')}, which would act without an approval card. Remove them on the build branch, then try again.` : undefined;
-}
 
 /** Branch for a thread's worktree: readable title slug plus the thread id prefix for uniqueness. */
 export function branchName(title: string, threadId: string): string {

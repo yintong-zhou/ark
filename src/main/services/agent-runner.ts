@@ -8,7 +8,7 @@ import type { ChatEvent, ChatStarted, EngineInfo, EnginesConfig, TurnResult } fr
 import type { Catalog } from './catalog';
 import type { startClaudeSession } from './engines/claude-session';
 import type { startCodexSession } from './engines/codex-session';
-import { ancestorInstructions, checkCodexPersonal, claudeArgs, claudeEnv, IsolationError } from './engines/isolation';
+import { ancestorInstructions, checkCodexPersonal, claudeArgs, claudeEnv, claudeSettingsProblem, IsolationError } from './engines/isolation';
 import { CLAUDE_TIER_MODEL, CODEX_TIER_EFFORT, codexTierModel, resolveRun, type CodexModel } from './engines/models';
 import { codexProjectRules } from './engines/project-rules';
 import type { EngineSession } from './engines/session';
@@ -77,6 +77,9 @@ export class AgentRunner {
         // Claude Code loads CLAUDE.md files from every folder above the project, with no switch to stop it.
         const above = ancestorInstructions(projectDir);
         if (above.length) throw new IsolationError(above.map((p) => 'instructions above the project not allowed: ' + p));
+        // The project's .claude/settings.json is loaded too: refuse one that could run commands or skip approval cards.
+        const bad = claudeSettingsProblem(projectDir);
+        if (bad) throw new Error(bad);
         const pluginDir = join(dir, 'plugin');
         const built = buildSkillFolder('claude-plugin', pluginDir, agent.skills, index);
         missingCheck(built.missing);
