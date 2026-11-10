@@ -10,6 +10,7 @@ import { ApprovalCard, Cards, PhaseCard, PlanCard } from './Cards';
 import { Composer } from './Composer';
 import { PHASE_GLYPH, shortModel } from './glyphs';
 import { ModelMark } from './Logos';
+import { Markdown } from './Markdown';
 import { PauseIcon, TasksIcon, ThreadIcon } from './Icons';
 import { PaneHeader } from './Page';
 import { TaskBoard } from './TaskBoard';
@@ -227,21 +228,19 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
 
 /** Message text; an @mention reads as a chip with the agent's name, a #tag as a chip that filters the threads. */
 function Body({ text, agents, onTag }: { text: string; agents: AgentDef[]; onTag: (tag: string) => void }) {
-  return (
-    <p className="whitespace-pre-wrap break-words">
-      {tokenize(text).map((t, i) => {
-        if (t.kind === 'text') return t.text;
-        if (t.kind === 'mention') {
-          return <span key={i} className="rounded-xs bg-raised px-[4px] text-secondary">@{agents.find((a) => a.id === t.id)?.name ?? t.id}</span>;
-        }
-        return (
-          <button key={i} type="button" onClick={() => onTag(t.tag)} className="rounded-xs bg-raised px-[4px] text-secondary hover:brightness-125">
-            #{t.tag}
-          </button>
-        );
-      })}
-    </p>
-  );
+  const leaf = (run: string) =>
+    tokenize(run).map((t, i) => {
+      if (t.kind === 'text') return t.text;
+      if (t.kind === 'mention') {
+        return <span key={i} className="rounded-xs bg-raised px-[4px] text-secondary">@{agents.find((a) => a.id === t.id)?.name ?? t.id}</span>;
+      }
+      return (
+        <button key={i} type="button" onClick={() => onTag(t.tag)} className="rounded-xs bg-raised px-[4px] text-secondary hover:brightness-125">
+          #{t.tag}
+        </button>
+      );
+    });
+  return <Markdown text={text} leaf={leaf} />;
 }
 
 /** The two reactions, shown over the message on hover or focus. */

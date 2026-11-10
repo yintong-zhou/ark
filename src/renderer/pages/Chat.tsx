@@ -4,6 +4,7 @@ import { Avatar, initials } from '../components/Avatar';
 import { Composer } from '../components/Composer';
 import { shortModel } from '../components/glyphs';
 import { ModelMark } from '../components/Logos';
+import { Markdown } from '../components/Markdown';
 import { PaneHeader, Page } from '../components/Page';
 import { TokenLine } from '../components/TokenLine';
 import { BUTTON, CTA } from '../components/ui';
@@ -123,7 +124,7 @@ function Entry({ e, agentName }: { e: ChatEntry; agentName: string }) {
             </span>
           )}
         </div>
-        {e.text && <p className="whitespace-pre-wrap break-words">{e.text}</p>}
+        {e.text && (you ? <p className="whitespace-pre-wrap break-words">{e.text}</p> : <Markdown text={e.text} />)}
         {e.tokens && <TokenLine tokens={e.tokens} />}
       </div>
     </li>
