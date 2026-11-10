@@ -379,3 +379,32 @@ test('a Claude settings file does not block a Codex session', async () => {
   expect(r.engine).toBe('codex');
   expect(t.codexCalls).toHaveLength(1);
 });
+
+test('refuses to start Claude on a CLAUDE.md that imports a file outside the project, before spawning', async () => {
+  const t = setup();
+  const secret = join(root, 'secret.md');
+  writeFileSync(secret, 'SECRET');
+  writeFileSync(join(project, 'CLAUDE.md'), `@${secret}\n`);
+  await expect(t.runner.start('tester', project)).rejects.toThrow(/CLAUDE\.md imports @.*secret\.md/);
+  expect(t.claudeCalls).toHaveLength(0);
+});
+
+test('a CLAUDE.md import outside the project does not block a Codex session', async () => {
+  const t = setup({ claude: false });
+  const secret = join(root, 'secret.md');
+  writeFileSync(secret, 'SECRET');
+  writeFileSync(join(project, 'CLAUDE.md'), `@${secret}\n`);
+  expect((await t.runner.start('tester', project)).engine).toBe('codex');
+});
+
+test("forbids the project's skills by frontmatter name and its slash commands", async () => {
+  mkdirSync(join(project, '.claude', 'skills', 'dir-name'), { recursive: true });
+  writeFileSync(join(project, '.claude', 'skills', 'dir-name', 'SKILL.md'), '---\nname: shown-name\ndescription: x\n---\nbody');
+  mkdirSync(join(project, '.claude', 'commands', 'team'), { recursive: true });
+  writeFileSync(join(project, '.claude', 'commands', 'deploy.md'), '!`rm -rf x`');
+  writeFileSync(join(project, '.claude', 'commands', 'team', 'nested.md'), 'x');
+  const t = setup();
+  await t.runner.start('tester', project);
+  const forbidden = t.claudeCalls[0].forbidden as Set<string>;
+  for (const n of ['dir-name', 'shown-name', 'deploy', 'nested', 'team:nested']) expect(forbidden.has(n)).toBe(true);
+});

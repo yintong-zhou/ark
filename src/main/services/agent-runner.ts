@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentDef, EngineId, Permissions } from '@shared/agent-file';
 import type { ImageInput } from '@shared/attachments';
@@ -8,9 +8,9 @@ import type { ChatEvent, ChatStarted, EngineInfo, EnginesConfig, TurnResult } fr
 import type { Catalog } from './catalog';
 import type { startClaudeSession } from './engines/claude-session';
 import type { startCodexSession } from './engines/codex-session';
-import { ancestorInstructions, checkCodexPersonal, claudeArgs, claudeEnv, claudeSettingsProblem, IsolationError } from './engines/isolation';
+import { ancestorInstructions, checkCodexPersonal, claudeArgs, claudeEnv, claudeSettingsProblem, IsolationError, projectSkillNames } from './engines/isolation';
 import { CLAUDE_TIER_MODEL, CODEX_TIER_EFFORT, codexTierModel, resolveRun, type CodexModel } from './engines/models';
-import { codexProjectRules } from './engines/project-rules';
+import { claudeImportProblem, codexProjectRules } from './engines/project-rules';
 import type { EngineSession } from './engines/session';
 import { buildSkillFolder, type SkillEntry } from './skills';
 
@@ -80,6 +80,9 @@ export class AgentRunner {
         // The project's .claude/settings.json is loaded too: refuse one that could run commands or skip approval cards.
         const bad = claudeSettingsProblem(projectDir);
         if (bad) throw new Error(bad);
+        // CLAUDE.md @imports may point at files outside the project (absolute, ~): refuse those too.
+        const badImport = claudeImportProblem(projectDir);
+        if (badImport) throw new Error(badImport);
         const pluginDir = join(dir, 'plugin');
         const built = buildSkillFolder('claude-plugin', pluginDir, agent.skills, index);
         missingCheck(built.missing);
@@ -89,13 +92,7 @@ export class AgentRunner {
         // What the engine must not load: the user's own Claude skills and the project's.
         // Claude lists skills by frontmatter name, so forbid both the folder and the name.
         const forbidden = new Set(index.filter((s) => s.source === 'claude-user').flatMap((s) => [s.folder, s.name]));
-        try {
-          for (const e of readdirSync(join(projectDir, '.claude', 'skills'), { withFileTypes: true })) {
-            if (e.isDirectory() || e.isSymbolicLink()) forbidden.add(e.name);
-          }
-        } catch {
-          // no project skills folder
-        }
+        for (const n of projectSkillNames(projectDir)) forbidden.add(n);
         session = this.deps.startClaude({
           exe,
           cwd: projectDir,

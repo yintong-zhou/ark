@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { splitFrontmatter, type Permissions } from '@shared/agent-file';
 import type { PermissionMode } from '@shared/permissions';
@@ -102,6 +102,40 @@ export function claudeSettingsProblem(dir: string): string | undefined {
   return keys.length
     ? `${file} sets ${keys.join(', ')}, which Ark does not allow in agent sessions: they could run commands, change the environment or skip approval cards. Remove them, then try again.`
     : undefined;
+}
+
+/**
+ * Names under which Claude Code could list the project's own skills and slash commands: skill folder and frontmatter
+ * name, command file name (and `dir:name` for a subfolder). Both run `!` shell injection and pre-approve tools through
+ * `allowed-tools`, even in `-p` (docs: code.claude.com/docs/en/skills), so none may be loaded: checkClaudeInit refuses these.
+ */
+export function projectSkillNames(projectDir: string): string[] {
+  const names: string[] = [];
+  const ls = (dir: string) => {
+    try {
+      return readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return []; // no such folder
+    }
+  };
+  for (const e of ls(join(projectDir, '.claude', 'skills'))) {
+    if (!e.isDirectory() && !e.isSymbolicLink()) continue;
+    names.push(e.name);
+    try {
+      const n = splitFrontmatter(readFileSync(join(projectDir, '.claude', 'skills', e.name, 'SKILL.md'), 'utf8'))?.data.name;
+      if (typeof n === 'string') names.push(n);
+    } catch {
+      // no readable SKILL.md: the folder name is still forbidden
+    }
+  }
+  const commands = (dir: string, prefix: string) => {
+    for (const e of ls(dir)) {
+      if (e.isDirectory()) commands(join(dir, e.name), `${prefix}${e.name}:`);
+      else if (e.name.endsWith('.md')) names.push(e.name.slice(0, -3), prefix + e.name.slice(0, -3));
+    }
+  };
+  commands(join(projectDir, '.claude', 'commands'), '');
+  return names;
 }
 
 /**
