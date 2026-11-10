@@ -47,13 +47,14 @@ test.each([
 test.each([
   'python -m pytest -q', 'pytest -x -q tests/test_a.py::test_b', 'pytest -k "slow or fast" tests',
   'pytest --tb=short --maxfail=2', 'ruff check .', 'ruff check --fix src', 'ruff format --check .',
-  '.venv/Scripts/python.exe -m pytest -q',
+  '.venv/Scripts/python.exe -m pytest -q', '.venv\\Scripts\\python.exe -m pytest -q', 'pytest -m "not slow"', 'pytest -rA --durations=5',
 ])('Auto allows a check with harmless flags: %s', (cmd) => expect(isProjectCheck(cmd)).toBe(true));
 
 test.each([
   'pytest --basetemp=/audit-outside', 'ruff check --output-file=/audit-outside.txt',
   'pytest -p evil', 'pytest -c other.ini', 'pytest --rootdir=x', 'pytest -o cache_dir=/x',
   'ruff check --config=x.toml', 'pytest /etc', 'pytest C:/x', 'pytest ../x', 'ruff check --cache-dir=x',
+  'ruff check --fix ".."', 'pytest "--basetemp" "src"', 'pytest "-p" "evil"', 'pytest ".."', 'pytest "src"', 'pytest -k "-x"', 'pytest -k "a..b"',
 ])('Auto asks for flags that write, load or leave the worktree: %s', (cmd) => expect(isProjectCheck(cmd)).toBe(false));
 
 test('a project check needs project code consent', () => {

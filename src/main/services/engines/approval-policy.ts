@@ -4,13 +4,14 @@ import type { ApprovalRequest } from '@shared/permissions';
 import { resolveInside } from '../files/guard';
 
 // Project checks a developer may run without a card: npm check scripts (also in a subfolder with --prefix), and ruff
-// and pytest. Python arguments are a fixed list of harmless flags plus relative paths, test ids and quoted expressions:
-// no drive, absolute path, `..` or shell syntax. Flags that write, load code or move the root (--basetemp, -p, -c,
+// and pytest. Python arguments are a fixed list of harmless flags plus relative paths and test ids: no drive, absolute
+// path, `..` or shell syntax. A quoted token is allowed only right after -k or -m (a pytest expression), because the
+// shell strips quotes and would otherwise let "--basetemp" or ".." through. Flags that write, load code or move the root (--basetemp, -p, -c,
 // --rootdir, -o, --output-file, --config, --cache-dir) are not on the list, so they get a card.
 const NPM_CHECK = /^npm(?:\.cmd)? (?:--prefix \w[\w.-]* )?(?:test|run (?:typecheck|lint|test|build))$/;
-const PYTEST_FLAG = String.raw`-qq?|-vv?|-[xsl]|--(?:lf|ff|sw|no-header)|-r[a-zA-Z]+|--tb=(?:auto|long|short|line|native|no)|--(?:maxfail|durations)=\d+|-[km]`;
+const PYTEST_FLAG = String.raw`-qq?|-vv?|-[xsl]|--(?:lf|ff|sw|no-header)|-r[a-zA-Z]+|--tb=(?:auto|long|short|line|native|no)|--(?:maxfail|durations)=\d+|-[km](?: "(?!-)(?!.*\.\.)[\w .-]*")?`;
 const RUFF_FLAG = String.raw`--(?:fix|diff|statistics|show-fixes|quiet|no-cache|exit-zero)|-q|--(?:select|ignore)=[A-Za-z0-9,]+|--output-format=\w+`;
-const PY_POSITIONAL = String.raw`(?:\.(?:\/[\w.\/-]*)?|\w[\w.\/-]*)(?:::[\w\[\].-]+)*|"[\w .-]*"`;
+const PY_POSITIONAL = String.raw`(?:\.(?:\/[\w.\/-]*)?|\w[\w.\/-]*)(?:::[\w\[\].-]+)*`;
 const pyArgs = (flags: string): string => `(?: (?:${flags}|${PY_POSITIONAL}))*`;
 const RUNNER = String.raw`(?:(?:python3?|py|\.venv[\\/](?:Scripts|bin)[\\/]python(?:\.exe)?) -m )?`;
 const PY_CHECK = new RegExp(`^${RUNNER}(?:pytest${pyArgs(PYTEST_FLAG)}|ruff (?:check|format --check)${pyArgs(RUFF_FLAG)})$`);
@@ -21,7 +22,7 @@ const PY_CHECK = new RegExp(`^${RUNNER}(?:pytest${pyArgs(PYTEST_FLAG)}|ruff (?:c
  * such as `pytest -x`, `npm.cmd test`, the worktree's .venv python or `npm --prefix <dir>` for any plain folder name.
  */
 export const isProjectCheck = (command: unknown): boolean =>
-  typeof command === 'string' && (NPM_CHECK.test(command) || (PY_CHECK.test(command) && !/(?:^|[\s=\/])\.\.(?:[\/\s]|$)/.test(command)));
+  typeof command === 'string' && (NPM_CHECK.test(command) || (PY_CHECK.test(command) && !/(?:^|[\s=\/"])\.\.(?:[\/\s"]|$)/.test(command)));
 
 /** Positive allowlist only. Unrecognized inputs and shell syntax always reach the user; a project check only once `projectCode` (the user's consent) is given. */
 export function decideApproval(request: ApprovalRequest | undefined, root: string, projectCode: boolean): { allow: boolean; reason: string } {
