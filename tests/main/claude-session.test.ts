@@ -14,7 +14,7 @@ const [init, assistant, result] = fixture;
 
 const flush = () => new Promise((r) => setTimeout(r, 10));
 
-function start(cwd = 'D:\\x', exe = 'C:\\claude.exe') {
+function start(cwd = 'D:\\x', exe = 'C:\\claude.exe', projectCommands = new Set<string>()) {
   const child = new FakeChild();
   const spawned: { command: string; args: string[]; cwd: string; shell: boolean }[] = [];
   const session = startClaudeSession({
@@ -24,6 +24,7 @@ function start(cwd = 'D:\\x', exe = 'C:\\claude.exe') {
     env: {},
     expectedFolders: ['ark-probe-a'],
     forbidden: new Set(),
+    projectCommands,
     spawn: (command, args, o) => {
       spawned.push({ command, args, cwd: o.cwd, shell: o.shell });
       return child;
@@ -217,6 +218,17 @@ test('stops on an init that breaks isolation', async () => {
   expect(events).toHaveLength(1);
   expect(events[0]).toMatchObject({ type: 'error', kind: 'isolation' });
   expect((events[0] as { detail: string }).detail).toContain('plugin not allowed: superpowers');
+  expect(child.killed).toBe(true);
+  expect(() => session.send('again')).toThrow('session ended');
+});
+
+test('stops before forwarding output when init lists a project slash command', async () => {
+  const { child, session, events } = start('D:\\x', 'C:\\claude.exe', new Set(['deploy']));
+  session.send('hi');
+  child.emitLine({ ...init, slash_commands: ['help', 'deploy'] });
+  child.emitLine(assistant);
+  await flush();
+  expect(events).toEqual([{ type: 'error', kind: 'isolation', detail: 'command not allowed: deploy' }]);
   expect(child.killed).toBe(true);
   expect(() => session.send('again')).toThrow('session ended');
 });

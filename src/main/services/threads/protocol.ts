@@ -34,6 +34,7 @@ You review the diff of one phase of the plan. You are read-only: do not change a
 End your reply with exactly one Ark block, a fenced code block tagged ark holding one JSON object:
 - Nothing to fix: {"review":"pass"}
 - Something to fix: {"review":"changes","findings":["<one concrete finding>"]} with 1 to 20 findings.`;
+const DEVELOP_DENIED = "Ark will not run this project's checks in this thread: the user did not allow project code. Running one yourself asks the user each time.";
 export const NOTES = {
   teamStart: (project: string, dir: string, catalog: AgentDef[]) =>
     `The user started a thread in project ${project} (${dir}). Propose the team.\nCatalog:\n` +
@@ -45,18 +46,28 @@ export const NOTES = {
   autoBudget: `${PLANNING_BUDGET} agent turns without a plan. Synthesize the team's work now: produce a complete plan with numbered phase headings and a plan block, or ask the user about one specific unresolved blocker. Do not delegate more turns.`,
   rerouted: (name: string) => `Claude is at ${SWITCH_AT}% or more of a usage window: ${name} runs on Codex.`,
   handoff: `Your session is getting long. Write a handoff for yourself: what the thread is about, what was decided, what is open, and what you were doing. Ark starts you in a fresh session from it. No Ark block.`,
-  develop: (o: { plan: string; index: number; total: number; phase: string; done: string[]; branch: string; worktree: string; setup: string[]; checks: string[] }) =>
+  /** `denied`: the thread may not run project code (not Full, not allowed), so Ark runs none of the checks. */
+  develop: (o: { plan: string; index: number; total: number; phase: string; done: string[]; branch: string; worktree: string; setup: string[]; checks: string[]; denied?: boolean }) =>
     `You start phase ${o.index + 1}/${o.total}. Plan file: ${o.plan}. Worktree: ${o.worktree}. Branch: ${o.branch}.\n` +
     (o.done.length ? `Earlier phases:\n${o.done.map((d) => `- ${d}`).join('\n')}\n` : '') +
     `This phase:\n${o.phase}\n` +
     o.setup.map((h) => `${h}\n`).join('') +
-    (o.checks.length
+    (o.checks.length && o.denied
+      ? `${DEVELOP_DENIED}\n`
+      : o.checks.length
       ? `Ark runs these checks after your turn, from the worktree root: ${o.checks.map((c) => (/^\w+$/.test(c) ? `npm run ${c}` : c)).join(', ')}. Run them yourself first, with exactly these commands, and fix what fails.\n`
       : 'Ark found no checks to run for this project: run its tests yourself and report the output.\n') +
     'Do not commit: Ark commits.',
   checksFailed: (results: CheckResult[]) =>
     'These checks failed. Fix them; Ark re-runs the checks.\n' +
     results.filter((r) => !r.ok).map((r) => `- ${r.script}:\n${r.tail}`).join('\n'),
+  // Project code consent: the approval card's tool and detail ("Developer wants to use this repository's code"), and the
+  // checks note after a denial. The copy must say the repository's code runs with the user's permissions.
+  consentTool: "this repository's code",
+  consent: (commands: string[]) =>
+    `Ark will run this repository's checks (${commands.join(', ')}) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow also lets the Claude developer run these commands without another card. Allow only if you would run this code yourself.`,
+  checksDenied: 'Checks not run: you did not allow project code in this thread.',
+  developDenied: DEVELOP_DENIED,
   fix: 'The reviewers asked for changes (their findings are above). Fix them; Ark re-runs the checks and the reviews.',
   userFix: 'The user replied (above). Continue the phase.',
   review: (o: { kind: 'code' | 'security'; phase: string; diff: string; worktree: string }) =>

@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { agentId } from '@shared/agent-file';
-import { obj } from '../json';
 
 /** Git and project checks inside a thread's worktree. The project's own checked-out branch is never touched. */
 
@@ -115,8 +114,9 @@ async function gitOk(dir: string, args: string[]): Promise<string> {
  * Runs one check. The shell is needed because npm is a .cmd on Windows; commands come from commandOf's fixed forms only.
  * The time and output limits are ours, not execFile's: execFile would kill only the shell, leaving npm and its children
  * running and holding the worktree. On Windows the whole tree goes, while the shell is still alive for taskkill to walk.
+ * An abort of `signal` stops it the same way.
  */
-function runScript(dir: string, script: string, timeout: number): Promise<CheckResult> {
+function runScript(dir: string, script: string, timeout: number, signal?: AbortSignal): Promise<CheckResult> {
   const command = commandOf(dir, script);
   if (!command) return Promise.resolve({ script, ok: false, tail: 'Unknown check' });
   const tool = /^(ruff|python) /.exec(command)?.[1]; // a quoted venv python was found on disk already
@@ -130,6 +130,7 @@ function runScript(dir: string, script: string, timeout: number): Promise<CheckR
       { cwd: dir, shell: true, windowsHide: true, encoding: 'utf8', maxBuffer: 2 * MAX_BUFFER },
       (err, stdout, stderr) => {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
         const out = `${stdout}${stderr}`;
         // Not installed, for ruff and pytest only (npm's 127 means missing node_modules, a real failure): sh's 127,
         // the Windows Store python stub, or Python without the check's module.
@@ -150,6 +151,9 @@ function runScript(dir: string, script: string, timeout: number): Promise<CheckR
       else child.kill();
     };
     const timer = setTimeout(() => stop(`timed out after ${timeout / 1000} s\n`), timeout);
+    const abort = () => stop('stopped\n');
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
     let size = 0;
     const count = (chunk: string) => {
       size += chunk.length;
@@ -207,43 +211,28 @@ export const workspace = {
     ];
   },
 
-  /** Runs every script in turn, even after a failure. */
-  async runChecks(dir: string, scripts: string[], timeoutMs = CHECK_MS): Promise<CheckResult[]> {
+  /**
+   * projectChecks as a developer types them: root names become `npm run <s>` (and test also `npm test`); subfolder and
+   * Python checks stay as they are. The one list the Claude developer may run without a card in Ask once project code is
+   * allowed; Auto's isProjectCheck accepts a superset (flag and spelling variants of these).
+   */
+  checkCommands(dir: string): string[] {
+    return workspace.projectChecks(dir).flatMap((s) =>
+      (CHECK_SCRIPTS as readonly string[]).includes(s) ? [`npm run ${s}`, ...(s === 'test' ? ['npm test'] : [])] : [s]);
+  },
+
+  /** Runs every script in turn, even after a failure. An abort of `signal` stops the running one and skips the rest. */
+  async runChecks(dir: string, scripts: string[], timeoutMs = CHECK_MS, signal?: AbortSignal): Promise<CheckResult[]> {
     const results: CheckResult[] = [];
-    for (const s of scripts) results.push(await runScript(dir, s, timeoutMs));
+    for (const s of scripts) {
+      if (signal?.aborted) break;
+      results.push(await runScript(dir, s, timeoutMs, signal));
+    }
     return results;
   },
 };
 
 export type Workspace = typeof workspace;
-
-/**
- * Why a build session must not start in `dir`: Claude Code loads its .claude/settings.json (--setting-sources project),
- * and allow rules, a default mode, extra directories, hooks or an API key helper there would act without an approval
- * card. Undefined when the file is
- * missing or sets none of them; a file that is not a JSON object fails closed.
- */
-export function claudeSettingsProblem(dir: string): string | undefined {
-  const file = join(dir, '.claude', 'settings.json');
-  if (!existsSync(file)) return undefined;
-  let s: Record<string, unknown> | undefined;
-  try {
-    s = obj(JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, ''))); // editors on Windows write a BOM
-  } catch {
-    // unreadable or not JSON: s stays undefined
-  }
-  if (!s) return `${file} is not valid JSON, so Ark cannot tell whether it skips the approval cards. Fix or remove it, then try again.`;
-  const set = (v: unknown) => v !== undefined && !(Array.isArray(v) ? !v.length : obj(v) && !Object.keys(v as object).length);
-  const perms = obj(s.permissions);
-  const keys = [
-    set(perms?.allow) && 'permissions.allow',
-    perms?.defaultMode !== undefined && 'permissions.defaultMode',
-    set(perms?.additionalDirectories) && 'permissions.additionalDirectories',
-    set(s.hooks) && 'hooks',
-    set(s.apiKeyHelper) && 'apiKeyHelper',
-  ].filter(Boolean);
-  return keys.length ? `${file} sets ${keys.join(', ')}, which would act without an approval card. Remove them on the build branch, then try again.` : undefined;
-}
 
 /** Branch for a thread's worktree: readable title slug plus the thread id prefix for uniqueness. */
 export function branchName(title: string, threadId: string): string {

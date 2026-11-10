@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, beforeEach, expect, test } from 'vitest';
-import { branchName, claudeSettingsProblem, NO_HOOKS, setupHints, workspace } from '../../src/main/services/threads/workspace';
+import { branchName, NO_HOOKS, setupHints, workspace } from '../../src/main/services/threads/workspace';
 
 beforeAll(() => {
   process.env.GIT_AUTHOR_NAME = process.env.GIT_COMMITTER_NAME = 'Ark Test';
@@ -112,6 +112,14 @@ test('projectChecks keeps the known scripts in order', () => {
   expect(workspace.projectChecks(d)).toEqual(['lint', 'test', 'build']);
 });
 
+test('checkCommands lists the checks as typed commands', () => {
+  const d = pkg({ test: 't', lint: 'l', dev: 'd' });
+  mkdirSync(join(d, 'web'));
+  writeFileSync(join(d, 'web', 'package.json'), JSON.stringify({ scripts: { lint: 'l' } }));
+  writeFileSync(join(d, 'pyproject.toml'), '[project]\nname = "x"\n\n[tool.ruff]\nline-length = 100\n');
+  expect(workspace.checkCommands(d)).toEqual(['npm run lint', 'npm run test', 'npm test', 'npm --prefix web run lint', 'ruff check .']);
+});
+
 test('projectChecks finds npm checks in subfolders and the Python checks, and setupHints what the worktree lacks', () => {
   const d = pkg({ test: 't' });
   const sub = (name: string, scripts: object) => {
@@ -188,49 +196,16 @@ test('a check killed by its timeout says "timed out"', async () => {
   expect(r.tail).toContain('timed out after');
 }, 60_000);
 
-const settings = (text: string) => {
-  mkdirSync(join(root, '.claude'), { recursive: true });
-  writeFileSync(join(root, '.claude', 'settings.json'), text);
-};
-
-test('claudeSettingsProblem accepts a missing file and settings that skip no card', () => {
-  expect(claudeSettingsProblem(root)).toBeUndefined();
-  settings(JSON.stringify({ permissions: { allow: [], deny: ['Bash(rm *)'] }, hooks: {}, env: { X: '1' } }));
-  expect(claudeSettingsProblem(root)).toBeUndefined();
-});
-
-test.each([
-  [{ permissions: { allow: ['Bash(npm install:*)'] } }, 'permissions.allow'],
-  [{ permissions: { defaultMode: 'bypassPermissions' } }, 'permissions.defaultMode'],
-  [{ permissions: { additionalDirectories: ['C:/Users'] } }, 'permissions.additionalDirectories'],
-  [{ apiKeyHelper: 'node steal.js' }, 'apiKeyHelper'],
-  [{ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo allow' }] }] } }, 'hooks'],
-])('claudeSettingsProblem names the file and the key that skips the card: %j', (s, key) => {
-  settings(JSON.stringify(s));
-  const p = claudeSettingsProblem(root);
-  expect(p).toContain(join(root, '.claude', 'settings.json'));
-  expect(p).toContain(`sets ${key},`);
-});
-
-test('claudeSettingsProblem names every offending key at once', () => {
-  settings(JSON.stringify({ permissions: { allow: ['Bash(*)'], defaultMode: 'acceptEdits' }, hooks: { Stop: [] } }));
-  expect(claudeSettingsProblem(root)).toContain('sets permissions.allow, permissions.defaultMode, hooks,');
-});
-
-test('claudeSettingsProblem reads a settings file that starts with a UTF-8 BOM', () => {
-  const BOM = String.fromCharCode(0xfeff);
-  settings(BOM + JSON.stringify({ env: { X: '1' } }));
-  expect(claudeSettingsProblem(root)).toBeUndefined();
-  settings(BOM + JSON.stringify({ hooks: { Stop: [{}] } }));
-  expect(claudeSettingsProblem(root)).toContain('sets hooks,');
-});
-
-test('claudeSettingsProblem fails closed on a file it cannot parse', () => {
-  settings('{ "permissions": { "allow": [ // trailing');
-  expect(claudeSettingsProblem(root)).toMatch(/settings\.json is not valid JSON/);
-  settings('[]');
-  expect(claudeSettingsProblem(root)).toMatch(/is not valid JSON/);
-});
+test('runChecks stops the running check on abort and skips the rest', async () => {
+  const d = pkg({ test: `node -e "setTimeout(()=>{},60000)"`, lint: `node -e ""` });
+  const ac = new AbortController();
+  const p = workspace.runChecks(d, ['test', 'lint'], 60_000, ac.signal);
+  setTimeout(() => ac.abort(), 300);
+  const r = await p;
+  expect(r).toHaveLength(1);
+  expect(r[0]).toMatchObject({ script: 'test', ok: false });
+  expect(r[0].tail.startsWith('stopped')).toBe(true);
+}, 30_000);
 
 test('branchName slugs the title and keeps the id prefix', () => {
   expect(branchName('Add login page!', '1234abcd-0000-0000-0000-000000000000')).toBe('ark/add-login-page-1234abcd');

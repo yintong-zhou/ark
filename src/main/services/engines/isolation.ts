@@ -1,10 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { splitFrontmatter, type Permissions } from '@shared/agent-file';
 import type { PermissionMode } from '@shared/permissions';
 import { obj, str } from '../json';
 import { ARK_PLUGIN } from '../skills';
-import { CHECK_SCRIPTS } from '../threads/workspace';
 
 /** Env vars that tie a child to the Claude Code session Ark itself may be running in. */
 export const STRIPPED_ENV = [
@@ -39,16 +38,13 @@ export function claudeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...cleanEnv(env), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' };
 }
 
-/** The exact check commands a build agent may run without a card (spec §6.4); any other command still asks. */
-const CHECK_COMMANDS = [...CHECK_SCRIPTS.map((s) => `npm run ${s}`), 'npm test'];
-const CHECK_RULES = ['Bash', 'PowerShell'].flatMap((tool) => CHECK_COMMANDS.map((c) => `${tool}(${c})`));
-
 /**
  * Claude Code: only the project's settings, no MCP, only our plugin, and a tool whitelist: read-only
  * agents get no edit, write or shell; build agents get them, with prompts routed to Ark over stdio,
- * except the project's checks.
+ * except, in Ask, the exact `checks` commands (given only once the user allowed project code).
  */
-export function claudeArgs(o: { model: string; roleFile: string; pluginDir: string; permissions: Permissions; permissionMode?: PermissionMode }): string[] {
+export function claudeArgs(o: { model: string; roleFile: string; pluginDir: string; permissions: Permissions; permissionMode?: PermissionMode; checks?: string[] }): string[] {
+  const rules = ['Bash', 'PowerShell'].flatMap((tool) => (o.checks ?? []).map((c) => `${tool}(${c})`));
   return [
     '-p',
     '--input-format',
@@ -70,9 +66,72 @@ export function claudeArgs(o: { model: string; roleFile: string; pluginDir: stri
           ? ['--dangerously-skip-permissions']
           : o.permissionMode === 'auto'
             ? ['--allowedTools', 'Skill', '--permission-mode', 'default', '--permission-prompt-tool', 'stdio']
-            : ['--allowedTools', ...CHECK_RULES, '--permission-mode', 'acceptEdits', '--permission-prompt-tool', 'stdio'])]
+            : [...(rules.length ? ['--allowedTools', ...rules] : []), '--permission-mode', 'acceptEdits', '--permission-prompt-tool', 'stdio'])]
       : ['--tools', 'Read,Glob,Grep,Skill']),
   ];
+}
+
+const SETTINGS_TOP = new Set(['$schema', 'permissions']);
+const SETTINGS_PERMISSIONS = new Set(['deny', 'ask']);
+
+/**
+ * Why a Claude session must not start in `dir`: Claude Code loads its .claude/settings.json (--setting-sources project),
+ * and hooks, env, an API key helper, allow rules, a default mode or extra directories there could run commands, change the
+ * environment or skip approval cards. Allowlist: only `$schema` and `permissions.deny|ask` (which only restrict) pass;
+ * unknown means refused. Undefined when the file is missing or clean; a file that is not a JSON object fails closed.
+ */
+export function claudeSettingsProblem(dir: string): string | undefined {
+  const file = join(dir, '.claude', 'settings.json');
+  if (!existsSync(file)) return undefined;
+  let s: Record<string, unknown> | undefined;
+  try {
+    s = obj(JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))); // editors on Windows write a BOM
+  } catch {
+    // unreadable or not JSON: s stays undefined
+  }
+  if (!s) return `${file} is not valid JSON, so Ark cannot tell whether it skips the approval cards. Fix or remove it, then try again.`;
+  const keys = Object.keys(s).flatMap((k) => {
+    if (k !== 'permissions') return SETTINGS_TOP.has(k) ? [] : [k];
+    const perms = obj(s.permissions);
+    return perms ? Object.keys(perms).filter((x) => !SETTINGS_PERMISSIONS.has(x)).map((x) => `permissions.${x}`) : [k];
+  });
+  return keys.length
+    ? `${file} sets ${keys.join(', ')}, which Ark does not allow in agent sessions: they could run commands, change the environment or skip approval cards. Remove them, then try again.`
+    : undefined;
+}
+
+/**
+ * Names under which Claude Code could list the project's own skills and slash commands: skill folder and frontmatter
+ * name, command file name (and `dir:name` for a subfolder). Both run `!` shell injection and pre-approve tools through
+ * `allowed-tools`, even in `-p` (docs: code.claude.com/docs/en/skills), so none may be loaded: checkClaudeInit refuses these.
+ */
+export function projectSkillNames(projectDir: string): string[] {
+  const names: string[] = [];
+  const ls = (dir: string) => {
+    try {
+      return readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return []; // no such folder
+    }
+  };
+  for (const e of ls(join(projectDir, '.claude', 'skills'))) {
+    if (!e.isDirectory() && !e.isSymbolicLink()) continue;
+    names.push(e.name);
+    try {
+      const n = splitFrontmatter(readFileSync(join(projectDir, '.claude', 'skills', e.name, 'SKILL.md'), 'utf8'))?.data.name;
+      if (typeof n === 'string') names.push(n);
+    } catch {
+      // no readable SKILL.md: the folder name is still forbidden
+    }
+  }
+  const commands = (dir: string, prefix: string) => {
+    for (const e of ls(dir)) {
+      if (e.isDirectory()) commands(join(dir, e.name), `${prefix}${e.name}:`);
+      else if (e.name.endsWith('.md')) names.push(e.name.slice(0, -3), prefix + e.name.slice(0, -3));
+    }
+  };
+  commands(join(projectDir, '.claude', 'commands'), '');
+  return names;
 }
 
 /**
@@ -119,7 +178,7 @@ export function codexArgs(deny: { skillPaths: string[]; mcpServers: string[] }):
 }
 
 /** Violations in Claude Code's `system/init` event; empty means the session is isolated. Fails closed on odd shapes. */
-export function checkClaudeInit(init: unknown, expectedFolders: string[], forbidden: ReadonlySet<string>): string[] {
+export function checkClaudeInit(init: unknown, expectedFolders: string[], forbidden: ReadonlySet<string>, projectCommands: ReadonlySet<string> = new Set()): string[] {
   const ev = obj(init);
   if (!ev) return ['no init event'];
   const out: string[] = [];
@@ -151,6 +210,12 @@ export function checkClaudeInit(init: unknown, expectedFolders: string[], forbid
   }
   for (const f of expectedFolders) {
     if (!skills.includes(`${ARK_PLUGIN}:${f}`)) out.push(`skill not loaded: ${ARK_PLUGIN}:${f}`);
+  }
+  // Personal skill names can collide with built-in commands; only project names belong in this second check.
+  if (Array.isArray(ev.slash_commands)) {
+    for (const command of ev.slash_commands) {
+      if (typeof command === 'string' && projectCommands.has(command)) out.push(`command not allowed: ${command}`);
+    }
   }
   for (const f of malformed) out.push(`init malformed: ${f}`);
   return out;

@@ -28,6 +28,7 @@ export function startClaudeSession(o: {
   env: NodeJS.ProcessEnv;
   expectedFolders: string[];
   forbidden: ReadonlySet<string>;
+  projectCommands?: ReadonlySet<string>;
   spawn?: SpawnFn;
 }): EngineSession {
   const c = spawnCommand(o.exe, o.args); // .cmd/.bat shims need a shell and cmd.exe quoting
@@ -62,7 +63,7 @@ export function startClaudeSession(o: {
       emit({ type: 'error', kind: 'isolation', detail });
     };
     if (line.type === 'system' && line.subtype === 'init') {
-      const violations = checkClaudeInit(line, o.expectedFolders, o.forbidden);
+      const violations = checkClaudeInit(line, o.expectedFolders, o.forbidden, o.projectCommands);
       if (violations.length) return isolationStop(violations.join('; '));
       checked = true;
       model = str(line.model) ?? model;

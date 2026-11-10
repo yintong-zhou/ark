@@ -55,6 +55,7 @@ export type Thread = {
   id: string; projectId: string; title: string; createdAt: number;
   phase: Phase; status: ThreadStatus;
   permissionMode?: PermissionMode;    // absent on legacy threads: ask
+  projectCode?: 'allowed' | 'denied'; // the user's answer to running the repository's checks; absent = not asked yet
   assignments?: Record<string, EngineAssignment>; // actual engine/model, including across restarts
   tags?: string[];                   // labels the user wrote as #tag, kept on the thread
   tasks?: ThreadTask[];              // the user's board; assignment never starts an agent

@@ -192,6 +192,7 @@ test("forbids the project's own skills and the user's Claude skills", async () =
   expect(forbidden.has('local-skill')).toBe(true);
   expect(forbidden.has('mine')).toBe(true);
   expect(forbidden.has('alpha')).toBe(false);
+  expect(t.claudeCalls[0].projectCommands).toEqual(new Set(['local-skill']));
 });
 
 test('Claude forbids user skills by folder and by frontmatter name', async () => {
@@ -200,6 +201,7 @@ test('Claude forbids user skills by folder and by frontmatter name', async () =>
   const forbidden = t.claudeCalls[0].forbidden as Set<string>;
   expect(forbidden.has('x-folder')).toBe(true);
   expect(forbidden.has('x-name')).toBe(true);
+  expect(t.claudeCalls[0].projectCommands).toEqual(new Set());
 });
 
 test('forwards session events with the chat id, until unsubscribed', async () => {
@@ -356,4 +358,74 @@ test('start() is always read-only; startAgent with build gets the build profile'
   await c.runner.start('tester', project);
   await c.runner.startAgent(def, project, 'build');
   expect(c.codexCalls.map((x) => x.permissions)).toEqual(['read-only', 'build']);
+});
+
+test('a Claude build start preallows the project checks only with project code consent', async () => {
+  const def = agent({ permissions: 'build' });
+  writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { test: 't' } }));
+  const t = setup({ agent: def });
+  await t.runner.startAgent(def, project, 'build', 'ask', undefined, true);
+  expect(t.claudeCalls[0].args).toContain('Bash(npm run test)');
+  expect(t.claudeCalls[0].args).toContain('PowerShell(npm test)');
+  await t.runner.startAgent(def, project, 'build', 'ask', undefined, false);
+  await t.runner.startAgent(def, project, 'build', 'ask');
+  for (const call of t.claudeCalls.slice(1)) expect((call.args as string[]).some((x) => /^(Bash|PowerShell)\(/.test(x))).toBe(false);
+  // Codex starts the same either way.
+  const c = setup({ claude: false, agent: def });
+  await c.runner.startAgent(def, project, 'build', 'ask', undefined, true);
+  await c.runner.startAgent(def, project, 'build', 'ask', undefined, false);
+  const strip = (x: Record<string, unknown>) => ({ ...x, privateRoot: undefined, expectedFolders: undefined });
+  expect(strip(c.codexCalls[0])).toEqual(strip(c.codexCalls[1]));
+});
+
+/** Writes <dir>/.claude/settings.json, as a project would. */
+const writeSettings = (dir: string, o: object) => {
+  mkdirSync(join(dir, '.claude'), { recursive: true });
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify(o));
+};
+
+test('refuses to start Claude on project settings outside the allowlist, before spawning', async () => {
+  const t = setup();
+  writeSettings(project, { env: { ANTHROPIC_BASE_URL: 'http://x' } });
+  // read-only chat, the path that had no check
+  await expect(t.runner.start('tester', project)).rejects.toThrow(/settings\.json sets env/);
+  expect(t.claudeCalls).toHaveLength(0);
+});
+
+test('a Claude settings file does not block a Codex session', async () => {
+  const t = setup({ claude: false });
+  writeSettings(project, { hooks: { Stop: [{}] } });
+  const r = await t.runner.start('tester', project);
+  expect(r.engine).toBe('codex');
+  expect(t.codexCalls).toHaveLength(1);
+});
+
+test('refuses to start Claude on a CLAUDE.md that imports a file outside the project, before spawning', async () => {
+  const t = setup();
+  const secret = join(root, 'secret.md');
+  writeFileSync(secret, 'SECRET');
+  writeFileSync(join(project, 'CLAUDE.md'), `@${secret}\n`);
+  await expect(t.runner.start('tester', project)).rejects.toThrow(/CLAUDE\.md imports @.*secret\.md/);
+  expect(t.claudeCalls).toHaveLength(0);
+});
+
+test('a CLAUDE.md import outside the project does not block a Codex session', async () => {
+  const t = setup({ claude: false });
+  const secret = join(root, 'secret.md');
+  writeFileSync(secret, 'SECRET');
+  writeFileSync(join(project, 'CLAUDE.md'), `@${secret}\n`);
+  expect((await t.runner.start('tester', project)).engine).toBe('codex');
+});
+
+test("forbids the project's skills by frontmatter name and its slash commands", async () => {
+  mkdirSync(join(project, '.claude', 'skills', 'dir-name'), { recursive: true });
+  writeFileSync(join(project, '.claude', 'skills', 'dir-name', 'SKILL.md'), '---\nname: shown-name\ndescription: x\n---\nbody');
+  mkdirSync(join(project, '.claude', 'commands', 'team'), { recursive: true });
+  writeFileSync(join(project, '.claude', 'commands', 'deploy.md'), '!`rm -rf x`');
+  writeFileSync(join(project, '.claude', 'commands', 'team', 'nested.md'), 'x');
+  const t = setup();
+  await t.runner.start('tester', project);
+  const forbidden = t.claudeCalls[0].forbidden as Set<string>;
+  for (const n of ['dir-name', 'shown-name', 'deploy', 'nested', 'team:nested']) expect(forbidden.has(n)).toBe(true);
+  expect(t.claudeCalls[0].projectCommands).toEqual(new Set(['dir-name', 'shown-name', 'deploy', 'nested', 'team:nested']));
 });

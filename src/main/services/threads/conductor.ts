@@ -27,7 +27,7 @@ import { afterBuildUser, afterChecks, afterManager, afterReview, openPoints, sta
 import { formatForAgent, NOTES, parsePhases, parseReply, withProtocol } from './protocol';
 import { afterReply, afterUser, approveTeam, mentionOf, needsHandoff, type Step } from './rules';
 import type { ThreadStore } from './store';
-import { branchName, claudeSettingsProblem, setupHints, type Workspace } from './workspace';
+import { branchName, setupHints, type CheckResult, type Workspace } from './workspace';
 
 export type ConductorDeps = {
   store: ThreadStore;
@@ -37,6 +37,7 @@ export type ConductorDeps = {
   handoffThreshold?: (engine: EngineId) => number; // percent used
   worktrees: string; // root folder of the threads' worktrees
   windows: (engine: EngineId) => { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined; // the account's current usage windows
+  checksStopMs?: number; // how long pause and a permission change wait for stopped checks to exit
 };
 
 /** How speak() runs a turn. */
@@ -65,6 +66,9 @@ export class Conductor {
   private readonly sessions = new Map<string, Map<string, string>>(); // threadId -> agentId -> chatId
   private readonly engines = new Map<string, EngineId>(); // chatId -> the engine that runs it
   private readonly pending = new Map<string, Map<number, { chatId: string; id: string }>>(); // threadId -> approval seq -> engine request
+  // threadId -> the pending project code card; in memory only, so after a restart the card shows as expired and is asked again.
+  private readonly consent = new Map<string, { seq: number; done: (allow: boolean | undefined) => void }>();
+  private readonly checks = new Map<string, { ac: AbortController; done: Promise<unknown> }>(); // threadId -> its running checks
   private readonly starting = new Set<string>(); // threads whose startDeveloper is in flight
   private readonly deleting = new Set<string>();
 
@@ -129,19 +133,22 @@ export class Conductor {
   }
 
   /** Policy changes are effective only after every old session and approval has been invalidated. */
-  setPermissionMode(threadId: string, value: unknown): void {
+  async setPermissionMode(threadId: string, value: unknown): Promise<void> {
     const mode = permissionMode(value);
     const t = this.thread(threadId);
     if (modeOf(t) === mode) return;
     if (this.starting.has(threadId)) throw new Error('Wait for the developer to finish starting before changing permissions');
     this.halt(t);
     for (const agent of [...(this.sessions.get(threadId)?.keys() ?? [])]) this.dropSession(threadId, agent);
-    // A thread waiting on the user keeps its card (team, plan or ask) and who asked; only a running one goes idle.
+    // The mode is saved at once, so a later pause or change sees it. A thread waiting on the user keeps its card (team,
+    // plan or ask) and who asked; a running one goes idle, once its checks (if any) have stopped.
     const cur = this.thread(threadId);
     const waiting = cur.status === 'waiting';
-    const next: Thread = { ...cur, permissionMode: mode, ...(!waiting && { status: 'idle', speaking: undefined, waitingOn: undefined }) };
+    const checks = this.checks.has(threadId);
+    const next: Thread = { ...cur, permissionMode: mode, ...(!waiting && !checks && { status: 'idle', speaking: undefined, waitingOn: undefined }) };
     this.deps.store.save(next);
     this.emit(next, [this.deps.store.append(threadId, { kind: 'note', text: `Permissions changed to ${PERMISSION_LABEL[mode]}. Sessions stopped${waiting ? '.' : '; send a message to continue.'}` })]);
+    if (checks) await this.idleAfterChecks(next);
   }
 
   react(threadId: string, seq: number, emoji: Reaction): void {
@@ -214,8 +221,6 @@ export class Conductor {
       const made = existsSync(worktree) && (await ws.isRepoRoot(worktree)) && !!(await ws.head(worktree));
       if (this.generation.get(threadId) !== gen) return; // Ark closed meanwhile: nothing was created
       if (!made) await ws.addWorktree(project.dir, worktree, branch);
-      const bad = claudeSettingsProblem(worktree);
-      if (bad) throw new Error(bad); // the user sees this error over the composer: no note as well
       const dir = join(worktree, 'docs', 'plans');
       mkdirSync(dir, { recursive: true });
       const planFile = join(dir, `${new Date().toLocaleDateString('sv-SE')}-${agentId(t.title)}.md`); // sv-SE: local YYYY-MM-DD
@@ -245,10 +250,21 @@ export class Conductor {
   /** Answers a pending approval card. */
   answer(threadId: string, seq: number, allow: boolean): void {
     const t = this.thread(threadId);
+    const drop = (a: number[]) => a.filter((s) => s !== seq);
+    const consent = this.consent.get(threadId);
+    if (consent?.seq === seq && t.approvals?.includes(seq)) {
+      this.consent.delete(threadId);
+      try {
+        this.deps.store.save({ ...t, projectCode: allow ? 'allowed' : 'denied' }); // for the rest of the thread
+        this.setApprovals(threadId, drop, [this.deps.store.append(threadId, { kind: 'decision', target: seq, allow })]);
+      } finally {
+        consent.done(allow); // the build goes on (or stops on a stale loop) even if the card could not be dropped
+      }
+      return;
+    }
     const req = this.pending.get(threadId)?.get(seq);
     if (!req || !t.approvals?.includes(seq)) throw new Error('This request is no longer pending');
     this.pending.get(threadId)!.delete(seq);
-    const drop = (a: number[]) => a.filter((s) => s !== seq);
     try {
       this.deps.runner.answer(req.chatId, req.id, allow);
     } catch {
@@ -258,20 +274,24 @@ export class Conductor {
     this.setApprovals(threadId, drop, [this.deps.store.append(threadId, { kind: 'decision', target: seq, allow })]);
   }
 
-  /** Stops the running turn; nothing it would have said is recorded. Does nothing when no turn runs. */
-  pause(threadId: string): void {
+  /**
+   * Stops the running turn; nothing it would have said is recorded. Does nothing when no turn runs. During the checks the
+   * thread stays 'running' (its worktree busy for the Git UI) until they have stopped.
+   */
+  async pause(threadId: string): Promise<void> {
     const t = this.thread(threadId);
     if (t.status !== 'running' && !this.starting.has(threadId)) return;
     this.halt(t);
+    if (this.checks.has(threadId)) return this.idleAfterChecks(t);
     this.save({ ...t, status: 'idle', speaking: undefined }, []);
   }
 
-  removeProject(projectId: string): void {
+  async removeProject(projectId: string): Promise<void> {
     const threads = this.deps.store.threads().filter((t) => t.projectId === projectId);
     if (threads.some((t) => this.starting.has(t.id))) {
       throw new Error('Wait for the project\'s thread to finish starting before removing it');
     }
-    for (const t of threads) if (t.status === 'running') this.pause(t.id);
+    await Promise.all(threads.filter((t) => t.status === 'running').map((t) => this.pause(t.id)));
     this.deps.store.removeProject(projectId);
   }
 
@@ -298,8 +318,9 @@ export class Conductor {
 
   stopAll(): void {
     for (const [id, n] of this.generation) this.generation.set(id, n + 1);
+    for (const c of this.checks.values()) c.ac.abort(); // quitting: no wait
     this.interrupts.clear();
-    for (const id of [...this.pending.keys()]) this.dropApprovals(id);
+    for (const id of new Set([...this.pending.keys(), ...this.consent.keys()])) this.dropApprovals(id);
     for (const chats of this.sessions.values()) for (const chatId of chats.values()) this.stopChat(chatId);
     this.sessions.clear();
     for (const t of this.deps.store.threads()) {
@@ -342,7 +363,7 @@ export class Conductor {
   private save(t: Thread, added: ThreadMessage[]): void {
     // A turn works on its own copy; user edits and pending approvals live only on disk.
     const disk = this.deps.store.get(t.id);
-    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), permissionMode: disk?.permissionMode, tasks: disk?.tasks, approvals: disk?.approvals };
+    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), permissionMode: disk?.permissionMode, projectCode: disk?.projectCode, tasks: disk?.tasks, approvals: disk?.approvals };
     this.deps.store.save(next);
     this.emit(next, added);
   }
@@ -364,7 +385,7 @@ export class Conductor {
           const t = this.thread(threadId);
           const mode = modeOf(t);
           const decision = agent === DEVELOPER && t.build && mode !== 'ask'
-            ? mode === 'full' ? { allow: true, reason: 'Full access selected by the user' } : decideApproval(e.request, t.build.worktree)
+            ? mode === 'full' ? { allow: true, reason: 'Full access selected by the user' } : decideApproval(e.request, t.build.worktree, this.projectCode(threadId))
             : { allow: false, reason: '' };
           if (decision.allow) {
             this.deps.runner.answer(chatId, e.id, true); // throws when the session ended: no "Allowed" note then
@@ -390,13 +411,40 @@ export class Conductor {
     }
   }
 
-  /** Forgets the thread's pending approvals (only that chat's, when given); their cards show as expired. */
+  /**
+   * Forgets the thread's pending approvals (only that chat's, when given); their cards show as expired. Without a chat
+   * the project code card goes too, answered `undefined`: it belongs to the thread, not to a turn.
+   */
   private dropApprovals(threadId: string, chatId?: string): void {
     const mine = this.pending.get(threadId);
     const gone = [...(mine ?? [])].filter(([, r]) => !chatId || r.chatId === chatId).map(([seq]) => seq);
-    if (!gone.length) return;
     for (const s of gone) mine!.delete(s);
-    this.setApprovals(threadId, (a) => a.filter((s) => !gone.includes(s)), []);
+    const consent = chatId ? undefined : this.consent.get(threadId);
+    if (consent) {
+      this.consent.delete(threadId);
+      gone.push(consent.seq);
+    }
+    if (!gone.length) return;
+    try {
+      this.setApprovals(threadId, (a) => a.filter((s) => !gone.includes(s)), []);
+    } finally {
+      consent?.done(undefined);
+    }
+  }
+
+  /** True when the thread may run the repository's code unsandboxed: Full access, or the user allowed it. */
+  private projectCode(threadId: string): boolean {
+    const t = this.deps.store.get(threadId);
+    return !!t && (modeOf(t) === 'full' || t.projectCode === 'allowed');
+  }
+
+  /** Shows the project code card; resolves with the answer, or undefined when the card is dropped (pause, quit...). */
+  private askProjectCode(t: Thread, commands: string[]): Promise<boolean | undefined> {
+    return new Promise((done) => {
+      const m = this.deps.store.append(t.id, { kind: 'approval', agent: DEVELOPER, tool: NOTES.consentTool, detail: NOTES.consent(commands) });
+      this.setApprovals(t.id, (a) => [...a, m.seq], [m]);
+      this.consent.set(t.id, { seq: m.seq, done });
+    });
   }
 
   private stopChat(chatId: string): void {
@@ -420,9 +468,36 @@ export class Conductor {
   /** Stops the thread's loop and the speaking agent's session, and drops its pending approvals. */
   private halt(t: Thread): void {
     this.generation.set(t.id, (this.generation.get(t.id) ?? 0) + 1);
+    this.checks.get(t.id)?.ac.abort();
     this.interrupts.delete(t.id);
     this.dropApprovals(t.id);
     if (t.speaking) this.dropSession(t.id, t.speaking);
+  }
+
+  /**
+   * After halt(): waits, at most checksStopMs, for the checks it aborted to exit, then saves `t` idle. A hostile repo can
+   * start processes that escape the tree kill, so past the bound the thread goes idle anyway with a note. Saves nothing
+   * when another halt happened meanwhile: that caller saves the thread instead.
+   */
+  private async idleAfterChecks(t: Thread): Promise<void> {
+    const threadId = t.id;
+    const c = this.checks.get(threadId);
+    const gen = this.generation.get(threadId);
+    if (!c) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = await Promise.race([
+      c.done.then(() => false, () => false),
+      new Promise<boolean>((r) => { timer = setTimeout(r, this.deps.checksStopMs ?? 10_000, true); }),
+    ]);
+    clearTimeout(timer);
+    if (this.checks.get(threadId) === c) this.checks.delete(threadId); // past the bound, a later pause does not wait on it again
+    if (this.generation.get(threadId) !== gen) return;
+    const added: ThreadMessage[] = [];
+    try {
+      if (late) added.push(this.deps.store.append(threadId, { kind: 'note', text: 'Processes started by the checks may still be running.' }));
+    } finally {
+      this.save({ ...t, status: 'idle', speaking: undefined }, added); // never left 'running' with no loop
+    }
   }
 
   /** Applies a step: a turn starts the loop; wait and idle are saved with the messages added. */
@@ -492,7 +567,7 @@ export class Conductor {
       if (!dir) throw new Error('Unknown project');
       const mode = modeOf(t);
       const preferred = chooseThreadEngine(agent, t.assignments ?? {}, { claude: this.deps.windows('claude'), codex: this.deps.windows('codex') }, mode, Date.now() / 1000);
-      const started = await runner.startAgent(withProtocol(o.hard ? { ...def, tier: tierUp(def.tier) } : def, o.build ? 'build' : undefined, mode), dir, o.build?.permissions, mode, preferred);
+      const started = await runner.startAgent(withProtocol(o.hard ? { ...def, tier: tierUp(def.tier) } : def, o.build ? 'build' : undefined, mode), dir, o.build?.permissions, mode, preferred, this.projectCode(id));
       chatId = started.chatId;
       if (!live()) {
         this.stopChat(chatId); // paused while starting: the session was never registered
@@ -657,6 +732,12 @@ export class Conductor {
     const turn = (agent: string | undefined, added: ThreadMessage[] = []) =>
       this.save((t = { ...t, status: 'running', speaking: agent, waitingOn: undefined }), added);
     let blockedOn: string[] | undefined; // the failed checks, when the phase blocked on them
+    // Project code consent, once per thread: outside Full access, the first time the worktree has checks to run.
+    const askConsent = async (dir: string, checks: string[]) => {
+      const disk = store.get(id);
+      if (!checks.length || !disk || modeOf(disk) === 'full' || disk.projectCode) return;
+      await this.askProjectCode(t, ws.checkCommands(dir));
+    };
     let asker: string | undefined;
     if (step.do !== 'wait' && step.do !== 'finish') turn(undefined);
     try {
@@ -673,9 +754,6 @@ export class Conductor {
           const agent = step.who === 'code' ? CODE_REVIEWER : SECURITY_REVIEWER;
           const diff = await ws.diff(b.worktree, p.base!);
           if (!live()) return;
-          // The reviewers load the worktree's .claude/settings.json too, and the developer may have written it this phase.
-          const bad = claudeSettingsProblem(b.worktree);
-          if (bad) throw new Error(bad);
           turn(agent);
           this.dropSession(id, agent); // a fresh session per review
           const r = await this.speak(t, agent, gen, {
@@ -723,18 +801,21 @@ export class Conductor {
         } else {
           note = step.why === 'checks' ? NOTES.checksFailed(step.results ?? []) : step.why === 'review' ? NOTES.fix : NOTES.userFix;
         }
-        // A fresh session loads the worktree's .claude/settings.json: refuse one that would skip the approval card.
-        const bad = this.sessions.get(id)?.has(DEVELOPER) ? undefined : claudeSettingsProblem(b.worktree);
-        if (bad) throw new Error(bad);
         // The user wrote something the developer has not read: a fresh session starts just before it, and every turn says so.
         const unread = this.unreadByDeveloper(t);
         if (unread !== undefined && !(step.do === 'fix' && step.why === 'user')) note = note ? `${note}
 ${NOTES.userFix}` : NOTES.userFix;
+        // A fresh developer session: its preallowed check commands are fixed when it starts, so ask before.
+        if (!this.sessions.get(id)?.has(DEVELOPER)) {
+          await askConsent(b.worktree, ws.projectChecks(b.worktree));
+          if (!live()) return;
+        }
         turn(DEVELOPER);
         const setup = setupHints(b.worktree);
         const lead = NOTES.develop({
           plan: b.plan, index: b.current, total: b.phases.length, phase: p.text,
           done: b.phases.slice(0, b.current).map((q) => q.title), branch: b.branch, worktree: b.worktree, setup, checks: ws.projectChecks(b.worktree),
+          denied: !this.projectCode(id),
         });
         const r = await this.speak(t, DEVELOPER, gen, {
           build: { cwd: b.worktree, permissions: 'build', lead, since: Math.min(this.phaseSeq(id, b.current), (unread ?? Infinity) - 1) },
@@ -747,12 +828,28 @@ ${NOTES.userFix}` : NOTES.userFix;
         const sha = await ws.commitAll(b.worktree, `ark: phase ${b.current + 1} - ${p.title}`);
         if (!live()) return;
         if (sha) t = withPhase(t, (q) => { q.commit = sha; }).thread; // saved with the checks note
-        const results = await ws.runChecks(b.worktree, ws.projectChecks(b.worktree));
+        const checks = ws.projectChecks(b.worktree);
+        await askConsent(b.worktree, checks); // checks the developer added during the turn
+        if (!live()) return;
+        const denied = checks.length > 0 && !this.projectCode(id);
+        let results: CheckResult[] = [];
+        if (!denied) {
+          // halt() aborts these; pause and a permission change wait on `done` before the thread goes idle.
+          const ac = new AbortController();
+          const done = ws.runChecks(b.worktree, checks, undefined, ac.signal);
+          const own = { ac, done };
+          this.checks.set(id, own);
+          try {
+            results = await done;
+          } finally {
+            if (this.checks.get(id) === own) this.checks.delete(id);
+          }
+        }
         if (!live()) return;
         const failed = results.filter((x) => !x.ok).map((x) => x.script);
         const skipped = results.filter((x) => x.skipped).map((x) => x.script);
         const passed = results.filter((x) => x.ok && !x.skipped).map((x) => x.script);
-        const text = (!results.length ? 'No checks found (npm check scripts, ruff or pytest).'
+        const text = denied ? NOTES.checksDenied : (!results.length ? 'No checks found (npm check scripts, ruff or pytest).'
           : failed.length ? `Checks failed: ${failed.join(', ')}.` : passed.length ? `Checks passed: ${passed.join(', ')}.` : 'No check could run.') +
           (skipped.length ? ` Skipped, tool not installed: ${skipped.join(', ')}.` : '');
         this.save(t, [store.append(id, { kind: 'note', text })]);
