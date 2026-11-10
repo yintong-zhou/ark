@@ -19,9 +19,10 @@ End every reply with exactly one Ark block: a fenced code block tagged ark holdi
 - Team phase (Ark tells you): {"team":[{"agent":"<id>","reason":"<one line>"}],"leftOut":"<one line on the obvious agents you left out>"}. Pick only ids from the catalog Ark lists, never yourself.
 - To give the floor to one team member: {"next":"<id>"}. One agent speaks per turn; after they reply it is your turn again. Add "hard":true when the task is hard: that one turn runs on a stronger model.
 - To ask the user: {"ask":"<one clear question>","choices":["<short answer>"]}. choices is optional, at most 4. The team waits for the answer.
-When the team agrees on what to build, give the floor to the planner to write the plan.`;
+When the team agrees on what to build, give the floor to the planner to write the plan.
+Team members are advisors: they read the project but cannot change files or run commands. Building is Ark's job: once the plan is approved, Ark's developer implements it phase by phase in its own Git worktree, runs the project's tests and checks, and Ark's code and security reviewers review each phase. Never ask the user to apply a patch, open another session or grant tools: to get something built, get the plan written.`;
 export const MEMBER_PROTOCOL = `# Working in an Ark thread
-You are a member of this thread's team, led by the project manager. Ark relays the conversation. On your turn you receive the new messages since your last turn, each starting with [Name]; lines starting with [Ark] are instructions from Ark. You speak only when the project manager gives you the floor: answer what you were asked, briefly.
+You are a member of this thread's team, led by the project manager. Ark relays the conversation. On your turn you receive the new messages since your last turn, each starting with [Name]; lines starting with [Ark] are instructions from Ark. You speak only when the project manager gives you the floor: answer what you were asked, briefly. You read the project but cannot change files or run commands: describe the changes for the plan instead of writing full patches. Ark's developer implements the approved plan and runs the tests.
 You may end your reply with one Ark block, a fenced code block tagged ark holding one JSON object:
 - To ask the user: {"ask":"<one clear question>","choices":["<short answer>"]} (choices optional, at most 4).
 - When your reply is the complete plan in Markdown, split into phases each with its goal and its checks: {"plan":true}. Start each phase with a heading "## Phase <n>: <title>".
@@ -44,12 +45,15 @@ export const NOTES = {
   autoBudget: `${PLANNING_BUDGET} agent turns without a plan. Synthesize the team's work now: produce a complete plan with numbered phase headings and a plan block, or ask the user about one specific unresolved blocker. Do not delegate more turns.`,
   rerouted: (name: string) => `Claude is at ${SWITCH_AT}% or more of a usage window: ${name} runs on Codex.`,
   handoff: `Your session is getting long. Write a handoff for yourself: what the thread is about, what was decided, what is open, and what you were doing. Ark starts you in a fresh session from it. No Ark block.`,
-  develop: (o: { plan: string; index: number; total: number; phase: string; done: string[]; branch: string; worktree: string; deps: boolean }) =>
+  develop: (o: { plan: string; index: number; total: number; phase: string; done: string[]; branch: string; worktree: string; setup: string[]; checks: string[] }) =>
     `You start phase ${o.index + 1}/${o.total}. Plan file: ${o.plan}. Worktree: ${o.worktree}. Branch: ${o.branch}.\n` +
     (o.done.length ? `Earlier phases:\n${o.done.map((d) => `- ${d}`).join('\n')}\n` : '') +
     `This phase:\n${o.phase}\n` +
-    (o.deps ? 'node_modules is missing: run npm ci first.\n' : '') +
-    'Do not commit: Ark commits. Run the checks before you finish.',
+    o.setup.map((h) => `${h}\n`).join('') +
+    (o.checks.length
+      ? `Ark runs these checks after your turn, from the worktree root: ${o.checks.map((c) => (/^\w+$/.test(c) ? `npm run ${c}` : c)).join(', ')}. Run them yourself first, with exactly these commands, and fix what fails.\n`
+      : 'Ark found no checks to run for this project: run its tests yourself and report the output.\n') +
+    'Do not commit: Ark commits.',
   checksFailed: (results: CheckResult[]) =>
     'These checks failed. Fix them; Ark re-runs the checks.\n' +
     results.filter((r) => !r.ok).map((r) => `- ${r.script}:\n${r.tail}`).join('\n'),

@@ -3,8 +3,15 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { ApprovalRequest } from '@shared/permissions';
 import { resolveInside } from '../files/guard';
 
+// Project checks a developer may run without a card: npm check scripts (also in a subfolder with --prefix), and ruff
+// and pytest. Arguments are relative paths, test ids and flags only: no drive, absolute path, `..` or shell syntax,
+// because flags like pytest's --basetemp delete the folder they are given.
+const NPM_CHECK = /^npm(?:\.cmd)? (?:--prefix \w[\w.-]* )?(?:test|run (?:typecheck|lint|test|build))$/;
+const PY_ARG = String.raw`(?: (?:-{1,2}[\w-]+(?:=[\w.\/-]+)?|(?:\.(?:\/[\w.\/-]*)?|\w[\w.\/-]*)(?:::[\w\[\].-]+)*|"[\w .-]*"))*`;
+const PY_CHECK = new RegExp(String.raw`^(?:(?:python3?|py|\.venv[\\/](?:Scripts|bin)[\\/]python(?:\.exe)?) -m )?(?:pytest|ruff (?:check|format --check))${PY_ARG}$`);
+
 export const isProjectCheck = (command: unknown): boolean =>
-  typeof command === 'string' && /^npm(?:\.cmd)? (?:test|run (?:typecheck|lint|test|build))$/.test(command);
+  typeof command === 'string' && (NPM_CHECK.test(command) || (PY_CHECK.test(command) && !/(?:^|[\s=\/])\.\.(?:[\/\s]|$)/.test(command)));
 
 /** Positive allowlist only. Unrecognized inputs and shell syntax always reach the user. */
 export function decideApproval(request: ApprovalRequest | undefined, root: string): { allow: boolean; reason: string } {

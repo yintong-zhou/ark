@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, beforeEach, expect, test } from 'vitest';
-import { branchName, claudeSettingsProblem, NO_HOOKS, workspace } from '../../src/main/services/threads/workspace';
+import { branchName, claudeSettingsProblem, NO_HOOKS, setupHints, workspace } from '../../src/main/services/threads/workspace';
 
 beforeAll(() => {
   process.env.GIT_AUTHOR_NAME = process.env.GIT_COMMITTER_NAME = 'Ark Test';
@@ -111,6 +111,48 @@ test('projectChecks keeps the known scripts in order', () => {
   const d = pkg({ build: 'b', dev: 'd', test: 't', lint: 'l' });
   expect(workspace.projectChecks(d)).toEqual(['lint', 'test', 'build']);
 });
+
+test('projectChecks finds npm checks in subfolders and the Python checks, and setupHints what the worktree lacks', () => {
+  const d = pkg({ test: 't' });
+  const sub = (name: string, scripts: object) => {
+    mkdirSync(join(d, name), { recursive: true });
+    writeFileSync(join(d, name, 'package.json'), JSON.stringify({ scripts }));
+  };
+  sub('web', { lint: 'l', test: 't', dev: 'd' });
+  sub('node_modules', { test: 't' });
+  sub('.hidden', { test: 't' });
+  sub('bad name', { test: 't' });
+  sub('docs', { dev: 'd' });
+  writeFileSync(join(d, 'pyproject.toml'), '[project]\nname = "x"\n\n[tool.ruff]\nline-length = 100\n\n[tool.pytest.ini_options]\naddopts = "-q"\n');
+  expect(workspace.projectChecks(d)).toEqual(['test', 'npm --prefix web run lint', 'npm --prefix web run test', 'ruff check .', 'python -m pytest -q']);
+  // The root node_modules exists: it is the excluded subfolder made above.
+  expect(setupHints(d)).toEqual([
+    'web/node_modules is missing: run npm --prefix web ci first.',
+    expect.stringContaining('python -m venv .venv'),
+  ]);
+  mkdirSync(join(d, 'web', 'node_modules'), { recursive: true });
+  mkdirSync(join(d, '.venv', 'Scripts'), { recursive: true });
+  writeFileSync(join(d, '.venv', 'Scripts', 'python.exe'), '');
+  expect(setupHints(d)).toEqual([]);
+  rmSync(join(d, 'node_modules'), { recursive: true });
+  expect(setupHints(d)).toEqual(['node_modules is missing: run npm ci first.']);
+});
+
+test('runChecks skips a check whose tool is not installed and refuses unknown names', async () => {
+  const d = pkg({});
+  const path = process.env.PATH;
+  process.env.PATH = join(root, 'no-tools');
+  try {
+    const results = await workspace.runChecks(d, ['ruff check .', 'python -m pytest -q', 'rm -rf .']);
+    expect(results).toEqual([
+      { script: 'ruff check .', ok: true, tail: '', skipped: true },
+      { script: 'python -m pytest -q', ok: true, tail: '', skipped: true },
+      { script: 'rm -rf .', ok: false, tail: 'Unknown check' },
+    ]);
+  } finally {
+    process.env.PATH = path;
+  }
+}, 60_000);
 
 test('projectChecks is empty without package.json or with broken JSON', () => {
   expect(workspace.projectChecks(root)).toEqual([]);

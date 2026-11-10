@@ -1,17 +1,88 @@
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { agentId } from '@shared/agent-file';
 import { obj } from '../json';
 
 /** Git and project checks inside a thread's worktree. The project's own checked-out branch is never touched. */
 
-export type CheckResult = { script: string; ok: boolean; tail: string };
+/** `skipped`: the check's tool is not installed (the command or Python module was not found), so it neither passed nor failed. */
+export type CheckResult = { script: string; ok: boolean; tail: string; skipped?: true };
 
 export const CHECK_SCRIPTS = ['typecheck', 'lint', 'test', 'build'] as const;
 const CHECK_MS = 600_000;
 const CHECK_TAIL = 4_000;
 const MAX_BUFFER = 64 * 1024 * 1024;
+
+// A check is named by the command a developer would type. Root npm scripts keep their bare names (typecheck, test...).
+// Folder names go into a shell command, so only plain names qualify (no dot first: no .git, no ..).
+const SAFE_DIR = /^\w[\w.-]*$/;
+const SUB_CHECK = /^npm --prefix (\w[\w.-]*) run (typecheck|lint|test|build)$/;
+const PY_CHECKS = ['ruff check .', 'python -m pytest -q'] as const;
+const MAX_SUBDIRS = 8;
+
+const read = (file: string) => {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return '';
+  }
+};
+function checkScripts(dir: string): string[] {
+  try {
+    const scripts = JSON.parse(read(join(dir, 'package.json'))).scripts ?? {};
+    return CHECK_SCRIPTS.filter((s) => typeof scripts[s] === 'string');
+  } catch {
+    return [];
+  }
+}
+/** Direct subfolders with their own npm check scripts, like a frontend in web/. */
+function npmSubdirs(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name !== 'node_modules' && SAFE_DIR.test(d.name) && checkScripts(join(dir, d.name)).length)
+      .map((d) => d.name).sort().slice(0, MAX_SUBDIRS);
+  } catch {
+    return [];
+  }
+}
+function pythonChecks(dir: string): string[] {
+  const py = read(join(dir, 'pyproject.toml'));
+  const out: string[] = [];
+  if (/^\[tool\.ruff/m.test(py) || existsSync(join(dir, 'ruff.toml')) || existsSync(join(dir, '.ruff.toml'))) out.push(PY_CHECKS[0]);
+  if (/^\[tool\.pytest/m.test(py) || existsSync(join(dir, 'pytest.ini')) || /^\[(tool:)?pytest\]/m.test(read(join(dir, 'setup.cfg'))) ||
+      ((py || existsSync(join(dir, 'setup.py'))) && existsSync(join(dir, 'tests')))) out.push(PY_CHECKS[1]);
+  return out;
+}
+const venvPython = (dir: string) => [join(dir, '.venv', 'Scripts', 'python.exe'), join(dir, '.venv', 'bin', 'python')].find((p) => existsSync(p));
+
+/** True when `exe` is on PATH. The shell's own "not found" exit code and message depend on the platform and locale. */
+function onPath(exe: string): boolean {
+  const exts = process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : [''];
+  return (process.env.PATH ?? '').split(delimiter).some((d) => d && exts.some((x) => existsSync(join(d, exe + x))));
+}
+
+/** The shell command for a check name; undefined for a name Ark does not know (never run). */
+function commandOf(dir: string, script: string): string | undefined {
+  if ((CHECK_SCRIPTS as readonly string[]).includes(script)) return `npm run ${script}`;
+  if (SUB_CHECK.test(script)) return script;
+  if (!(PY_CHECKS as readonly string[]).includes(script)) return undefined;
+  const venv = venvPython(dir); // the worktree's own environment, when the developer made one
+  return venv ? `"${venv}" -m ${script.replace(/^python -m /, '')}` : script;
+}
+
+/** What a fresh worktree lacks before its checks can run, as lines for the developer. */
+export function setupHints(dir: string): string[] {
+  const out: string[] = [];
+  if (existsSync(join(dir, 'package.json')) && !existsSync(join(dir, 'node_modules'))) out.push('node_modules is missing: run npm ci first.');
+  for (const sub of npmSubdirs(dir)) {
+    if (!existsSync(join(dir, sub, 'node_modules'))) out.push(`${sub}/node_modules is missing: run npm --prefix ${sub} ci first.`);
+  }
+  if (pythonChecks(dir).length && !venvPython(dir)) {
+    out.push("No Python environment in the worktree: create one with python -m venv .venv (it must be git-ignored) and install the project's dependencies into it. Ark runs the Python checks with it.");
+  }
+  return out;
+}
 
 type Out = { ok: boolean; stdout: string; stderr: string };
 
@@ -41,23 +112,34 @@ async function gitOk(dir: string, args: string[]): Promise<string> {
 }
 
 /**
- * Runs one npm script. The shell is needed because npm is a .cmd on Windows; names come from CHECK_SCRIPTS only.
+ * Runs one check. The shell is needed because npm is a .cmd on Windows; commands come from commandOf's fixed forms only.
  * The time and output limits are ours, not execFile's: execFile would kill only the shell, leaving npm and its children
  * running and holding the worktree. On Windows the whole tree goes, while the shell is still alive for taskkill to walk.
  */
 function runScript(dir: string, script: string, timeout: number): Promise<CheckResult> {
+  const command = commandOf(dir, script);
+  if (!command) return Promise.resolve({ script, ok: false, tail: 'Unknown check' });
+  const tool = /^(ruff|python) /.exec(command)?.[1]; // a quoted venv python was found on disk already
+  if (tool && !onPath(tool)) return Promise.resolve({ script, ok: true, tail: '', skipped: true });
   return new Promise((resolve) => {
     let stopped = '';
     const child = execFile(
-      `npm run ${script}`,
+      command,
       [],
       // execFile's own cap is only a backstop, above ours.
       { cwd: dir, shell: true, windowsHide: true, encoding: 'utf8', maxBuffer: 2 * MAX_BUFFER },
       (err, stdout, stderr) => {
         clearTimeout(timer);
+        const out = `${stdout}${stderr}`;
+        // Not installed, for ruff and pytest only (npm's 127 means missing node_modules, a real failure): sh's 127,
+        // the Windows Store python stub, or Python without the check's module.
+        const code = (err as { code?: unknown } | null)?.code;
+        if (!stopped && tool && (code === 127 || /Python was not found|No module named '?(?:pytest|ruff)\b/.test(out))) {
+          return resolve({ script, ok: true, tail: '', skipped: true });
+        }
         // A script we stopped fails even if it got to exit 0 before the kill landed.
         const ok = !err && !stopped;
-        resolve({ script, ok, tail: ok ? '' : stopped + `${stdout}${stderr}`.slice(-CHECK_TAIL) });
+        resolve({ script, ok, tail: ok ? '' : stopped + out.slice(-CHECK_TAIL) });
       },
     );
     const stop = (why: string) => {
@@ -113,14 +195,16 @@ export const workspace = {
 
   log: (dir: string, base: string) => gitOk(dir, ['log', '--oneline', `${base}..HEAD`]),
 
-  /** The known check scripts the project defines; [] when package.json is missing or broken. */
+  /**
+   * The checks the project defines, in order: root npm check scripts (bare names), the same scripts in direct subfolders
+   * (`npm --prefix web run test`), then ruff and pytest when the Python project configures them.
+   */
   projectChecks(dir: string): string[] {
-    try {
-      const scripts = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts ?? {};
-      return CHECK_SCRIPTS.filter((s) => typeof scripts[s] === 'string');
-    } catch {
-      return [];
-    }
+    return [
+      ...checkScripts(dir),
+      ...npmSubdirs(dir).flatMap((sub) => checkScripts(join(dir, sub)).map((s) => `npm --prefix ${sub} run ${s}`)),
+      ...pythonChecks(dir),
+    ];
   },
 
   /** Runs every script in turn, even after a failure. */

@@ -80,7 +80,7 @@ Atlas lead product, development, QA and DevOps, with Pixel, Sage, Orion, Forge, 
 as specialists. Profiles carry their role, reporting line, handoff rules and L1/L2/L3 decision boundaries. You are
 `@head_of_engineering`; this human role is never an AI agent.
 
-New catalogs start with the project manager. **Agents > Add thread roles** adds only the project manager. To run a build, create the `developer`, `code-reviewer` and `security-reviewer` agents in **Agents**, giving the developer build permission. Open **Agents > Add IT Services team** to add missing profiles;
+New catalogs start with the project manager. **Agents > Add thread roles** adds only the project manager. Builds use Ark's built-in `developer`, `code-reviewer` and `security-reviewer` roles; create an agent with one of those ids in **Agents** to replace it (a custom developer needs build permission). Team members from the catalog are advisors: they read the project but never change files or run commands. Open **Agents > Add IT Services team** to add missing profiles;
 customized or invalid files are kept, and repeating the action does not duplicate profiles. Agents use the standard's
 usernames, for example `@frontend_dev`, in mentions and task assignments once approved for the thread. Engine **Auto**
 uses the existing Claude Code/Codex routing; profiles need no extra skills and can be edited like any other agent.
@@ -107,7 +107,8 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   - **Approve for me** (the default for new threads): the team picks its members, agrees on routine choices and goes from
     a valid plan straight into the build. Members' questions go to the project manager, who asks you only about
     missing intent, scope changes, sensitive decisions or real blockers. Ark itself allows only edits inside the worktree
-    (not `.git`, `.claude`, `.codex`, `.env*` or credential files) and the project's `npm test` / `npm run typecheck|lint|test|build`;
+    (not `.git`, `.claude`, `.codex`, `.env*` or credential files) and test and lint commands: `npm test` / `npm run typecheck|lint|test|build`,
+    also in a subfolder with `--prefix web`, `ruff check` / `ruff format --check` and `pytest`, with relative paths only;
     anything else, including compound shell commands, still shows a card. A Codex developer can't run in this mode (its
     protocol has no complete pre-action gate), so Auto routing gives this role to Claude.
   - **Full access**: the developer's tools run without approval prompts, including writes outside the worktree and network
@@ -127,6 +128,8 @@ worktrees and original folder. Running threads are paused. Add the same folder a
 - **Files and images**: attach with the paperclip, a drop or a paste (up to 5 per message). Images (png, jpg, gif, webp,
   5 MB each) reach the agents as images; text and code files (200 KB each) are pasted into the message they read. Other
   types are refused, since agents only see what Ark gives them. Attachments live in the thread's `files` folder.
+- **Formatting**: agent messages and the plan card render Markdown (headings, bold, lists and checklists, code, tables,
+  quotes), in threads and in Chat. Raw HTML in a message shows as text, and links are not opened: hover one to see its URL.
 - **Emoji**: the smiley in the composer opens a grid of emoji.
 - **Reactions**: react 👍 or 👎 to any agent message. A reaction does not start a turn: the agents see it on their next turn ("the user reacted 👍 to ...").
 - **The plan card**: when the planner finishes, its plan appears as a card in the thread and is saved as `plan.md` in the
@@ -135,8 +138,8 @@ worktrees and original folder. Running threads are paused. Add the same folder a
 - **Build phase**: **Start developer** creates a Git worktree on a new branch `ark/<title>-<id>` (under
   `%APPDATA%\ark\worktrees`) from the project's current commit, so uncommitted changes are not in it, and your checked-out
   branch is never touched. The plan is copied into the worktree and committed first. The developer then builds the plan
-  phase by phase. After each developer turn Ark commits the work and runs the project's `typecheck`, `lint`, `test` and
-  `build` scripts, then the code reviewer and the security reviewer each get a turn. After two rounds without agreement the
+  phase by phase. After each developer turn Ark commits the work and runs the project's checks (see **Checks**),
+  then the code reviewer and the security reviewer each get a turn. After two rounds without agreement the
   project manager sends the open points to you. When every phase is done the manager closes the thread with a summary.
 - **Auto**: an agent runs at its own `tier`. When the project manager marks a task as hard (`"hard": true`), that one turn runs
   one tier up, in a fresh session. In a thread, agents set to `engine: auto` are spread over Claude Code and Codex when both
@@ -154,8 +157,13 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   it; a card that was not answered before its turn ended shows "Expired". A thread that waits on an approval gets a badge.
   Ark refuses to start a developer session when the worktree's `.claude/settings.json` sets `permissions.allow`,
   `permissions.defaultMode` or `hooks` (they would act without a card) or is not valid JSON; the note names the file.
-- **Dependencies**: a new worktree has no `node_modules`, so the developer asks to run `npm ci` on first use. That is one
-  approval card per thread; Ark never installs anything by itself.
+- **Checks**: after each developer turn Ark runs the checks it finds: the `typecheck`, `lint`, `test` and `build` scripts of
+  `package.json` at the root and in direct subfolders (`npm --prefix web run test`), `ruff check .` when the Python project
+  configures ruff, and `python -m pytest -q` when it configures pytest or has a `tests` folder. The developer is told the
+  exact commands. A check whose tool is not installed is reported as skipped, not failed.
+- **Dependencies**: a new worktree has no `node_modules` (root or subfolder) and no Python environment, so the developer
+  is told to run `npm ci` / `npm --prefix web ci`, or to create a git-ignored `.venv` that Ark then uses for the Python checks.
+  Installing is one approval card per thread outside Full access; Ark never installs anything by itself.
 
 If Ark is closed during a turn, the thread notes it and continues when you send a message. A long agent session is
 handed off to a fresh one at 50% of its context, so a thread can run for a long time.
