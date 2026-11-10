@@ -208,7 +208,8 @@ export const workspace = {
 
   /**
    * projectChecks as a developer types them: root names become `npm run <s>` (and test also `npm test`); subfolder and
-   * Python checks stay as they are. The one list the Claude developer may run without a card once project code is allowed.
+   * Python checks stay as they are. The one list the Claude developer may run without a card in Ask once project code is
+   * allowed; Auto's isProjectCheck accepts a superset (flag and spelling variants of these).
    */
   checkCommands(dir: string): string[] {
     return workspace.projectChecks(dir).flatMap((s) =>

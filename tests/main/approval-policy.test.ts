@@ -58,6 +58,11 @@ test('every command Ark would preallow is a project check for Auto', () => {
   const commands = workspace.checkCommands(d);
   expect(commands).toHaveLength(9); // 4 root scripts + npm test, 2 in web, ruff, pytest
   for (const c of commands) expect(isProjectCheck(c)).toBe(true);
+  // Auto accepts a superset of the Ask list: flag and spelling variants of the same checks.
+  for (const c of ['pytest -x', 'npm.cmd test', 'npm --prefix other run test', '.venv\\Scripts\\python.exe -m pytest -q']) {
+    expect(isProjectCheck(c)).toBe(true);
+    expect(commands).not.toContain(c);
+  }
 });
 
 test('does not trust display text, missing metadata, external cwd or requested grants', () => {

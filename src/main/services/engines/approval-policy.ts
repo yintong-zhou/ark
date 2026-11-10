@@ -10,6 +10,11 @@ const NPM_CHECK = /^npm(?:\.cmd)? (?:--prefix \w[\w.-]* )?(?:test|run (?:typeche
 const PY_ARG = String.raw`(?: (?:-{1,2}[\w-]+(?:=[\w.\/-]+)?|(?:\.(?:\/[\w.\/-]*)?|\w[\w.\/-]*)(?:::[\w\[\].-]+)*|"[\w .-]*"))*`;
 const PY_CHECK = new RegExp(String.raw`^(?:(?:python3?|py|\.venv[\\/](?:Scripts|bin)[\\/]python(?:\.exe)?) -m )?(?:pytest|ruff (?:check|format --check))${PY_ARG}$`);
 
+/**
+ * A project check for the Auto policy, once the user allowed project code. Deliberately a superset of the Ask list
+ * (workspace.checkCommands, the exact commands as typed): Auto also accepts flag and spelling variants of the same checks,
+ * such as `pytest -x`, `npm.cmd test`, the worktree's .venv python or `npm --prefix <dir>` for any plain folder name.
+ */
 export const isProjectCheck = (command: unknown): boolean =>
   typeof command === 'string' && (NPM_CHECK.test(command) || (PY_CHECK.test(command) && !/(?:^|[\s=\/])\.\.(?:[\/\s]|$)/.test(command)));
 

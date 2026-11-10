@@ -1387,6 +1387,10 @@ test('a denial skips Ark checks and preallows nothing, and is not asked again', 
   await allowProjectCode(id, false);
   await idle();
   expect(devCodes()).toEqual([false, false]);
+  for (const d of devTurns()) {
+    expect(d.text).toContain(NOTES.developDenied);
+    expect(d.text).not.toContain('Ark runs these checks');
+  }
   expect(runsChecks()).toBe(false);
   expect(notes(id).filter((n) => n === 'Checks not run: you did not allow project code in this thread.')).toHaveLength(2);
   expect(notes(id).some((n) => n.startsWith('Checks passed') || n.startsWith('No checks found'))).toBe(false);
@@ -1412,6 +1416,26 @@ test('no checks, no card; checks added later are asked before the first check ru
   await idle();
   expect(ws.calls).toContainEqual(['runChecks', thread(id).build!.worktree, ['test']]);
   expect(thread(id)).toMatchObject({ projectCode: 'allowed', phase: 'done' });
+});
+
+test('a consent answer whose card cannot be dropped still resumes the build', async () => {
+  const { id } = await planned();
+  ws.checks = ['test'];
+  passingBuild();
+  await c.startDeveloper(id);
+  await until(() => !!pendingConsent(id));
+  const seq = pendingConsent(id)!.seq;
+  const save = store.save.bind(store);
+  let n = 0;
+  store.save = (t: Thread) => {
+    if (++n === 2) throw new Error('disk full'); // the save that drops the card
+    save(t);
+  };
+  expect(() => c.answer(id, seq, true)).toThrow('disk full');
+  store.save = save;
+  await idle();
+  expect(thread(id)).toMatchObject({ projectCode: 'allowed', phase: 'done' });
+  expect(devCodes()).toEqual([true]);
 });
 
 test('Full access asks nothing and stores nothing', async () => {

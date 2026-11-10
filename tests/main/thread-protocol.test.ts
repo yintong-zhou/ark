@@ -150,6 +150,10 @@ test('NOTES.develop carries the setup hints and the exact check commands', () =>
   const full = NOTES.develop({ ...o, setup: ['node_modules is missing: run npm ci first.'], checks: ['test', 'npm --prefix web run lint', 'python -m pytest -q'] });
   expect(full).toContain('npm ci first');
   expect(full).toContain('npm run test, npm --prefix web run lint, python -m pytest -q');
+  const denied = NOTES.develop({ ...o, checks: ['test'], denied: true });
+  expect(denied).toContain(NOTES.developDenied);
+  expect(denied).not.toContain('Ark runs these checks');
+  expect(denied).not.toContain('Run them yourself first');
 });
 test('NOTES.checksFailed, blocked and summary carry their data', () => {
   const failed = NOTES.checksFailed([{ script: 'lint', ok: false, tail: 'BOOM' }, { script: 'test', ok: true, tail: 'FINE' }]);

@@ -249,9 +249,12 @@ export class Conductor {
     const consent = this.consent.get(threadId);
     if (consent?.seq === seq && t.approvals?.includes(seq)) {
       this.consent.delete(threadId);
-      this.deps.store.save({ ...t, projectCode: allow ? 'allowed' : 'denied' }); // for the rest of the thread
-      this.setApprovals(threadId, drop, [this.deps.store.append(threadId, { kind: 'decision', target: seq, allow })]);
-      consent.done(allow);
+      try {
+        this.deps.store.save({ ...t, projectCode: allow ? 'allowed' : 'denied' }); // for the rest of the thread
+        this.setApprovals(threadId, drop, [this.deps.store.append(threadId, { kind: 'decision', target: seq, allow })]);
+      } finally {
+        consent.done(allow); // the build goes on (or stops on a stale loop) even if the card could not be dropped
+      }
       return;
     }
     const req = this.pending.get(threadId)?.get(seq);
@@ -775,6 +778,7 @@ ${NOTES.userFix}` : NOTES.userFix;
         const lead = NOTES.develop({
           plan: b.plan, index: b.current, total: b.phases.length, phase: p.text,
           done: b.phases.slice(0, b.current).map((q) => q.title), branch: b.branch, worktree: b.worktree, setup, checks: ws.projectChecks(b.worktree),
+          denied: !this.projectCode(id),
         });
         const r = await this.speak(t, DEVELOPER, gen, {
           build: { cwd: b.worktree, permissions: 'build', lead, since: Math.min(this.phaseSeq(id, b.current), (unread ?? Infinity) - 1) },
