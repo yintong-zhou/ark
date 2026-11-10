@@ -96,7 +96,7 @@ export function FileTree({ root, name, onOpen, attempt, git }: Props) {
       out.push(
         <button
           key={rel}
-          title={rel}
+          title={e.ignored ? `${rel} - Ignored by Git` : rel}
           onClick={() => {
             setSelected(rel);
             if (isDir) toggle(root, rel);
@@ -108,7 +108,7 @@ export function FileTree({ root, name, onOpen, attempt, git }: Props) {
         >
           <span aria-hidden className="flex w-2 shrink-0 justify-center text-meta">{isDir ? (isOpen ? '▾' : '▸') : ''}</span>
           <EntryIcon name={e.name} folder={isDir} open={isOpen} />
-          <span className={`min-w-0 flex-1 truncate ${e.kind === 'link' ? 'italic' : ''}`}>{e.name}</span>
+          <span className={`min-w-0 flex-1 truncate ${e.ignored ? 'italic opacity-55 group-hover:opacity-80 group-focus-visible:opacity-100' : e.kind === 'link' ? 'italic' : ''}`}>{e.name}</span>
           {mark && <span className={`shrink-0 text-meta ${mark === '!' ? 'text-secondary' : 'text-muted'}`}>{mark}</span>}
         </button>,
       );

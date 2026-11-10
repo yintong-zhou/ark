@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { splitFrontmatter, type Permissions } from '@shared/agent-file';
+import type { PermissionMode } from '@shared/permissions';
 import { obj, str } from '../json';
 import { ARK_PLUGIN } from '../skills';
 import { CHECK_SCRIPTS } from '../threads/workspace';
@@ -47,7 +48,7 @@ const CHECK_RULES = ['Bash', 'PowerShell'].flatMap((tool) => CHECK_COMMANDS.map(
  * agents get no edit, write or shell; build agents get them, with prompts routed to Ark over stdio,
  * except the project's checks.
  */
-export function claudeArgs(o: { model: string; roleFile: string; pluginDir: string; permissions: Permissions }): string[] {
+export function claudeArgs(o: { model: string; roleFile: string; pluginDir: string; permissions: Permissions; permissionMode?: PermissionMode }): string[] {
   return [
     '-p',
     '--input-format',
@@ -65,7 +66,11 @@ export function claudeArgs(o: { model: string; roleFile: string; pluginDir: stri
     '--append-system-prompt-file',
     o.roleFile,
     ...(o.permissions === 'build'
-      ? ['--tools', 'Read,Glob,Grep,Skill,Edit,Write,Bash,PowerShell', '--allowedTools', ...CHECK_RULES, '--permission-mode', 'acceptEdits', '--permission-prompt-tool', 'stdio']
+      ? ['--tools', 'Read,Glob,Grep,Skill,Edit,Write,Bash,PowerShell', ...(o.permissionMode === 'full'
+          ? ['--dangerously-skip-permissions']
+          : o.permissionMode === 'auto'
+            ? ['--allowedTools', 'Skill', '--permission-mode', 'default', '--permission-prompt-tool', 'stdio']
+            : ['--allowedTools', ...CHECK_RULES, '--permission-mode', 'acceptEdits', '--permission-prompt-tool', 'stdio'])]
       : ['--tools', 'Read,Glob,Grep,Skill']),
   ];
 }

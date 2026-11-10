@@ -3,10 +3,10 @@ import type { ReactNode } from 'react';
 /** The 48px bar over a pane: its title in Outfit, then muted facts kept apart by space, and the pane's actions. */
 export function PaneHeader({ title, meta = [], actions }: { title: string; meta?: string[]; actions?: ReactNode }) {
   return (
-    <header className="drag flex h-6 shrink-0 items-center gap-2 border-b border-divider px-3">
+    <header className="drag flex h-6 shrink-0 items-center gap-1.5 border-b border-divider px-2 lg:px-3">
       {/* the title gives way first: what the thread is doing matters more than the rest of its name */}
       <h1 className="min-w-0 truncate text-title">{title}</h1>
-      <div className="flex min-w-0 max-w-[60%] gap-2 overflow-hidden text-muted">
+      <div className="flex min-w-0 max-w-[50%] gap-1.5 overflow-hidden text-meta text-muted">
         {meta.map((m, i) => (
           <span key={m} className={i === meta.length - 1 ? 'truncate' : 'shrink-0'}>{m}</span>
         ))}
@@ -24,7 +24,7 @@ export function Page({ title, meta, actions, children, narrow = false }: {
     <>
       <PaneHeader title={title} meta={meta} actions={actions} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={`flex flex-col gap-3 px-3 py-3 ${narrow ? 'max-w-[640px]' : 'max-w-[960px]'}`}>{children}</div>
+        <div className={`flex flex-col gap-3 p-2 lg:p-3 ${narrow ? 'max-w-[640px]' : 'max-w-[960px]'}`}>{children}</div>
       </div>
     </>
   );
@@ -47,7 +47,7 @@ export function Facts({ rows }: { rows: [label: string, value: ReactNode][] }) {
 /** What a pane says when there is nothing to show yet, and the one thing to do about it. */
 export function Empty({ glyph, title, children, action }: { glyph?: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-start gap-2 px-3 py-5">
+    <div className="flex flex-col items-start gap-2 px-2 py-5 lg:px-3">
       {glyph && <span aria-hidden className="text-[32px] leading-none">{glyph}</span>}
       <h2 className="text-title">{title}</h2>
       {children && <p className="max-w-[60ch] text-muted">{children}</p>}

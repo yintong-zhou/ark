@@ -88,7 +88,7 @@ export default function App() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* the window's own title bar: Windows draws only its buttons over this strip */}
           <div className="drag h-4 shrink-0 bg-primary" />
-          <div className="flex min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1 overflow-hidden rounded-tl-lg border-l border-t border-divider">
             {area === 'threads' && (
               <Threads ws={ws} project={project} draft={draft} onDraft={setDraft} problem={problem} attempt={attempt} onAddProject={addProject} />
             )}

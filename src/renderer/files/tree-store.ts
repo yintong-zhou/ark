@@ -84,7 +84,19 @@ export function useTree(root: RootRef): Tree {
   const key = rootKey(root);
   useEffect(() => {
     void window.ark.files.watch(root).catch(() => {}); // a missing worktree shows as the tree's error
-    return () => void window.ark.files.unwatch(root).catch(() => {});
+    // Excludes and the Git index can live outside this root (especially in a linked worktree).
+    const refresh = () => {
+      if (!document.hasFocus()) return;
+      const t = trees.get(key);
+      if (t) for (const rel of t.expanded) void load(key, rel);
+    };
+    const timer = setInterval(refresh, 5000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      void window.ark.files.unwatch(root).catch(() => {});
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the key names the root
   }, [key]);
   return useSyncExternalStore(subscribe, () => get(root));

@@ -4,10 +4,11 @@ import type { AgentStatus, Session, StatuslineStatus, UsageState, ViewMode } fro
 import { formatAge, sessionState } from '@shared/usage-math';
 import { AGENT_NAME, type Navigate } from '../agents';
 import { AgentTag } from '../components/AgentTag';
+import { RefreshIcon } from '../components/Icons';
 import { Bar } from '../components/Bar';
 import { Page } from '../components/Page';
 import { ApiKeyTotals } from '../components/StatusBar';
-import { BUTTON, CTA } from '../components/ui';
+import { CTA, ICON_BUTTON } from '../components/ui';
 import { WindowCell } from '../components/WindowCell';
 
 type Props = { state: UsageState | null; now: number; refresh: () => Promise<void>; onNavigate: Navigate };
@@ -49,20 +50,20 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
       meta={['Context and limits of the agents on this machine']}
       actions={
         <>
-          <div role="group" aria-label="View" className="flex h-4 items-center rounded-sm bg-primary p-[2px]">
+          <div role="group" aria-label="View" className="control-inset flex h-4 items-center rounded-sm bg-primary p-[2px]">
             {(['compact', 'detailed'] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => changeView(v)}
                 aria-pressed={view === v}
-                className={`h-full rounded-xs px-1 capitalize ${view === v ? 'bg-raised text-secondary' : 'text-muted hover:text-secondary'}`}
+                className={`h-full rounded-xs px-1 text-meta capitalize ${view === v ? 'control-raised bg-raised text-secondary' : 'text-muted hover:text-secondary'}`}
               >
                 {v}
               </button>
             ))}
           </div>
-          <button onClick={onRefresh} disabled={refreshing} className={BUTTON}>
-            {refreshing ? 'Refreshing' : 'Refresh'}
+          <button onClick={onRefresh} disabled={refreshing} aria-label={refreshing ? 'Refreshing' : 'Refresh'} title="Refresh" className={ICON_BUTTON}>
+            <RefreshIcon />
           </button>
         </>
       }

@@ -108,7 +108,7 @@ test('a can_use_tool request becomes an approval event and allow answers with th
   child.emitLine(init);
   child.emitLine(canUse('r1', { command: 'npm ci' }));
   await flush();
-  expect(events).toContainEqual({ type: 'approval', id: 'r1', tool: 'Bash', detail: 'npm ci' });
+  expect(events).toContainEqual({ type: 'approval', id: 'r1', tool: 'Bash', detail: 'npm ci', request: { engine: 'claude', tool: 'Bash', input: { command: 'npm ci' }, cwd: 'D:\\x' } });
   session.answer('r1', true);
   expect(lastLine(child)).toEqual({
     type: 'control_response',
@@ -130,6 +130,19 @@ test('deny answers with the Ark message', async () => {
   });
 });
 
+test('after an approved arbitrary shell command, subsequent checks do not assume the initial cwd or environment', async () => {
+  const { child, session, events } = start();
+  session.send('build');
+  child.emitLine(init);
+  child.emitLine(canUse('change', { command: 'cd C:\\outside' }));
+  await flush();
+  session.answer('change', true);
+  child.emitLine(canUse('check', { command: 'npm test' }));
+  await flush();
+  const e = events.find((e) => e.type === 'approval' && e.id === 'check');
+  expect(e).toMatchObject({ request: { input: { arkShellStateUnknown: true } } });
+});
+
 test('approval detail falls back to the description, then to the input', async () => {
   const { child, session, events } = start();
   session.send('hi');
@@ -137,8 +150,8 @@ test('approval detail falls back to the description, then to the input', async (
   child.emitLine(canUse('a', { x: 1 }, { description: 'Does a thing' }));
   child.emitLine(canUse('b', { x: 1 }));
   await flush();
-  expect(events).toContainEqual({ type: 'approval', id: 'a', tool: 'Bash', detail: 'Does a thing' });
-  expect(events).toContainEqual({ type: 'approval', id: 'b', tool: 'Bash', detail: '{"x":1}' });
+  expect(events).toContainEqual(expect.objectContaining({ type: 'approval', id: 'a', tool: 'Bash', detail: 'Does a thing' }));
+  expect(events).toContainEqual(expect.objectContaining({ type: 'approval', id: 'b', tool: 'Bash', detail: '{"x":1}' }));
 });
 
 test('a control_request before init is not forwarded', async () => {

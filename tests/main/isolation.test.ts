@@ -90,6 +90,21 @@ test('codexArgs denies skills by path and MCP servers by name', () => {
   expect(codexArgs({ skillPaths: [], mcpServers: [] })).toEqual(base);
 });
 
+test('Auto build routes edits and commands to Ark; Full bypass never widens read-only tools', () => {
+  const base = { model: 'haiku', roleFile: 'r', pluginDir: 'p' };
+  const auto = claudeArgs({ ...base, permissions: 'build', permissionMode: 'auto' });
+  expect(auto[auto.indexOf('--permission-mode') + 1]).toBe('default');
+  expect(auto).not.toContain('acceptEdits');
+  expect(auto).not.toContain('--dangerously-skip-permissions');
+  // Reads inside the worktree are allowed by default mode; a bare Read rule would allow every path on disk.
+  expect(auto[auto.indexOf('--allowedTools') + 1]).toBe('Skill');
+  const full = claudeArgs({ ...base, permissions: 'build', permissionMode: 'full' });
+  expect(full).toContain('--dangerously-skip-permissions');
+  const read = claudeArgs({ ...base, permissions: 'read-only', permissionMode: 'full' });
+  expect(read).not.toContain('--dangerously-skip-permissions');
+  expect(read[read.indexOf('--tools') + 1]).toBe('Read,Glob,Grep,Skill');
+});
+
 test('checkClaudeInit accepts a clean init', () => {
   const init = {
     plugins: [

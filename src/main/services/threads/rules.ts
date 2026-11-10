@@ -2,6 +2,7 @@
 // The conductor applies the decision: it sets status, speaking and waitingOn from the step.
 import { HANDOFF_AT, MANAGER, PLANNING_BUDGET, type Control, type Thread } from '@shared/thread';
 import { NOTES } from './protocol';
+import { autonomous } from '@shared/permissions';
 
 export type Step = { do: 'turn'; agent: string; note?: string; hard?: true } | { do: 'wait'; note?: string } | { do: 'idle' };
 export type Decision = { thread: Thread; step: Step };
@@ -19,11 +20,19 @@ export function afterReply(
   // Replies only matter while the team forms or plans; later phases never loop.
   if (t.phase !== 'team' && t.phase !== 'planning') return { thread: t, step: { do: 'idle' } };
   const isManager = from === MANAGER;
+  const auto = autonomous(t);
   // 1. The budget summary: the manager's reply waits for the user, whatever it says.
-  if (isManager && t.summarizing) return { thread: { ...t, summarizing: false }, step: { do: 'wait' } };
+  if (isManager && t.summarizing) return {
+    thread: { ...t, summarizing: false },
+    step: auto && (error || (control?.kind !== 'plan' && control?.kind !== 'ask'))
+      ? { do: 'wait', note: 'The team reached its planning budget without a plan. Reply to resolve the remaining blocker.' }
+      : { do: 'wait' },
+  };
 
   // 2. One correction for a bad reply, then wait.
-  if (error || (isManager && !validForManager(t, control))) {
+  const invalidHandoff = auto && !isManager && control?.kind === 'next'
+    && (control.agent === from || !t.team.includes(control.agent));
+  if (error || invalidHandoff || (isManager && !validForManager(t, control))) {
     // A user interrupt wins over the correction; the new speaker has not had its own yet.
     if (interrupt) return { thread: { ...t, agentTurns: 0, retried: false }, step: { do: 'turn', agent: interrupt.to ?? MANAGER } };
     if (!t.retried) {
@@ -35,7 +44,8 @@ export function afterReply(
   // 3. The step comes from the control. Only the manager steers: members' next/team are ignored.
   let thread: Thread = { ...t, retried: false, agentTurns: t.phase === 'planning' ? t.agentTurns + 1 : t.agentTurns };
   let step: Step;
-  if (isManager && control?.kind === 'next') step = { do: 'turn', agent: control.agent, ...(control.hard ? { hard: true as const } : {}) };
+  if ((isManager || auto) && control?.kind === 'next') step = { do: 'turn', agent: control.agent, ...(control.hard ? { hard: true as const } : {}) };
+  else if (auto && !isManager && control?.kind === 'ask') step = { do: 'turn', agent: MANAGER, note: `Resolve this team question using the context or another specialist. Ask the user only for a sensitive decision, missing intent or a real blocker: ${control.question}` };
   else if (control?.kind === 'ask' || control?.kind === 'plan' || (isManager && control?.kind === 'team')) step = { do: 'wait' };
   else step = { do: 'turn', agent: MANAGER };
 
@@ -47,7 +57,7 @@ export function afterReply(
 
   // 5. The planning budget: the manager summarizes and asks the user.
   if (thread.phase === 'planning' && step.do === 'turn' && thread.agentTurns >= PLANNING_BUDGET) {
-    step = { do: 'turn', agent: MANAGER, note: NOTES.budget };
+    step = { do: 'turn', agent: MANAGER, note: auto ? NOTES.autoBudget : NOTES.budget };
     thread = { ...thread, summarizing: true };
   }
   return { thread, step };

@@ -14,18 +14,18 @@ type Props = {
   onArea: (a: Exclude<Area, 'threads'>) => void;
 };
 
-const TILE = 'relative flex size-5 items-center justify-center rounded-sm';
-const tone = (on: boolean) => (on ? 'bg-raised text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary');
+const TILE = 'relative flex size-5 items-center justify-center rounded-md';
+const tone = (on: boolean) => (on ? 'control-raised bg-raised text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary');
 
 /** The far-left column: the logo once, the projects, and the places that belong to no project. */
 export function Rail({ projects, waiting, area, projectId, onProject, onAddProject, onArea }: Props) {
   return (
     <nav aria-label="Projects" className="flex w-8 shrink-0 flex-col items-center bg-primary">
-      <div className="drag flex h-6 w-full shrink-0 items-center justify-center">
+      <div className="drag flex h-10 w-full shrink-0 items-start justify-center pt-4">
         <img src={logo} alt="Ark" draggable={false} className="size-5" />
       </div>
 
-      <ul className="flex min-h-0 w-full flex-col items-center gap-1 overflow-y-auto pt-1">
+      <ul className="flex min-h-0 w-full flex-col items-center gap-1.5 overflow-y-auto py-1">
         {projects.map((p) => {
           const on = area === 'threads' && p.id === projectId;
           return (
@@ -36,7 +36,7 @@ export function Rail({ projects, waiting, area, projectId, onProject, onAddProje
                 title={p.name}
                 aria-label={waiting.has(p.id) ? `${p.name}, a thread waits for you` : p.name}
                 aria-current={on ? 'page' : undefined}
-                className={`${TILE} head ${on ? 'bg-raised' : 'bg-sidebar hover:bg-raised/50'}`}
+                className={`${TILE} head ${on ? 'control-raised bg-raised' : 'bg-sidebar hover:bg-raised/50'}`}
               >
                 {initials(p.name)}
               </button>

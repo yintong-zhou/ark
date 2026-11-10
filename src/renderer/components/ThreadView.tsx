@@ -10,10 +10,12 @@ import { ApprovalCard, Cards, PhaseCard, PlanCard } from './Cards';
 import { Composer } from './Composer';
 import { PHASE_GLYPH, shortModel } from './glyphs';
 import { ModelMark } from './Logos';
-import { PauseIcon } from './Icons';
+import { PauseIcon, TasksIcon, ThreadIcon } from './Icons';
 import { PaneHeader } from './Page';
 import { TaskBoard } from './TaskBoard';
 import { BUTTON, ICON_BUTTON } from './ui';
+import { modeOf } from '@shared/permissions';
+import { PermissionSelect } from './PermissionSelect';
 
 type Props = {
   thread: Thread;
@@ -94,17 +96,18 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
   return (
     <>
       <PaneHeader title={thread.title} meta={board ? ['Task board'] : [`${PHASE_GLYPH[thread.phase]} ${PHASE[thread.phase]}`, status]} actions={
-        <button className={BUTTON} aria-pressed={board} onClick={() => setBoard(!board)}>
-          {board ? 'Conversation' : `Tasks (${thread.tasks?.length ?? 0})`}
+        <button className={BUTTON} aria-label={board ? 'Conversation' : `Tasks (${thread.tasks?.length ?? 0})`} title={board ? 'Conversation' : 'Task board'} aria-pressed={board} onClick={() => setBoard(!board)}>
+          {board ? <ThreadIcon /> : <TasksIcon />}
+          {!board && <span className="text-meta">{thread.tasks?.length ?? 0}</span>}
         </button>
       } />
 
       {board ? <TaskBoard thread={thread} agents={agents} /> : <div className="min-h-0 flex-1 overflow-y-auto">
-        <ol className="flex max-w-[960px] flex-col pb-2">
+        <ol className="flex max-w-[960px] flex-col pb-2 pt-1">
           {rows.map(({ m, first }) => {
             if (m.kind === 'note') {
               return (
-                <li key={m.seq} className="mt-2 whitespace-pre-wrap break-words pl-[80px] pr-3 text-meta text-muted">
+                <li key={m.seq} className="mt-2 whitespace-pre-wrap break-words pl-[68px] pr-2 text-meta text-muted lg:pl-[80px] lg:pr-3">
                   <span aria-hidden className="mr-[4px]">ℹ️</span>{m.text}
                 </li>
               );
@@ -112,14 +115,14 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
             if (m.kind === 'phase') {
               const phase = thread.build?.phases[m.index];
               return phase && (
-                <li key={m.seq} className="mt-2 pl-[80px] pr-3">
+                <li key={m.seq} className="mt-2 pl-[68px] pr-2 lg:pl-[80px] lg:pr-3">
                   <PhaseCard phase={phase} index={m.index} total={thread.build?.phases.length ?? 0} />
                 </li>
               );
             }
             if (m.kind === 'approval') {
               return (
-                <li key={m.seq} className="mt-2 pl-[80px] pr-3">
+                <li key={m.seq} className="mt-2 pl-[68px] pr-2 lg:pl-[80px] lg:pr-3">
                   <ApprovalCard
                     m={m}
                     name={name(m.agent)}
@@ -137,7 +140,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
             const model = m.kind === 'agent' ? m.model || lastModel(messages, m.agent) : undefined;
             const mood = m.kind === 'agent' ? reactions.get(m.seq) : undefined;
             return (
-              <li key={m.seq} className={`group relative flex gap-2 px-3 hover:bg-raised/30 ${first ? 'mt-2' : 'mt-[2px]'}`}>
+              <li key={m.seq} className={`group relative flex gap-1.5 px-2 hover:bg-raised/30 lg:gap-2 lg:px-3 ${first ? 'mt-2' : 'mt-[2px]'}`}>
                 {mine && <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-accent" />}
                 <div className="w-5 shrink-0">
                   {first ? (
@@ -156,7 +159,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
                       {model && (
                         <span className="inline-flex items-center gap-[4px] rounded-full bg-raised px-1 text-meta text-muted" title={model}>
                           <ModelMark model={model} />
-                          {shortModel(model)}
+                          {m.kind === 'agent' && m.engine ? `${m.engine === 'codex' ? 'Codex' : 'Claude'} / ` : ''}{shortModel(model)}
                         </span>
                       )}
                     </div>
@@ -196,6 +199,10 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
         <div ref={end} />
       </div>}
 
+      <div className="flex items-center gap-1 px-2 pb-0.5 lg:px-3">
+        <PermissionSelect value={modeOf(thread)} disabled={inflight > 0} onChange={(mode) => void run(() => window.ark.threads.setPermissionMode(thread.id, mode))} />
+        {thread.status === 'running' && <span className="text-meta text-muted">Changing permissions pauses the team</span>}
+      </div>
       <Composer
         label="Message the thread"
         placeholder="Message the team"

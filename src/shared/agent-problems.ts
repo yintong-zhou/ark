@@ -1,5 +1,24 @@
 import type { AgentDef, EngineId, Tier } from './agent-file';
 import type { EngineInfo, UsageWindow } from './types';
+import type { PermissionMode } from './permissions';
+
+export type EngineAssignment = { engine: EngineId; model: string };
+type Windows = { fiveHour?: UsageWindow; weekly?: UsageWindow };
+
+/** A preference for a new Auto session, never a reason to restart a running one. */
+export function chooseThreadEngine(
+  role: string, assignments: Record<string, EngineAssignment>, windows: Partial<Record<EngineId, Windows | undefined>>,
+  mode: PermissionMode, nowSec: number,
+): EngineId {
+  // Codex's on-request policy cannot implement Ark's complete Auto gate for a writable session.
+  if (role === 'developer' && mode === 'auto') return 'claude';
+  const limited = (engine: EngineId) => claudeLimited(windows[engine], nowSec);
+  if (limited('claude') !== limited('codex')) return limited('claude') ? 'codex' : 'claude';
+  const others = Object.entries(assignments).filter(([id]) => id !== role).map(([, a]) => a.engine);
+  const count = (engine: EngineId) => others.filter((e) => e === engine).length;
+  if (count('claude') !== count('codex')) return count('claude') < count('codex') ? 'claude' : 'codex';
+  return assignments[role]?.engine ?? (['developer', 'code-reviewer', 'security-reviewer'].includes(role) ? 'codex' : 'claude');
+}
 
 export type RunPlan = { engine: EngineId; tier: Tier; model?: string; rerouted?: true };
 
@@ -16,8 +35,12 @@ export function claudeLimited(st: { fiveHour?: UsageWindow; weekly?: UsageWindow
 }
 
 /** The agent's engine setting picks the engine; auto prefers Claude, unless Claude is limited and Codex can take the work. */
-export function resolveRun(agent: AgentDef, installed: Record<EngineId, boolean>, claudeLimited = false): RunPlan | { error: string } {
+export function resolveRun(agent: AgentDef, installed: Record<EngineId, boolean>, claudeLimited = false, preferredEngine?: EngineId): RunPlan | { error: string } {
   const e = agent.engine;
+  if (e.kind === 'auto' && preferredEngine) {
+    const engine = installed[preferredEngine] ? preferredEngine : installed.claude ? 'claude' : installed.codex ? 'codex' : undefined;
+    return engine ? { engine, tier: agent.tier } : { error: 'No engine installed' };
+  }
   if (e.kind === 'auto' && claudeLimited && agent.tier !== 'heavy' && installed.codex) {
     return { engine: 'codex', tier: agent.tier, rerouted: true };
   }

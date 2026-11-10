@@ -3,7 +3,8 @@ import type { AgentDef } from '@shared/agent-file';
 import { TASK_LABELS } from '@shared/tasks';
 import type { TaskInput, TaskStatus, Thread, ThreadTask } from '@shared/thread';
 import { readable } from '../errors';
-import { BUTTON, BUTTON_INSET, CTA, INPUT } from './ui';
+import { EditIcon, TrashIcon } from './Icons';
+import { BUTTON, BUTTON_INSET, CTA, ICON_BUTTON, INPUT } from './ui';
 
 /** The user's board: editing a card never starts or interrupts a turn. */
 export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef[] }) {
@@ -39,11 +40,11 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
   const save = (task: ThreadTask, next: TaskInput) => run(() => window.ark.threads.saveTask(thread.id, task.id, next));
 
   return (
-    <section aria-label="Task board" className="min-h-0 flex-1 overflow-auto p-3">
+    <section aria-label="Task board" className="min-h-0 flex-1 overflow-auto p-2 lg:p-3">
       <p className="mb-2 text-meta text-muted">Assignment helps the team plan its work. It does not start an agent.</p>
       <form
         aria-label={editing ? 'Edit task' : 'New task'}
-        className="mb-3 flex flex-wrap items-end gap-1"
+        className="mb-3 flex flex-wrap items-end gap-1.5"
         onSubmit={(e) => {
           e.preventDefault();
           void run(() => window.ark.threads.saveTask(thread.id, editing?.id ?? null, {
@@ -78,11 +79,11 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
         {(Object.keys(TASK_LABELS) as TaskStatus[]).map((column) => {
           const cards = tasks.filter((t) => t.status === column);
           return (
-            <section key={column} aria-label={TASK_LABELS[column]} className="min-w-0 rounded-sm border border-divider p-2">
+            <section key={column} aria-label={TASK_LABELS[column]} className="min-w-0 rounded-lg border border-divider bg-primary/40 p-1.5">
               <h2 className="mb-2 font-heading text-secondary">{TASK_LABELS[column]} <span className="text-meta text-muted">{cards.length}</span></h2>
               <ul className="flex flex-col gap-1">
                 {cards.map((task) => (
-                  <li key={task.id} className="rounded-sm bg-raised p-2">
+                  <li key={task.id} className="surface-card rounded-md bg-sidebar p-1.5">
                     <p className="whitespace-pre-wrap break-words text-secondary">{task.title}</p>
                     <p className="my-1 text-meta text-muted">{task.agent ? name(task.agent) : 'Unassigned'}</p>
                     <select
@@ -109,10 +110,10 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
                         </>
                       ) : (
                         <>
-                          <button disabled={busy} className={BUTTON_INSET} aria-label={`Edit ${task.title}`} onClick={() => {
+                          <button disabled={busy} className={ICON_BUTTON} title="Edit task" aria-label={`Edit ${task.title}`} onClick={() => {
                             setEditing(task); setTitle(task.title); setAgent(task.agent ?? ''); setStatus(task.status);
-                          }}>Edit</button>
-                          <button disabled={busy} className={BUTTON_INSET} aria-label={`Delete ${task.title}`} onClick={() => setRemoving(task.id)}>Delete</button>
+                          }}><EditIcon /></button>
+                          <button disabled={busy} className={ICON_BUTTON} title="Delete task" aria-label={`Delete ${task.title}`} onClick={() => setRemoving(task.id)}><TrashIcon /></button>
                         </>
                       )}
                     </div>

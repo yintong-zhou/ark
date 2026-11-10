@@ -1,13 +1,14 @@
-import { useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { rootKey, type RootRef } from '@shared/files';
 import type { Thread } from '@shared/thread';
-import { GIT_BUSY, groups, letter, type GitEntry, type GitSide, type GitStatus } from '@shared/git';
-import { act, useGit } from '../git/status-store';
+import { commitState, GIT_BUSY, groups, letter, type GitEntry, type GitSide, type GitStatus } from '@shared/git';
+import { act, refresh, useGit } from '../git/status-store';
 import { BranchMenu, ThreadBranchSection, WorktreesSection } from './GitSections';
 import { EntryIcon } from './EntryIcon';
 import { confirmAction } from './Confirm';
-import { DiscardIcon, FetchIcon, FileIcon, MinusIcon, PlusIcon, PullIcon, PushIcon } from './Icons';
-import { BUTTON_INSET, CTA, FIELD } from './ui';
+import { DiscardIcon, FetchIcon, FileIcon, GitBranchIcon, MinusIcon, PlusIcon, PullIcon, PushIcon, RefreshIcon } from './Icons';
+import { Menu, type MenuItem } from './Menu';
+import { BUTTON_INSET, FIELD } from './ui';
 
 type Props = {
   root: RootRef;
@@ -49,7 +50,9 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
   const key = rootKey(root);
   const [message, setMessage] = useState(() => drafts.get(key) ?? '');
   const [syncing, setSyncing] = useState<Sync>();
-  const [menu, setMenu] = useState<{ x: number; y: number }>();
+  const [menu, setMenu] = useState<{ kind: 'branches' | 'actions'; x: number; y: number }>();
+  const closeMenu = useCallback(() => setMenu(undefined), []);
+  const [collapsed, setCollapsed] = useState<Partial<Record<GitSide | 'conflict', boolean>>>({});
   if (!status) return <p className="px-[4px] text-meta text-muted">{error ?? 'Loading…'}</p>;
 
   const git = window.ark.git;
@@ -67,18 +70,10 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
     setSyncing(kind);
     void attempt(() => act(root, () => git[kind](root))).finally(() => setSyncing(undefined));
   };
-  const syncButton = (kind: Sync, title: string, icon: ReactNode) => (
-    <button title={title} aria-label={title} disabled={locked} onClick={() => sync(kind)} className={ACTION}>
-      <span className={`flex ${syncing === kind ? 'motion-safe:animate-spin' : ''}`}>{icon}</span>
-    </button>
-  );
-
   const { conflicts, staged, changes } = groups(status.entries);
   // Nothing commits while a conflict is open. A merge commits its index as is, even with no diff left and no message
   // (Git's own then); otherwise Commit takes the staged changes, or with none stages everything (Commit all).
-  const all = !status.merging && staged.length === 0 && conflicts.length === 0;
-  const canCommit =
-    !locked && conflicts.length === 0 && (status.merging || (staged.length + changes.length > 0 && message.trim() !== ''));
+  const { all, canCommit, stageFirst, canStage } = commitState(status, message, locked);
   const commit = () => {
     if (!canCommit) return;
     void attempt(async () => {
@@ -125,13 +120,22 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
   const group = (title: string, list: GitEntry[], side: GitSide | 'conflict', actions: ReactNode) =>
     list.length > 0 && (
       <section key={side}>
-        <div className="group flex items-center gap-[4px] pb-[4px] pl-[4px] pr-1 pt-2">
-          <h3 className="section flex-1">
-            {title} <span className="text-meta">{list.length}</span>
+        <div className="group flex h-4 items-center gap-[4px] pl-[4px] pr-1">
+          <h3 className="min-w-0 flex-1">
+            <button
+              aria-expanded={!collapsed[side]}
+              aria-controls={`git-group-${side}`}
+              onClick={() => setCollapsed((prev) => ({ ...prev, [side]: !prev[side] }))}
+              className="section flex w-full items-center gap-[4px] rounded-xs text-left hover:text-secondary"
+            >
+              <span aria-hidden className="w-2 shrink-0 text-center">{collapsed[side] ? '▸' : '▾'}</span>
+              <span className="truncate">{title}</span>
+              <span className="ml-auto rounded-full bg-raised px-1 text-meta text-secondary">{list.length}</span>
+            </button>
           </h3>
           <span className={REVEAL}>{actions}</span>
         </div>
-        {list.map((e) => row(e, side))}
+        <div id={`git-group-${side}`} hidden={!!collapsed[side]}>{list.map((e) => row(e, side))}</div>
       </section>
     );
 
@@ -142,37 +146,54 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
       <PlusIcon />
     </button>
   );
+  const stageChanges = () => run(() => git.stage(root, conflicts.length ? rels(changes) : []));
+  const actions: MenuItem[] = [
+    { label: all ? 'Commit all' : 'Commit', shortcut: 'Ctrl+Enter', onClick: canCommit ? commit : undefined },
+    { label: 'Stage all', icon: <PlusIcon />, separator: true, onClick: canStage ? stageChanges : undefined },
+    { label: 'Unstage all', icon: <MinusIcon />, onClick: !locked && staged.length > 0 ? () => run(() => git.unstage(root, [])) : undefined },
+    { label: status.upstream ? 'Push' : 'Publish branch', icon: <PushIcon />, separator: true, onClick: !locked && status.branch ? () => sync('push') : undefined },
+    { label: 'Pull', icon: <PullIcon />, onClick: !locked && !!status.upstream && !status.merging ? () => sync('pull') : undefined },
+    { label: 'Fetch', icon: <FetchIcon />, onClick: !locked ? () => sync('fetch') : undefined },
+  ];
 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex h-3 items-center gap-1 px-[4px] text-secondary">
         <button
-          title="Branches"
+          aria-label="Branches"
+          title={`Branches: ${status.branch ?? 'Detached HEAD'}`}
           aria-haspopup="menu"
-          aria-expanded={menu !== undefined}
+          aria-expanded={menu?.kind === 'branches'}
           // a press on the button must not also close the menu through its outside click, or the click would reopen it
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
-            setMenu(menu ? undefined : { x: r.left, y: r.bottom + 4 });
+            setMenu(menu?.kind === 'branches' ? undefined : { kind: 'branches', x: r.left, y: r.bottom + 4 });
           }}
-          className="min-w-0 truncate rounded-xs font-heading hover:text-neutral-light"
+          className="flex min-w-0 flex-1 items-center gap-[4px] rounded-xs font-heading hover:text-neutral-light [&_svg]:size-2"
         >
-          {status.branch ?? `detached at ${status.oid?.slice(0, 7) ?? ''}`}
+          <span className="shrink-0"><GitBranchIcon /></span>
+          <span className="truncate">{status.branch ?? `detached at ${status.oid?.slice(0, 7) ?? ''}`}</span>
+          <span aria-hidden className="shrink-0 text-meta text-muted">▾</span>
         </button>
-        {status.upstream && <span className="shrink-0 text-meta text-muted">↑{status.ahead} ↓{status.behind}</span>}
-        <span className="ml-auto flex shrink-0">
-          {syncButton('fetch', 'Fetch', <FetchIcon />)}
-          {syncButton('pull', 'Pull', <PullIcon />)}
-          {syncButton('push', 'Push', <PushIcon />)}
-        </span>
+        <button title="Refresh Git" aria-label="Refresh Git" disabled={busy} onClick={() => void refresh(root)} className={ACTION}>
+          <span className={`flex ${busy ? 'motion-safe:animate-spin' : ''}`}><RefreshIcon /></span>
+        </button>
       </div>
-      {menu && <BranchMenu root={root} status={status} locked={locked} attempt={attempt} at={menu} onClose={() => setMenu(undefined)} />}
-      {error && <p className="px-[4px] text-meta text-muted">{error}</p>}
+      <div className="flex min-w-0 items-center gap-1 border-b border-divider px-[4px] pb-1 text-meta text-muted">
+        <span className="min-w-0 flex-1 truncate" title={status.upstream ?? 'Push to publish this branch'}>
+          {status.upstream ? `→ ${status.upstream}` : 'No upstream'}
+        </span>
+        {status.upstream && <span className="shrink-0" title={`${status.ahead} commits ahead, ${status.behind} behind`}>↑{status.ahead} ↓{status.behind}</span>}
+      </div>
+      {menu?.kind === 'branches' && <BranchMenu root={root} status={status} locked={locked} attempt={attempt} at={menu} onClose={closeMenu} />}
+      {menu?.kind === 'actions' && <Menu items={actions} at={menu} onClose={closeMenu} width={240} label="Git actions" />}
+      {error && <p role="alert" className="px-[4px] text-meta text-muted">{error}</p>}
       {busyThread && <p className="px-[4px] text-meta text-muted">{GIT_BUSY}</p>}
       <textarea
         aria-label="Commit message"
-        placeholder="Message (Ctrl+Enter to commit)"
+        placeholder="Message"
+        title="Commit message (Ctrl+Enter to commit)"
         value={message}
         disabled={locked}
         rows={2}
@@ -183,10 +204,37 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
             commit();
           }
         }}
-        className={`${FIELD} max-h-[150px] min-h-[62px] w-full resize-none field-sizing-content disabled:opacity-60`}
+        className={`${FIELD} max-h-[150px] min-h-[72px] w-full resize-none field-sizing-content px-1 disabled:opacity-60`}
       />
-      <button onClick={commit} disabled={!canCommit} className={`${CTA} w-full justify-center`}>{all ? 'Commit all' : 'Commit'}</button>
-      <p className="px-[4px] text-meta text-muted">Runs without Git hooks. Use the terminal to run them.</p>
+      <div className={`flex h-4 w-full shrink-0 overflow-hidden rounded-sm border border-raised ${!stageFirst && canCommit ? 'bg-accent text-primary' : 'bg-raised text-secondary'}`}>
+        <button
+          onClick={stageFirst ? stageChanges : commit}
+          disabled={stageFirst ? !canStage : !canCommit}
+          title={stageFirst ? 'Stage all changes' : 'Commit staged changes (Ctrl+Enter)'}
+          className="flex min-w-0 flex-1 items-center justify-center gap-[4px] px-1 text-body enabled:hover:brightness-110 disabled:opacity-40 [&_svg]:size-2"
+        >
+          {stageFirst && <PlusIcon />}
+          {stageFirst ? 'Stage all' : 'Commit'}
+        </button>
+        <button
+          aria-label="Git actions"
+          title="Git actions"
+          aria-haspopup="menu"
+          aria-expanded={menu?.kind === 'actions'}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu(menu?.kind === 'actions' ? undefined : { kind: 'actions', x: r.right - 240, y: r.bottom + 4 });
+          }}
+          className="flex w-4 shrink-0 items-center justify-center border-l border-primary/20 hover:bg-primary/10"
+        >
+          <span aria-hidden>▾</span>
+        </button>
+      </div>
+      <div className="flex min-w-0 items-center justify-between gap-1 px-[4px] text-meta text-muted">
+        <span role="status">{syncing ? `${syncing === 'fetch' ? 'Fetching' : syncing === 'pull' ? 'Pulling' : 'Pushing'}...` : `${status.entries.length}${status.truncated ? '+' : ''} ${status.entries.length === 1 ? 'changed file' : 'changed files'}`}</span>
+        <span title="Git hooks do not run here. Use the terminal to run them.">No hooks</span>
+      </div>
       {status.merging && (
         <div className="flex flex-col gap-1 rounded-sm bg-raised p-1">
           <p className="text-meta text-secondary">{status.mergeHead ? `Merging ${status.mergeHead}.` : 'Merging.'} Fix the conflicts, stage them, then commit.</p>

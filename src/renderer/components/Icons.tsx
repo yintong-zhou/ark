@@ -37,13 +37,12 @@ export const TerminalIcon = () => (
   </svg>
 );
 
-/** A browser window and globe. */
+/** A simple globe, readable at toolbar size. */
 export const GlobeIcon = () => (
   <svg {...base}>
-    <rect x="2.5" y="3.5" width="15" height="13" rx="1.5" />
-    <path d="M3 6.5h14" opacity="0.5" />
-    <circle cx="10" cy="11.5" r="3" />
-    <path d="M7 11.5h6M10 8.5c1.3 1.5 1.3 4.5 0 6-1.3-1.5-1.3-4.5 0-6Z" opacity="0.65" />
+    <circle cx="10" cy="10" r="7" />
+    <ellipse cx="10" cy="10" rx="3" ry="7" />
+    <path d="M3 10h14" />
   </svg>
 );
 
@@ -153,6 +152,21 @@ export const CloseIcon = () => (
   <svg {...base}>
     <path d="m5 5 10 10M15 5 5 15" />
   </svg>
+);
+
+export const TasksIcon = () => (
+  <svg {...base}>
+    <rect x="3" y="3.5" width="14" height="13" rx="2" opacity="0.45" />
+    <path d="m6 8 1 1 2-2M11 8h3M6 12.5h3M11 12.5h3" />
+  </svg>
+);
+
+export const EditIcon = () => (
+  <svg {...base}><path d="m12.5 4 3.5 3.5M4 16l1-4L13.5 3.5a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L8 15z" /></svg>
+);
+
+export const TrashIcon = () => (
+  <svg {...base}><path d="M3.5 5.5h13M7 5.5V3h6v2.5M5 5.5l1 11h8l1-11M8 9v4M12 9v4" /></svg>
 );
 
 /** Two arrows chasing each other: refresh. */

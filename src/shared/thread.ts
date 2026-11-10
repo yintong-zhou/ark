@@ -1,6 +1,8 @@
 import type { Attachment } from './attachments';
 import type { EngineId } from './agent-file';
 import type { TokenCount } from './types';
+import type { PermissionMode } from './permissions';
+import type { EngineAssignment } from './agent-problems';
 
 export const MANAGER = 'project-manager';
 export const PLANNING_BUDGET = 20;
@@ -38,7 +40,7 @@ export type Control =
 type Base = { seq: number; at: number };
 export type ThreadMessage = Base & (
   | { kind: 'user'; text: string; attachments?: Attachment[] }
-  | { kind: 'agent'; agent: string; text: string; model: string; tokens: TokenCount; control?: Control }
+  | { kind: 'agent'; agent: string; text: string; model: string; engine?: EngineId; tokens: TokenCount; control?: Control }
   | { kind: 'reaction'; target: number; emoji: Reaction }
   | { kind: 'note'; text: string } // Ark's own line: shown to the user and to the agents
   | { kind: 'phase'; index: number } // shown as the phase card
@@ -52,6 +54,8 @@ export type ThreadWindows = Partial<Record<EngineId, { fiveHour?: WindowMove; we
 export type Thread = {
   id: string; projectId: string; title: string; createdAt: number;
   phase: Phase; status: ThreadStatus;
+  permissionMode?: PermissionMode;    // absent on legacy threads: ask
+  assignments?: Record<string, EngineAssignment>; // actual engine/model, including across restarts
   tags?: string[];                   // labels the user wrote as #tag, kept on the thread
   tasks?: ThreadTask[];              // the user's board; assignment never starts an agent
   speaking?: string;                 // agent whose turn is running

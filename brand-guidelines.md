@@ -49,7 +49,7 @@ Accent stays for calls to action. The only other place it may appear is a 2px le
 
 Ark borrows the chat-app skeleton, not its decoration:
 
-- **Columns**: project rail (64px) → sidebar (240px) → thread → team panel (240px). Columns are separated by surface tone and a 1px divider, never by shadows.
+- **Columns**: project rail (64px) → threads sidebar (240px) → conversation/editor → workspace panel (240px, Team/Files/Git tabs). Columns are separated by surface tone and a 1px divider, never by shadows. Both side columns resize independently.
 - **Header bar**: 48px, the thread title in Outfit 600, then the phase and a one-line description in muted text, separated by space rather than dots.
 - **Messages**:
   - avatar 40px circle on the left, author name plus a muted timestamp on the first line;
@@ -57,10 +57,10 @@ Ark borrows the chat-app skeleton, not its decoration:
   - 16px between groups; a hovered message gets the Raised tone at low opacity;
   - the model tag sits next to the name as a small Raised pill, text muted.
 - **Reactions**: pills under the message, Raised background, emoji + count, fully rounded ends. The user's own reaction gets a 1px Light neutral outline.
-- **Cards inside messages** (team, question, plan): Raised background, 4px radius, max width ~640px, 16px padding. A reply or summary preview is linked to its message by a thin elbow line on the left, like a thread reply.
+- **Cards inside messages** (team, question, plan): Raised background, 10px radius, max width ~640px, 16px padding. A reply or summary preview is linked to its message by a thin elbow line on the left, like a thread reply.
 - **Sidebar rows**: 32px tall, `#` style glyph or agent avatar, name, then right-aligned state. Unread or "waiting for you" uses a small pill in Secondary text on Dark neutral, not a coloured badge.
 - **Team panel**: grouped by role with muted headers and a count (`Team - 3`). Each row: avatar, name, model, and a presence dot (speaking: Secondary; waiting for you: Accent; idle: Light neutral at 40%).
-- **Composer**: pinned to the bottom of the thread, Content tone field with 4px radius, mention chips on the left of the actions, Send as the only Accent element.
+- **Composer**: pinned to the bottom of the thread, Sidebar tone with 14px radius and a restrained shadow, 8px internal padding, mention chips on the left of the actions, Send as the only Accent element.
 
 ## Tone of voice
 
@@ -68,13 +68,13 @@ Ark borrows the chat-app skeleton, not its decoration:
 
 ## Imagery & iconography
 
-Studio-lit product shots on a single neutral background, one clear focal point per image, generous cropping. No busy backdrops or props that compete with the subject. Favor real UI captures over mockup frames, and use simple line diagrams to explain how the system works. Icons are 20px line icons in muted Light neutral; avatars are the only round, image-like elements.
+Studio-lit product shots on a single neutral background, one clear focal point per image, generous cropping. No busy backdrops or props that compete with the subject. Favor real UI captures over mockup frames, and use simple line diagrams to explain how the system works. Icons are 20px line icons in muted Light neutral; avatars and status pills keep circular forms; controls and surfaces use the radius hierarchy.
 
 ## Spacing & grid
 
 - **Base unit**: 8px
-- **Scale**: 8px, 16px, 24px, 40px, 64px, 104px (chat density may use 4px inside grouped messages and pills)
-- **Corner radius**: 2–4px for surfaces, cards, inputs and buttons; full circle only for avatars and presence dots; reaction and state pills use fully rounded ends.
+- **Scale**: 8px, 16px, 24px, 40px, 64px, 104px. Use 4px and 12px subdivisions for dense tools and grouped controls. Pane insets are 16px in compact windows and 24px in wider windows.
+- **Corner radius**: 4px for small details, 6px for controls and rows, 10px for cards, menus and project tiles, 14px for composer, dialogs and the workspace frame. Avatars, presence dots and pills keep fully rounded ends.
 - A tight 8-column grid, consistent gutters, alignment used as the main decorative device.
 
 ## Logo - clear space
@@ -96,3 +96,7 @@ The logo sits alone on a flat field in at least 90% of applications. Never scale
 - Use more than one weight per heading
 - Use generic clip art or stock icons seen everywhere else
 - Copy a chat app's colour-per-role names, gradients, banners or coloured badges
+
+## Tactile depth
+
+Columns stay flat and separate by surface tone. Interactive controls have a subtle 1px top light and a short shadow; inputs use an inset shadow. Cards lift slightly, while menus and dialogs use a stronger floating shadow. Use neutral-light at 10-15% for surface edges. Do not add shadows to every row, decorative gradients or new hues. Icon-only actions need an accessible name and a tooltip; primary and destructive confirmation actions keep their labels.

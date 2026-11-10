@@ -8,7 +8,6 @@ import type { ImageInput } from '@shared/attachments';
 import type { ChatEvent, TokenCount, TurnResult, UsageWindow } from '@shared/types';
 import { SEED_AGENTS } from '../fixtures/catalog-agents';
 import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
-import { NOTES } from '../../src/main/services/threads/protocol';
 import { Conductor } from '../../src/main/services/threads/conductor';
 import { ThreadStore } from '../../src/main/services/threads/store';
 import type { CheckResult } from '../../src/main/services/threads/workspace';
@@ -151,11 +150,13 @@ async function turns(n: number) {
 }
 const thread = (id: string) => store.get(id) as Thread;
 const last = (id: string) => store.messages(id).at(-1) as ThreadMessage;
+// Existing workflow tests explicitly exercise manual sessions.
+const create = (projectId: string, text: string, files: import('@shared/attachments').Upload[] = []) => c.create(projectId, text, files, 'ask');
 
 /** A thread past the team phase: PM proposed planner + seo, the user approved. */
 async function planning(first = 'Build a landing page') {
   runner.reply('project-manager', TEAM);
-  const t = c.create(projectId, first);
+  const t = create(projectId, first);
   await idle();
   c.approveTeam(t.id, ['planner', 'seo']);
   return t;
@@ -163,7 +164,7 @@ async function planning(first = 'Build a landing page') {
 
 test('create runs the manager with the catalog and waits on its team card', async () => {
   runner.reply('project-manager', TEAM);
-  const t = c.create(projectId, 'Build a landing page\nwith a form');
+  const t = create(projectId, 'Build a landing page\nwith a form');
   expect(t.title).toBe('Build a landing page');
   await idle();
   expect(runner.turns[0].text).toContain('[User] Build a landing page');
@@ -182,7 +183,7 @@ test('create without a manager in the catalog throws', () => {
 });
 
 test('deleting a thread protects running turns and worktrees and stops idle sessions', async () => {
-  const t = c.create(projectId, 'Test');
+  const t = create(projectId, 'Test');
   await turns(1);
   const trash = async (path: string) => rmSync(path, { recursive: true });
   await expect(c.remove(t.id, trash)).rejects.toThrow('Pause the thread');
@@ -196,7 +197,7 @@ test('deleting a thread protects running turns and worktrees and stops idle sess
 });
 
 test('removing a project pauses running threads and keeps them for reimport', async () => {
-  const t = c.create(projectId, 'Test');
+  const t = create(projectId, 'Test');
   await turns(1);
   const dir = store.projects()[0].dir;
   c.removeProject(projectId);
@@ -210,7 +211,7 @@ test('removing a project pauses running threads and keeps them for reimport', as
 test('IT Services team participates in planning, username mentions and assigned tasks without build access', async () => {
   const ids = IT_SERVICES_AGENTS.map((a) => a.id);
   runner.reply('project-manager', ark({ team: ids.map((agent) => ({ agent, reason: 'Relevant specialist' })) }));
-  const t = c.create(projectId, 'Plan an IT service');
+  const t = create(projectId, 'Plan an IT service');
   await idle();
   expect(runner.turns[0].text).toContain('frontend_dev: Gon - Frontend dev');
   c.approveTeam(t.id, ids);
@@ -354,11 +355,11 @@ test('engine error then retry', async () => {
 
 test('fresh session replays from the handoff', async () => {
   runner.reply('project-manager', { text: TEAM, tokens: { input: 600, cached: 0, output: 5 }, contextWindow: 1000 }, 'My handoff: team proposed.');
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   expect(runner.turns[1]).toMatchObject({ agent: 'project-manager', text: expect.stringContaining('[Ark] Your session is getting long.') });
   expect(runner.stopped).toEqual([runner.turns[0].chatId]);
-  expect(thread(t.id).handoffs['project-manager'].seq).toBe(1); // the last message in that turn's input
+  expect(thread(t.id).handoffs['project-manager'].seq).toBe(2); // includes the recorded engine assignment
   runner.reply('project-manager', ark({ ask: 'Ready?' }));
   c.approveTeam(t.id, ['planner']);
   await idle();
@@ -385,7 +386,7 @@ test('a message sent during an agent turn reaches that agent next time', async (
 
 test('a failed handoff drops the session and keeps the reply step', async () => {
   runner.reply('project-manager', { text: TEAM, tokens: { input: 600, cached: 0, output: 5 }, contextWindow: 1000 }, new Error('exit code 1'));
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   expect(last(t.id)).toMatchObject({ kind: 'note', text: 'Project manager could not write a handoff: exit code 1' });
   expect(thread(t.id)).toMatchObject({ status: 'waiting', phase: 'team', handoffs: {} });
@@ -412,7 +413,7 @@ test('stopAll stops a pending turn and saves the thread idle', async () => {
 test('pause during startAgent stops the session it started', async () => {
   let open!: () => void;
   runner.gate = new Promise((r) => (open = r));
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   c.pause(t.id);
   expect(thread(t.id).status).toBe('idle');
   open();
@@ -423,7 +424,7 @@ test('pause during startAgent stops the session it started', async () => {
 
 test('react records and does not start a turn', async () => {
   runner.reply('project-manager', TEAM);
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   const seen: ThreadMessage[] = [];
   c.onUpdate((u) => seen.push(...u.added));
@@ -446,14 +447,14 @@ test('approveTeam outside the team phase throws', async () => {
 
 test('approveTeam rejects an unknown agent', async () => {
   runner.reply('project-manager', TEAM);
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   expect(() => c.approveTeam(t.id, ['planner', 'ghost'])).toThrow('Unknown agent: ghost');
   expect(thread(t.id).phase).toBe('team');
 });
 
 test('a fresh manager in the team phase gets the catalog again, once', async () => {
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await turns(1); // the manager's first turn is pending
   expect(runner.turns[0].text.split('Catalog:')).toHaveLength(2);
   c.pause(t.id); // the session is gone
@@ -475,7 +476,7 @@ test('a fresh manager in the team phase gets the catalog again, once', async () 
 test('a team pick outside the catalog gets one correction, and the good proposal waits as the card', async () => {
   const bad = ark({ team: [{ agent: 'planner', reason: 'plans' }, { agent: 'ghost', reason: 'boo' }], leftOut: '' });
   runner.reply('project-manager', bad, TEAM);
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   expect(runner.turns).toHaveLength(2);
   expect(runner.turns[1].text).toContain('unknown agent: ghost');
@@ -489,7 +490,7 @@ test('a team pick outside the catalog gets one correction, and the good proposal
 test('two bad teams in a row wait for the user with no card to approve', async () => {
   const bad = ark({ team: [{ agent: 'ghost', reason: 'boo' }], leftOut: '' });
   runner.reply('project-manager', bad, bad);
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   expect(runner.turns).toHaveLength(2);
   expect(thread(t.id).status).toBe('waiting');
@@ -500,7 +501,7 @@ test('two bad teams in a row wait for the user with no card to approve', async (
 test('the handoff trigger reads the last request, not the turn total', async () => {
   const big = { text: TEAM, tokens: { input: 9000, cached: 0, output: 5 }, contextWindow: 1000 };
   runner.reply('project-manager', { ...big, contextUsed: 100 }); // summed usage is 9x the window, the last request is 10%
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   expect(runner.turns).toHaveLength(1);
   expect(thread(t.id).handoffs).toEqual({});
@@ -542,10 +543,10 @@ test('a tag written during a turn is not lost when the turn saves', async () => 
 
 test('create takes tags from the first message, and a first message that is only a file', async () => {
   runner.reply('project-manager', TEAM, TEAM);
-  const a = c.create(projectId, 'Landing #web #ui');
+  const a = create(projectId, 'Landing #web #ui');
   await idle();
   expect(thread(a.id).tags).toEqual(['web', 'ui']);
-  const b = c.create(projectId, '', [{ name: 'mock.png', bytes: new Uint8Array([1]) }]);
+  const b = create(projectId, '', [{ name: 'mock.png', bytes: new Uint8Array([1]) }]);
   await idle();
   expect(b.title).toBe('mock.png');
   expect(runner.turns.at(-1)?.images).toHaveLength(1);
@@ -574,6 +575,53 @@ async function until(ok: () => boolean) {
 const agentsOf = (from = 0) => runner.turns.slice(from).map((x) => x.agent);
 const notes = (id: string) => store.messages(id).flatMap((m) => (m.kind === 'note' ? [m.text] : []));
 const devTurns = () => runner.turns.filter((x) => x.agent === 'developer');
+
+test('new sessions default to Auto and progress from team to finished build without manual gates', async () => {
+  runner.reply('project-manager', TEAM, ark({ next: 'planner' }), 'Done.');
+  runner.reply('planner', ark({ plan: true }, PLAN));
+  runner.reply('developer', 'Built.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  const t = c.create(projectId, 'Build a small feature');
+  await idle();
+  expect(thread(t.id)).toMatchObject({ permissionMode: 'auto', phase: 'done' });
+  expect(agentsOf()).toEqual(['project-manager', 'project-manager', 'planner', 'developer', 'code-reviewer', 'security-reviewer', 'project-manager']);
+});
+
+test('policy changes stop active sessions, expire approvals and persist the effective mode', async () => {
+  const { id, devChat } = await developing();
+  runner.emit(devChat, { type: 'approval', id: 'pending', tool: 'Bash', detail: 'npm ci' });
+  const card = store.messages(id).findLast((m) => m.kind === 'approval')!;
+  c.setPermissionMode(id, 'auto');
+  expect(thread(id)).toMatchObject({ permissionMode: 'auto', status: 'idle', approvals: [] });
+  expect(runner.stopped).toContain(devChat);
+  expect(() => c.answer(id, card.seq, true)).toThrow('no longer pending');
+  expect(() => c.setPermissionMode(id, 'unknown')).toThrow('Invalid permission mode');
+});
+
+test('a policy change keeps the card the thread waits on, and its cursors', async () => {
+  const { id } = await planned();
+  const before = thread(id);
+  expect(before.status).toBe('waiting');
+  c.setPermissionMode(id, 'full');
+  expect(thread(id)).toMatchObject({ permissionMode: 'full', status: 'waiting', cursors: before.cursors });
+  expect(thread(id).waitingOn).toBe(before.waitingOn);
+});
+
+test('Auto approves a structured check but still presents sensitive and unstructured requests', async () => {
+  const { id } = await planned();
+  c.setPermissionMode(id, 'auto');
+  await c.startDeveloper(id);
+  await until(() => devTurns().length === 1);
+  const chat = devTurns()[0].chatId;
+  const cwd = thread(id).build!.worktree;
+  runner.emit(chat, { type: 'approval', id: 'check', tool: 'Bash', detail: 'npm test', request: { engine: 'claude', tool: 'Bash', input: { command: 'npm test' }, cwd } });
+  expect(runner.answers).toContainEqual([chat, 'check', true]);
+  runner.emit(chat, { type: 'approval', id: 'install', tool: 'Bash', detail: 'npm ci', request: { engine: 'claude', tool: 'Bash', input: { command: 'npm ci' }, cwd } });
+  runner.emit(chat, { type: 'approval', id: 'spoof', tool: 'Bash', detail: 'npm test' });
+  expect(thread(id).approvals).toHaveLength(2);
+  expect(runner.answers).not.toContainEqual([chat, 'install', true]);
+});
 
 test('a plan without phase headings gets one correction and is not written', async () => {
   const t = await planning();
@@ -1090,20 +1138,22 @@ test('a turn records how the windows moved', async () => {
     windows = () => at(44); // the usage moves while the turn runs
     return p;
   };
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   expect(thread(t.id).windows?.claude?.fiveHour).toEqual({ from: 41, to: 44, resetsAt });
 });
 
-test('a rerouted session leaves a note before the reply', async () => {
+test('a session records the actual engine and leaves a note before the reply', async () => {
   runner.reports = { engine: 'codex', rerouted: true };
   runner.reply('project-manager', TEAM);
-  const t = c.create(projectId, 'Build a landing page');
+  const t = create(projectId, 'Build a landing page');
   await idle();
   const msgs = store.messages(t.id);
-  const i = msgs.findIndex((m) => m.kind === 'note' && m.text === NOTES.rerouted('Project manager'));
+  const i = msgs.findIndex((m) => m.kind === 'note' && m.text === 'Project manager runs on Codex (haiku).');
   expect(i).toBeGreaterThan(-1);
   expect(msgs[i + 1].kind).toBe('agent');
+  expect(thread(t.id).assignments?.['project-manager']).toEqual({ engine: 'codex', model: 'haiku' });
+  expect(msgs[i + 1]).toMatchObject({ engine: 'codex' });
 });
 
 /** Windows at `pct` (live), and a planner that is `planner` with `patch` applied, for the routing tests. */
@@ -1120,7 +1170,7 @@ const twoPlannerTurns = () => {
   runner.reply('planner', 'one', 'two');
 };
 
-test('a live Claude session of an auto agent moves to Codex once Claude is at 90%', async () => {
+test('a live Auto session stays stable when capacity changes', async () => {
   await planning();
   const orig = runner.turn;
   runner.turn = (...a: Parameters<typeof orig>) => {
@@ -1130,11 +1180,11 @@ test('a live Claude session of an auto agent moves to Codex once Claude is at 90
   };
   twoPlannerTurns();
   await idle();
-  expect(plannerStarts()).toBe(2);
-  expect(runner.stopped).toContain(plannerChats()[0]);
+  expect(plannerStarts()).toBe(1);
+  expect(runner.stopped).not.toContain(plannerChats()[0]);
 });
 
-test('a rerouted session goes back once Claude is under 90%', async () => {
+test('a Codex session is retained when Claude capacity becomes available', async () => {
   await planning();
   let pct = 95;
   windows = () => hot(pct);
@@ -1150,8 +1200,8 @@ test('a rerouted session goes back once Claude is under 90%', async () => {
   };
   twoPlannerTurns();
   await idle();
-  expect(plannerStarts()).toBe(2);
-  expect(runner.stopped).toContain(plannerChats()[0]);
+  expect(plannerStarts()).toBe(1);
+  expect(runner.stopped).not.toContain(plannerChats()[0]);
 });
 
 test.each([

@@ -94,7 +94,7 @@ export async function create(projectId: string, root: RootRef, shell: ShellOptio
   const n = (p.counts[shell.id] ?? 0) + 1;
   p.counts[shell.id] = n;
   creating++;
-  projects.set(projectId, { ...p, starting: p.starting + 1 });
+  projects.set(projectId, { ...p, open: true, starting: p.starting + 1 });
   emit();
   let xterm: Terminal | undefined;
   try {

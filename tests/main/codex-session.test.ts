@@ -49,6 +49,19 @@ const opts = (spawn: ReturnType<typeof fakeAppServer>['spawn']) => ({
   spawn,
 });
 
+test('Full access is explicit and only applies to a developer build', async () => {
+  const fake = fakeAppServer(handlers());
+  const session = await startCodexSession({ ...opts(fake.spawn), permissions: 'build', permissionMode: 'full' });
+  expect(fake.requests.find((r) => r.method === 'thread/start')?.params).toMatchObject({ approvalPolicy: 'never', sandbox: 'danger-full-access' });
+  session.stop();
+});
+
+test('Auto build refuses a Codex protocol without a complete pre-execution gate', async () => {
+  const fake = fakeAppServer(handlers());
+  await expect(startCodexSession({ ...opts(fake.spawn), permissions: 'build', permissionMode: 'auto' })).rejects.toThrow('Auto build');
+  expect(fake.requests.some((r) => r.method === 'thread/start')).toBe(false);
+});
+
 test('AppServerClient answers by id and rejects JSON-RPC errors', async () => {
   const fake = fakeAppServer({ ok: (p) => ({ echo: p }) });
   const client = await AppServerClient.open('C:\\codex.exe', ['app-server'], { cwd: 'D:\\p', env: {}, spawn: fake.spawn });
@@ -440,8 +453,8 @@ test('a build session starts workspace-write on-request and turns command approv
   fake.children[1].emitLine({ id: 7, method: 'item/commandExecution/requestApproval', params: { command: 'curl x', cwd: 'D:\\p' } });
   fake.children[1].emitLine({ id: 8, method: 'item/fileChange/requestApproval', params: { reason: 'write outside', grantRoot: 'C:\\o' } });
   await flush();
-  expect(events).toContainEqual({ type: 'approval', id: '7', tool: 'command', detail: 'D:\\p> curl x' });
-  expect(events).toContainEqual({ type: 'approval', id: '8', tool: 'file change', detail: 'C:\\o (write outside)' });
+  expect(events).toContainEqual({ type: 'approval', id: '7', tool: 'command', detail: 'D:\\p> curl x', request: { engine: 'codex', tool: 'command', input: { command: 'curl x', cwd: 'D:\\p' }, cwd: 'D:\\p' } });
+  expect(events).toContainEqual(expect.objectContaining({ type: 'approval', id: '8', tool: 'file change', detail: 'C:\\o (write outside)' }));
   s.answer('7', false);
   s.answer('8', true);
   expect(sentLines(fake)).toContainEqual({ id: 7, result: { decision: 'decline' } });

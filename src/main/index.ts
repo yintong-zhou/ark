@@ -36,7 +36,7 @@ function createWindow(): BrowserWindow {
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#0E1013', symbolColor: '#DEE1E6', height: 32 },
     // Packaged builds take the icon from the exe (electron-builder.yml); dev needs it here.
-    ...(app.isPackaged ? {} : { icon: join(app.getAppPath(), 'resources', 'icon.png') }),
+    ...(app.isPackaged ? {} : { icon: join(app.getAppPath(), 'resources', 'icon.ico') }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

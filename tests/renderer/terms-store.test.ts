@@ -178,6 +178,31 @@ test('toggle on a project with no terminals opens the panel and creates PowerShe
   expect(terminal.create).toHaveBeenCalledTimes(1); // reopening keeps the one it has
 });
 
+test('creating a chosen shell reveals the panel and uses the selected root without starting a default shell', async () => {
+  const worktree: RootRef = { kind: 'thread', id: 'b05a1af8-a773-4af8-b501-ad1c61107f52' };
+  await store.create(P, worktree, BASH);
+  expect(store.termsOf(P).open).toBe(true);
+  expect(store.termsOf(P).terms.map((t) => t.name)).toEqual(['Git Bash 1']);
+  expect(terminal.create).toHaveBeenCalledExactlyOnceWith(worktree, 'gitbash', 80, 24);
+  store.toggle(P, worktree);
+  expect(store.termsOf(P).open).toBe(false);
+  await store.create(P, worktree, PS);
+  expect(store.termsOf(P).open).toBe(true);
+  expect(store.termsOf(P).terms).toHaveLength(2);
+});
+
+test('hiding the panel while a chosen shell starts keeps it hidden after creation completes', async () => {
+  let release!: () => void;
+  gate = new Promise((r) => (release = r));
+  const made = store.create(P, root, BASH);
+  expect(store.termsOf(P).open).toBe(true);
+  store.toggle(P, root);
+  release();
+  await made;
+  expect(store.termsOf(P).open).toBe(false);
+  expect(store.termsOf(P).terms.map((t) => t.name)).toEqual(['Git Bash 1']);
+});
+
 test('a failed create shows its message and leaves no terminal', async () => {
   terminal.create.mockRejectedValueOnce(new Error('Worktree not found'));
   await store.create(P, root, PS);

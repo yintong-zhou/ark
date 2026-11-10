@@ -5,6 +5,7 @@ import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
 import type { GitBranches, GitStatus, ShowResult, ThreadBranch, WorktreeRow } from './git';
 import type { ShellId, ShellOption } from './terminal';
 import type { Project, Reaction, TaskInput, Thread, ThreadMessage, ThreadUpdate } from './thread';
+import type { PermissionMode } from './permissions';
 
 // Common model shared by main, preload and renderer.
 // Times: resetsAt is epoch SECONDS; lastSeen/updatedAt are epoch MILLISECONDS.
@@ -104,7 +105,7 @@ export interface ArkApi {
   engines: { status(): Promise<EngineInfo[]>; save(c: EnginesConfig): Promise<void> };
   chat: {
     pickFolder(): Promise<string | null>;
-    start(agentId: string, projectDir: string): Promise<ChatStarted>;
+    start(agentId: string, projectDir: string, mode?: PermissionMode): Promise<ChatStarted>;
     send(chatId: string, text: string): Promise<void>;
     stop(chatId: string): Promise<void>;
     onEvent(cb: (chatId: string, e: ChatEvent) => void): () => void;
@@ -119,7 +120,8 @@ export interface ArkApi {
     list(): Promise<Thread[]>;
     remove(id: string): Promise<void>;
     open(id: string): Promise<{ thread: Thread; messages: ThreadMessage[] }>;
-    create(projectId: string, text: string, files?: Upload[]): Promise<Thread>;
+    create(projectId: string, text: string, files?: Upload[], mode?: PermissionMode): Promise<Thread>;
+    setPermissionMode(id: string, mode: PermissionMode): Promise<void>;
     send(id: string, text: string, files?: Upload[]): Promise<void>;
     /** An image attached to a message of the thread, as base64. */
     attachment(id: string, file: string): Promise<ImageInput>;
@@ -228,6 +230,6 @@ export type TurnResult = { text: string; model: string; tokens: TokenCount; cont
 export type ChatEvent =
   | { type: 'message'; text: string }
   | { type: 'turn'; model: string; tokens: TokenCount; contextWindow?: number; contextUsed?: number }
-  | { type: 'approval'; id: string; tool: string; detail: string }
+  | { type: 'approval'; id: string; tool: string; detail: string; request?: import('./permissions').ApprovalRequest }
   | { type: 'limits'; engine: EngineId; windows: UsageWindow[] }
   | { type: 'error'; kind: 'isolation' | 'engine' | 'exit'; detail: string };

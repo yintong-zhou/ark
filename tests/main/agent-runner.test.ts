@@ -95,6 +95,15 @@ function setup(o: { limited?: boolean; claude?: boolean; codex?: boolean; skills
 
 const sessionsDir = () => join(root, 'tmp', 'ark', 'sessions');
 
+test('a thread Auto preference starts the actual Codex engine', async () => {
+  const t = setup();
+  const started = await t.runner.startAgent(t.agent, project, 'read-only', 'auto', 'codex');
+  expect(started.engine).toBe('codex');
+  expect(t.codexCalls).toHaveLength(1);
+  expect(t.claudeCalls).toHaveLength(0);
+  expect(t.codexCalls[0]).toMatchObject({ permissionMode: 'auto', permissions: 'read-only' });
+});
+
 test("starts Claude with only the agent's skills and its role file", async () => {
   const t = setup({ skills: [skill('alpha'), skill('beta')] });
   const started = await t.runner.start('tester', project);

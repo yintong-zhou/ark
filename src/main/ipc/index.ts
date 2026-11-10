@@ -6,6 +6,7 @@ import { checkUploads, kindOf, type Upload } from '@shared/attachments';
 import { cleanBounds } from '@shared/browser';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
 import { rootKey, UUID_RE } from '@shared/files';
+import { permissionMode } from '@shared/permissions';
 import type { ShellOption } from '@shared/terminal';
 import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
@@ -17,6 +18,7 @@ import { run } from '../services/exec';
 import { normEntry, normRel, normRels, resolveInside, rootDir, rootRef } from '../services/files/guard';
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
 import { RootWatcher } from '../services/files/watch';
+import { markIgnored } from '../services/files/ignored';
 import * as git from '../services/git/repo';
 import { checkMergeable, gitRoot } from '../services/git/rules';
 import { pruneWorktrees, removeWorktree, worktreeRows, type WorktreeDeps } from '../services/git/worktrees';
@@ -214,8 +216,8 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     terms?.killAll(); // the page that showed them is gone
     views.destroyAll();
   });
-  handle('chat:start', async (id, dir) => {
-    const started = await runner.start(agentId(id), projectDir(dir));
+  handle('chat:start', async (id, dir, mode) => {
+    const started = await runner.start(agentId(id), projectDir(dir), mode === undefined ? 'ask' : permissionMode(mode));
     chats.add(started.chatId);
     return started;
   });
@@ -247,10 +249,11 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
   // A message may be only files: an empty text is then fine.
   const textOrFiles = (text: unknown, files: Upload[]) => (files.length > 0 && text === '' ? '' : messageText(text));
-  handle('threads:create', (projectId, text, files) => {
+  handle('threads:create', (projectId, text, files, mode) => {
     const f = uploads(files);
-    return conductor.create(uuid(projectId, 'project'), textOrFiles(text, f), f);
+    return conductor.create(uuid(projectId, 'project'), textOrFiles(text, f), f, mode === undefined ? 'auto' : permissionMode(mode));
   });
+  handle('threads:set-permission-mode', (id, mode) => conductor.setPermissionMode(uuid(id, 'thread'), permissionMode(mode)));
   handle('threads:send', (id, text, files) => {
     const f = uploads(files);
     conductor.send(uuid(id, 'thread'), textOrFiles(text, f), f);
@@ -274,7 +277,11 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     if (v !== 'file' && v !== 'dir') throw new Error('Invalid kind');
     return v;
   };
-  handle('files:list', (r, rel) => listDir(dirOf(r), normRel(rel)));
+  handle('files:list', (r, rel) => {
+    const dir = dirOf(r);
+    const path = normRel(rel);
+    return markIgnored(dir, path, listDir(dir, path));
+  });
   handle('files:read', (r, rel) => readText(dirOf(r), normRel(rel)));
   handle('files:stat', (r, rel) => statFile(dirOf(r), normRel(rel)));
   handle('files:write', (r, rel, text, base, bom) => {

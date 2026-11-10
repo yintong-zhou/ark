@@ -101,8 +101,21 @@ Delete a thread with the × beside its name; Ark moves its conversation and atta
 and remove its worktree first, if applicable. **Remove project** hides the project from Ark, keeping its threads,
 worktrees and original folder. Running threads are paused. Add the same folder again to restore it.
 
+- **Permissions**: each thread has its own permission menu above the composer, set before you start it and changeable later
+  (a change stops the thread's agent sessions, so no agent keeps working under the old setting; send a message to continue):
+  - **Ask for approval**: you approve the team and the plan, and every risky action shows a card.
+  - **Approve for me** (the default for new threads): the team picks its members, agrees on routine choices and goes from
+    a valid plan straight into the build. Members' questions go to the project manager, who asks you only about
+    missing intent, scope changes, sensitive decisions or real blockers. Ark itself allows only edits inside the worktree
+    (not `.git`, `.claude`, `.codex`, `.env*` or credential files) and the project's `npm test` / `npm run typecheck|lint|test|build`;
+    anything else, including compound shell commands, still shows a card. A Codex developer can't run in this mode (its
+    protocol has no complete pre-action gate), so Auto routing gives this role to Claude.
+  - **Full access**: the developer's tools run without approval prompts, including writes outside the worktree and network
+    access. Read-only agents stay read-only in every mode.
+  Threads created before this setting existed open as **Ask for approval**.
 - **Team phase**: when you start a thread, the project manager reads your request and proposes a team from the catalog,
-  with a one-line reason for each agent. You edit the list and press **Approve team**. Nobody else speaks until you do.
+  with a one-line reason for each agent. In **Ask for approval** you edit the list and press **Approve team**, and nobody
+  else speaks until you do; otherwise the team starts at once.
 - **Planning**: the project manager gives the floor to one agent at a time. Only one agent speaks per turn, and each
   agent sees only its own skills, as in Chat. After 20 agent turns without a plan, the manager summarizes and asks you
   how to continue.
@@ -117,7 +130,7 @@ worktrees and original folder. Running threads are paused. Add the same folder a
 - **Emoji**: the smiley in the composer opens a grid of emoji.
 - **Reactions**: react 👍 or 👎 to any agent message. A reaction does not start a turn: the agents see it on their next turn ("the user reacted 👍 to ...").
 - **The plan card**: when the planner finishes, its plan appears as a card in the thread and is saved as `plan.md` in the
-  thread's folder. **Start developer** approves it.
+  thread's folder. In **Ask for approval**, **Start developer** approves it; otherwise the build starts by itself.
 
 - **Build phase**: **Start developer** creates a Git worktree on a new branch `ark/<title>-<id>` (under
   `%APPDATA%\ark\worktrees`) from the project's current commit, so uncommitted changes are not in it, and your checked-out
@@ -126,10 +139,13 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   `build` scripts, then the code reviewer and the security reviewer each get a turn. After two rounds without agreement the
   project manager sends the open points to you. When every phase is done the manager closes the thread with a summary.
 - **Auto**: an agent runs at its own `tier`. When the project manager marks a task as hard (`"hard": true`), that one turn runs
-  one tier up, in a fresh session. Agents set to `engine: auto` run light and standard work on Codex when Claude's 5-hour or
-  weekly window is at 90% or more, when Codex is installed; heavy work stays on Claude. A running auto agent moves at its
-  next turn, and moves back when Claude is under 90% again. Agents with a fixed engine or model never move. A rerouted
-  session leaves a note in the thread.
+  one tier up, in a fresh session. In a thread, agents set to `engine: auto` are spread over Claude Code and Codex when both
+  are installed: when only one engine has a 5-hour or weekly window at 90% or more, new sessions go to the other; otherwise
+  Ark balances the thread's members between the two, starting from the role (the manager and planner lean to Claude, the
+  developer and reviewers to Codex). The choice is made when a session starts and kept for that member, so a running
+  session never moves. Agents with a fixed engine or model never move. Each message and team member shows the engine and
+  model it actually ran on, for example `Codex / gpt-6-terra`. Chat outside threads keeps the old rule: Claude first, light
+  and standard work on Codex once a Claude window reaches 90%.
 - **Thread cost**: the team panel shows tokens per model, and how the usage windows moved while the thread ran, for example
   `Claude 5h 41% → 44%`, marked "Including your other sessions" because a window counts all your usage. The build summary
   lists the same.
@@ -167,9 +183,11 @@ running turns and approval cards alone. Up to 100 tasks per thread, with titles 
 
 ## Files and editor
 
-- **Files**: the project sidebar switches between **Threads** and **Files**. Files shows the project folder as a tree,
+- **Files**: choose **Files** in the right workspace column, beside **Team** and **Git**. Threads stay on the left.
+  Files shows the project folder as a tree,
   or the open thread's build worktree once it has one. Right-click for new file, new folder, rename, delete (to the
-  Recycle Bin), reveal in Explorer and copy path.
+  Recycle Bin), reveal in Explorer and copy path. Entries Git ignores (by any `.gitignore`, including nested ones and
+  `!` exceptions) are shown in italic and dimmed, with "Ignored by Git" in their tooltip.
 - **Editor**: files open in tabs next to the thread, in Monaco (the editor of VS Code): highlighting, find and replace,
   multiple cursors. Ctrl+S saves, Ctrl+W closes the tab. The team panel shows while the thread tab is active.
 - **Agents writing the same file**: an open file with no unsaved edits reloads when it changes on disk. With unsaved
@@ -179,23 +197,24 @@ running turns and approval cards alone. Up to 100 tasks per thread, with titles 
 
 ## Terminal
 
-- **Ctrl+`** (the key left of 1) or the button at the right of the tab strip opens a panel under the thread or file,
+- **Ctrl+`** (the key left of 1) or **+ > Show terminal** in the tab strip opens a panel under the thread or file,
   so you can chat and run commands side by side. Drag its top edge to resize it.
-- **+** starts PowerShell, Command Prompt or Git Bash (when Git for Windows is installed). A new terminal opens in the
+- **+ > New terminal** in the tab strip starts PowerShell, Command Prompt or Git Bash (when Git for Windows is installed).
+  The menu has a search field and works with the arrow keys and Enter; Escape closes it. A new terminal opens in the
   project folder, or in the thread's worktree when the Files view's folder picker is set to it.
 - Ctrl+C copies when text is selected, otherwise it stops the running command; Ctrl+V pastes.
 - Terminals keep running while you visit Usage or Agents. Reloading or closing Ark ends them.
 
 ## Git
 
-- **Git view**: the project sidebar's third view, next to Threads and Files. It shares the Files view's folder picker
+- **Git view**: choose **Git** in the right workspace column, next to Team and Files. It shares the Files view's folder picker
   (the project or the thread's worktree) and works when that folder is a repository's root; a project without Git
-  shows **Initialize Git**. From top to bottom: the branch, a message box (Ctrl+Enter commits), the commit button, then
-  the changed files in **Merge conflicts**, **Staged changes** and **Changes**. Empty groups are hidden; with nothing
+  shows **Initialize Git**. From top to bottom: the branch and upstream, a message box (Ctrl+Enter commits), a split
+  action button, then the changed files in collapsible **Merge conflicts**, **Staged changes** and **Changes** groups. Empty groups are hidden; with nothing
   changed the view says `No changes`.
-- **Commit and Commit all**: with staged changes the button reads **Commit** and commits them. With nothing staged it
-  reads **Commit all**, which stages every change (new files too) and commits. Commit all is never offered while a
-  conflict is open.
+- **Stage all and Commit**: with nothing staged the main button reads **Stage all**. After staging it reads **Commit**
+  and commits the index. The dropdown also offers **Commit all** when nothing is staged, which stages every change
+  (new files too) and commits. Ctrl+Enter keeps the same commit behavior. Commit all is never offered while a conflict is open.
 - **Stage, unstage and discard**: hover a row, or a group's header for all its files. Discard asks first. A changed
   file goes back to its last committed or staged state, which can't be undone; a new file moves to the Recycle Bin.
 - **Diffs**: click a row to open its diff in a tab next to the file tabs, `<name> (changes)` or `<name> (staged)`,
@@ -209,9 +228,10 @@ running turns and approval cards alone. Up to 100 tasks per thread, with titles 
 - **Branches**: click the branch name for the branch menu. Pick a branch to switch to it; one listed under **Remote**
   gets a local branch that tracks it. **Create branch…** starts a branch from the current commit and switches to it.
   **Delete branch…** asks first, and asks again if the branch isn't merged. With an upstream, the row shows `↑n ↓m`.
-- **Fetch, Pull and Push**: the buttons at the right of the branch row. Pull only fast-forwards: when the branches have
+- **Fetch, Pull and Push**: open the dropdown beside Stage all/Commit. Without an upstream, **Publish branch** makes the
+  first push. Pull only fast-forwards: when the branches have
   diverged, pull from the terminal to merge or rebase. A branch's first push goes to `origin` and sets its upstream.
-  The button spins while it runs (up to 2 minutes), and the folder's other Git actions wait for it.
+  The refresh icon spins and the action's progress appears while it runs (up to 2 minutes); other Git actions wait for it.
 - **Worktrees**: on the project root, the **Worktrees** section lists the repository's worktrees, the main one first,
   each with its branch and folder, and the thread that owns it. **Show** opens that thread on its worktree. **Remove**
   asks first and keeps the branch; a thread's worktree can go once the thread is done. When another program holds the
@@ -227,7 +247,7 @@ running turns and approval cards alone. Up to 100 tasks per thread, with titles 
 
 ## Browser
 
-- **Preview your project**: start its dev server in the terminal, then press the globe button at the right of the tab
+- **Preview your project**: start its dev server in the terminal, then choose **+ > New browser tab** in the tab
   strip. The browser opens as a tab next to the thread and the files. Type the address (`localhost:5173` works, `http://`
   is added). Back, forward and reload sit next to the address.
 - **Local addresses only**: `localhost`, names ending in `.localhost`, `127.x.x.x` and `[::1]`, on any port, over http

@@ -75,9 +75,9 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
   };
 
   return (
-    <div className="relative shrink-0 px-3 pb-3 pt-1">
+    <div className="relative shrink-0 px-2 pb-2 pt-1.5 lg:px-3 lg:pb-3">
       {options.length > 0 && token && (
-        <ul id={listId} role="listbox" aria-label={token.trigger === '@' ? 'Agents' : 'Tags'} className="absolute bottom-full left-3 z-10 mb-1 w-[280px] rounded-sm border border-neutral-light/15 bg-raised p-[4px]">
+        <ul id={listId} role="listbox" aria-label={token.trigger === '@' ? 'Agents' : 'Tags'} className="surface-floating absolute bottom-full left-2 z-10 mb-1 w-[min(280px,calc(100%-32px))] rounded-md bg-sidebar p-0.5 lg:left-3">
           {options.map((o, i) => (
             <li key={o.key} role="option" aria-selected={i === sel}>
               <button
@@ -111,10 +111,10 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
           setOver(false);
           add([...e.dataTransfer.files]);
         }}
-        className={`flex flex-col rounded-sm border bg-content ${over ? 'border-muted' : 'border-raised focus-within:border-muted'}`}
+        className={`composer-surface flex flex-col rounded-lg border bg-sidebar ${over ? 'border-muted' : 'border-neutral-light/15 focus-within:border-neutral-light/40'}`}
       >
         {files.length > 0 && <Staged files={files} onRemove={(f) => setFiles(files.filter((x) => x !== f))} />}
-        <div className="flex items-end gap-[4px] p-[4px]">
+        <div className="flex items-end gap-0.5 p-1">
           {attach && (
             <>
               <button type="button" onClick={() => picker.current?.click()} aria-label="Attach files or images" title="Attach files or images" className={ICON_BUTTON}>
@@ -182,7 +182,7 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
                 void submit();
               }
             }}
-            className="min-h-4 flex-1 resize-none bg-transparent px-1 py-[5px] text-body text-neutral-light placeholder:text-muted focus-visible:outline-hidden"
+            className="min-h-4 min-w-0 flex-1 resize-none bg-transparent px-1 py-[5px] text-body text-neutral-light placeholder:text-muted focus-visible:outline-hidden"
           />
           {extra}
           <button onClick={() => void submit()} disabled={!canSend} aria-label={submitLabel} title={submitLabel} className={submitLabel === 'Send' ? CTA_ICON : CTA}>

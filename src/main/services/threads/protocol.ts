@@ -3,6 +3,7 @@
 import type { AgentDef } from '@shared/agent-file';
 import { SWITCH_AT } from '@shared/agent-problems';
 import type { Attachment } from '@shared/attachments';
+import type { PermissionMode } from '@shared/permissions';
 import {
   CODE_REVIEWER, DEVELOPER, MANAGER, PLANNING_BUDGET, SECURITY_REVIEWER,
   type Control, type Phase, type TeamPick, type ThreadMessage,
@@ -40,6 +41,7 @@ export const NOTES = {
   teamApproved: (names: string[]) => `The user approved the team: ${names.join(', ')}. Lead the planning.`,
   invalid: (error: string) => `Your reply had no valid Ark block (${error}). Reply again, ending with one valid Ark block.`,
   budget: `${PLANNING_BUDGET} agent turns without a plan. Write the user a short summary of where the discussion stands and ask how to continue.`,
+  autoBudget: `${PLANNING_BUDGET} agent turns without a plan. Synthesize the team's work now: produce a complete plan with numbered phase headings and a plan block, or ask the user about one specific unresolved blocker. Do not delegate more turns.`,
   rerouted: (name: string) => `Claude is at ${SWITCH_AT}% or more of a usage window: ${name} runs on Codex.`,
   handoff: `Your session is getting long. Write a handoff for yourself: what the thread is about, what was decided, what is open, and what you were doing. Ark starts you in a fresh session from it. No Ark block.`,
   develop: (o: { plan: string; index: number; total: number; phase: string; done: string[]; branch: string; worktree: string; deps: boolean }) =>
@@ -73,9 +75,11 @@ const protocolFor = (id: string, phase: Phase) => {
   if (phase === 'build' && (id === CODE_REVIEWER || id === SECURITY_REVIEWER)) return REVIEWER_PROTOCOL;
   return MEMBER_PROTOCOL;
 };
-export const withProtocol = (agent: AgentDef, phase: Phase = 'planning'): AgentDef => ({
+export const withProtocol = (agent: AgentDef, phase: Phase = 'planning', mode: PermissionMode = 'ask'): AgentDef => ({
   ...agent,
-  prompt: `${agent.prompt}\n\n${protocolFor(agent.id, phase)}`,
+  prompt: `${agent.prompt}\n\n${protocolFor(agent.id, phase)}\n\n${mode === 'ask'
+    ? 'Session policy: Ask for approval. The user confirms the team and starts the developer after the plan.'
+    : `# Autonomous session policy (overrides earlier turn-routing instructions)\nThe user authorized the team to select its members, agree on routine implementation decisions and proceed from a valid plan into the build. Do not ask the user to approve ordinary team choices, planning, inspections, local edits or checks.\nMembers may hand off to another approved team member with {"next":"<id>"}, never themselves or an outsider. Member ask blocks are questions to the project manager, who resolves them using context and specialists. Only the manager escalates missing user intent, material scope changes, sensitive decisions or real blockers. A complete valid plan starts the developer automatically.\nKeep decisions within the user's goal and report them in the conversation. Ark enforces tool approvals independently. Your role's read-only/build capability remains in force. Permission mode: ${mode}.`}`,
 });
 
 const PHASE_HEADING = /^(#{1,3})[ \t]+\S+[ \t]+\d+[ \t]*[:.\-–\u2014][ \t]*(.+)$/gm;

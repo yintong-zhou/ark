@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentDef, EngineId, Permissions } from '@shared/agent-file';
 import type { ImageInput } from '@shared/attachments';
+import type { PermissionMode } from '@shared/permissions';
 import type { ChatEvent, ChatStarted, EngineInfo, EnginesConfig, TurnResult } from '@shared/types';
 import type { Catalog } from './catalog';
 import type { startClaudeSession } from './engines/claude-session';
@@ -47,17 +48,17 @@ export class AgentRunner {
 
   constructor(private readonly deps: RunnerDeps) {}
 
-  async start(agentId: string, projectDir: string): Promise<ChatStarted> {
+  async start(agentId: string, projectDir: string, mode: PermissionMode = 'ask'): Promise<ChatStarted> {
     const agent = this.deps.catalog.get(agentId);
     if (!agent) throw new Error('Unknown agent');
-    return this.startAgent(agent, projectDir);
+    return this.startAgent(agent, projectDir, 'read-only', mode);
   }
 
-  async startAgent(agent: AgentDef, projectDir: string, permissions: Permissions = 'read-only'): Promise<ChatStarted> {
+  async startAgent(agent: AgentDef, projectDir: string, permissions: Permissions = 'read-only', permissionMode: PermissionMode = 'ask', preferredEngine?: EngineId): Promise<ChatStarted> {
     const engines = await this.deps.engines();
     if (this.stopping) throw new Error('Ark is closing');
     const info = (id: EngineId) => engines.find((e) => e.id === id);
-    const plan = resolveRun(agent, { claude: !!info('claude')?.installed, codex: !!info('codex')?.installed }, this.deps.claudeLimited());
+    const plan = resolveRun(agent, { claude: !!info('claude')?.installed, codex: !!info('codex')?.installed }, this.deps.claudeLimited(), preferredEngine);
     if ('error' in plan) throw new Error(plan.error);
     const exe = info(plan.engine)?.path;
     if (!exe) throw new Error(`No path for ${plan.engine}`);
@@ -95,7 +96,7 @@ export class AgentRunner {
         session = this.deps.startClaude({
           exe,
           cwd: projectDir,
-          args: claudeArgs({ model, roleFile, pluginDir, permissions }),
+          args: claudeArgs({ model, roleFile, pluginDir, permissions, permissionMode }),
           env: claudeEnv(this.deps.env()),
           expectedFolders: built.folders,
           forbidden,
@@ -121,6 +122,7 @@ export class AgentRunner {
           effort: CODEX_TIER_EFFORT[plan.tier],
           instructions: rules ? `${agent.prompt}\n\n# Project instructions\n\n${rules}` : agent.prompt,
           permissions,
+          permissionMode,
         });
       }
       if (this.stopping) {
