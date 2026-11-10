@@ -687,6 +687,21 @@ test('startDeveloper creates the worktree, commits the plan, adds missing roles 
   expect(thread(id).build).toMatchObject({ worktree: wt, current: 0, phases: [{ title: 'Setup', step: 'develop', base: 'abcdef0123456789' }] });
 });
 
+test("a catalog without build roles builds with Ark's built-in developer and reviewers", async () => {
+  const { id } = await planned();
+  const noRoles = { get: (a: string) => (['developer', 'code-reviewer', 'security-reviewer'].includes(a) ? undefined : catalog.get(a)), list: catalog.list };
+  const c2 = new Conductor({ store, catalog: noRoles, runner, workspace: ws, worktrees, windows: () => undefined });
+  runner.reply('developer', 'Built.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  runner.reply('project-manager', 'Done.');
+  await c2.startDeveloper(id);
+  await until(() => thread(id).phase === 'done');
+  const dev = runner.started.find((a) => a.id === 'developer')!;
+  expect(dev).toMatchObject({ permissions: 'build', name: 'Developer' });
+  expect(runner.started.map((a) => a.id)).toEqual(expect.arrayContaining(['code-reviewer', 'security-reviewer']));
+});
+
 test('startDeveloper refuses a developer without build permissions', async () => {
   const { id } = await planned();
   const readOnly = { get: (a: string) => (a === 'developer' ? { ...catalog.get(a)!, permissions: 'read-only' as const } : catalog.get(a)), list: catalog.list };
@@ -732,7 +747,7 @@ test('a project without checks says so', async () => {
   runner.reply('project-manager', 'Done.');
   await c.startDeveloper(id);
   await idle();
-  expect(notes(id)).toContain('No checks found in package.json.');
+  expect(notes(id)).toContain('No checks found (npm check scripts, ruff or pytest).');
 });
 
 test('red checks send the developer back in the same session with the failure tail', async () => {

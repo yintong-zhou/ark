@@ -141,13 +141,15 @@ test('NOTES.review cuts a long diff and points to the worktree', () => {
   expect(n).toContain('read the changed files in W');
   expect(NOTES.review({ kind: 'security', phase: 'P', diff: '', worktree: 'W' })).toContain('(no changes in this phase)');
 });
-test('NOTES.develop asks for npm ci only when node_modules is missing', () => {
-  const o = { plan: 'plan.md', index: 1, total: 3, phase: 'PHASE TEXT', done: ['Setup done'], branch: 'ark/x', worktree: 'W', deps: false };
+test('NOTES.develop carries the setup hints and the exact check commands', () => {
+  const o = { plan: 'plan.md', index: 1, total: 3, phase: 'PHASE TEXT', done: ['Setup done'], branch: 'ark/x', worktree: 'W', setup: [], checks: [] };
   const n = NOTES.develop(o);
   expect(n).toContain('phase 2/3');
-  for (const s of ['plan.md', 'PHASE TEXT', 'Setup done', 'ark/x']) expect(n).toContain(s);
+  for (const s of ['plan.md', 'PHASE TEXT', 'Setup done', 'ark/x', 'run its tests yourself']) expect(n).toContain(s);
   expect(n).not.toContain('npm ci');
-  expect(NOTES.develop({ ...o, deps: true })).toContain('npm ci');
+  const full = NOTES.develop({ ...o, setup: ['node_modules is missing: run npm ci first.'], checks: ['test', 'npm --prefix web run lint', 'python -m pytest -q'] });
+  expect(full).toContain('npm ci first');
+  expect(full).toContain('npm run test, npm --prefix web run lint, python -m pytest -q');
 });
 test('NOTES.checksFailed, blocked and summary carry their data', () => {
   const failed = NOTES.checksFailed([{ script: 'lint', ok: false, tail: 'BOOM' }, { script: 'test', ok: true, tail: 'FINE' }]);

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { AgentDef } from '@shared/agent-file';
 import { MANAGER, type BuildPhase, type Control, type PhaseStep, type ThreadMessage } from '@shared/thread';
 import { Avatar, initials } from './Avatar';
+import { Markdown } from './Markdown';
 import { BUTTON_INSET, CTA, FIELD_INSET } from './ui';
 
 /**
@@ -91,7 +92,7 @@ export function PlanCard({ text, active, pending, start }: { text: string; activ
     <Card>
       <details open={active}>
         <summary className="head cursor-pointer leading-[22px] marker:text-muted"><span aria-hidden>📋 </span>Plan</summary>
-        <p className="mt-1 whitespace-pre-wrap break-words text-neutral-light">{text}</p>
+        <Markdown text={text} className="mt-1 text-neutral-light" />
       </details>
       {active && (
         <div className="mt-2">

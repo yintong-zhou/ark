@@ -6,7 +6,8 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { agentId, type EngineId, type Permissions } from '@shared/agent-file';
+import { agentId, type AgentDef, type EngineId, type Permissions } from '@shared/agent-file';
+import { BUILD_AGENTS } from '../thread-agents';
 import type { ImageInput, Upload } from '@shared/attachments';
 import {
   BUILD_ROLES, BUILD_TURN_MS, CODE_REVIEWER, DEVELOPER, MANAGER, SECURITY_REVIEWER,
@@ -26,7 +27,7 @@ import { afterBuildUser, afterChecks, afterManager, afterReview, openPoints, sta
 import { formatForAgent, NOTES, parsePhases, parseReply, withProtocol } from './protocol';
 import { afterReply, afterUser, approveTeam, mentionOf, needsHandoff, type Step } from './rules';
 import type { ThreadStore } from './store';
-import { branchName, claudeSettingsProblem, type Workspace } from './workspace';
+import { branchName, claudeSettingsProblem, setupHints, type Workspace } from './workspace';
 
 export type ConductorDeps = {
   store: ThreadStore;
@@ -152,7 +153,7 @@ export class Conductor {
   saveTask(threadId: string, taskId: string | null, value: unknown): void {
     const t = this.thread(threadId);
     const input = taskInput(value);
-    if (input.agent && (!t.team.includes(input.agent) || !this.deps.catalog.get(input.agent))) {
+    if (input.agent && (!t.team.includes(input.agent) || !this.def(input.agent))) {
       throw new Error('Assign tasks only to agents in this thread\'s team');
     }
     const tasks = t.tasks ?? [];
@@ -177,7 +178,7 @@ export class Conductor {
    * Every refusal leaves the thread as it was.
    */
   async startDeveloper(threadId: string): Promise<void> {
-    const { store, catalog, workspace: ws, worktrees } = this.deps;
+    const { store, workspace: ws, worktrees } = this.deps;
     const planOf = (x: Thread) => {
       const m = store.messages(threadId).findLast((y) => y.kind === 'agent');
       if (x.phase !== 'planning' || m?.kind !== 'agent' || m.control?.kind !== 'plan') throw new Error('The developer can start only once the plan is ready');
@@ -197,8 +198,8 @@ export class Conductor {
       // git -C walks up: a folder inside another repository would build that one.
       if (!(await ws.isRepoRoot(project.dir))) throw new Error('The project folder must be the root of its Git repository');
       if (this.generation.get(threadId) !== entryGen) return;
-      for (const role of BUILD_ROLES) if (!catalog.get(role)) throw new Error(`Add the ${role} agent in Agents, or fix its profile if it has errors`);
-      if (catalog.get(DEVELOPER)!.permissions !== 'build') throw new Error('The developer agent needs permissions: build');
+      // A missing build role falls back to Ark's built-in one; a developer profile in Agents must be able to build.
+      if (this.def(DEVELOPER)!.permissions !== 'build') throw new Error('The developer agent needs permissions: build');
       t = this.thread(threadId); // re-read: the thread may have moved during the await
       plan = planOf(t);
       const phases = parsePhases(plan.text);
@@ -320,7 +321,12 @@ export class Conductor {
   }
 
   private names(): Record<string, string> {
-    return Object.fromEntries(this.deps.catalog.list().agents.map((a) => [a.id, a.name]));
+    return Object.fromEntries([...BUILD_AGENTS, ...this.deps.catalog.list().agents].map((a) => [a.id, a.name]));
+  }
+
+  /** An agent's profile: the catalog's, or Ark's built-in build role when the catalog has none. */
+  private def(id: string): AgentDef | undefined {
+    return this.deps.catalog.get(id) ?? BUILD_AGENTS.find((a) => a.id === id);
   }
 
   private emit(thread: Thread, added: ThreadMessage[]): void {
@@ -480,7 +486,7 @@ export class Conductor {
     let chatId = chats.get(agent);
     const fresh = !chatId;
     if (!chatId) {
-      const def = catalog.get(agent);
+      const def = this.def(agent);
       if (!def) throw new Error('Unknown agent');
       const dir = o.build?.cwd ?? project?.dir;
       if (!dir) throw new Error('Unknown project');
@@ -588,7 +594,7 @@ export class Conductor {
     this.save(t, []);
     try {
       // A hard turn runs in a fresh session one tier up, and the member goes back to its own tier after.
-      const def = catalog.get(agent);
+      const def = this.def(agent);
       const bump = !!step.hard && !!def && def.engine.kind !== 'model' && tierUp(def.tier) !== def.tier;
       if (bump) this.dropSession(id, agent);
       const r = await this.speak(t, agent, gen, {
@@ -725,10 +731,10 @@ export class Conductor {
         if (unread !== undefined && !(step.do === 'fix' && step.why === 'user')) note = note ? `${note}
 ${NOTES.userFix}` : NOTES.userFix;
         turn(DEVELOPER);
-        const deps = !existsSync(join(b.worktree, 'node_modules')) && existsSync(join(b.worktree, 'package.json'));
+        const setup = setupHints(b.worktree);
         const lead = NOTES.develop({
           plan: b.plan, index: b.current, total: b.phases.length, phase: p.text,
-          done: b.phases.slice(0, b.current).map((q) => q.title), branch: b.branch, worktree: b.worktree, deps,
+          done: b.phases.slice(0, b.current).map((q) => q.title), branch: b.branch, worktree: b.worktree, setup, checks: ws.projectChecks(b.worktree),
         });
         const r = await this.speak(t, DEVELOPER, gen, {
           build: { cwd: b.worktree, permissions: 'build', lead, since: Math.min(this.phaseSeq(id, b.current), (unread ?? Infinity) - 1) },
@@ -744,8 +750,11 @@ ${NOTES.userFix}` : NOTES.userFix;
         const results = await ws.runChecks(b.worktree, ws.projectChecks(b.worktree));
         if (!live()) return;
         const failed = results.filter((x) => !x.ok).map((x) => x.script);
-        const text = !results.length ? 'No checks found in package.json.'
-          : failed.length ? `Checks failed: ${failed.join(', ')}.` : `Checks passed: ${results.map((x) => x.script).join(', ')}.`;
+        const skipped = results.filter((x) => x.skipped).map((x) => x.script);
+        const passed = results.filter((x) => x.ok && !x.skipped).map((x) => x.script);
+        const text = (!results.length ? 'No checks found (npm check scripts, ruff or pytest).'
+          : failed.length ? `Checks failed: ${failed.join(', ')}.` : passed.length ? `Checks passed: ${passed.join(', ')}.` : 'No check could run.') +
+          (skipped.length ? ` Skipped, tool not installed: ${skipped.join(', ')}.` : '');
         this.save(t, [store.append(id, { kind: 'note', text })]);
         ({ thread: t, step } = afterChecks(t, results));
         blockedOn = step.do === 'escalate' ? failed : undefined;

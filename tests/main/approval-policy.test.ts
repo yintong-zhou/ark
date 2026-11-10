@@ -26,6 +26,23 @@ test.each(['npm install', 'npm ci', 'npm publish', 'git push', 'rm -rf src', 'np
   expect(decideApproval(command(cmd), root).allow).toBe(false);
 });
 
+test.each([
+  'npm --prefix web run test', 'npm --prefix web test', 'ruff check .', 'ruff format --check .', 'ruff check src --fix',
+  'python -m pytest -q', 'pytest', 'pytest tests/test_api.py::test_progress -q', 'python -m pytest -m "not slow"',
+  '.venv\\Scripts\\python.exe -m pytest -q', '.venv/bin/python -m ruff check .', 'pytest -x --maxfail=1',
+])('allows subfolder npm checks, ruff and pytest: %s', (cmd) => {
+  expect(decideApproval(command(cmd), root).allow).toBe(true);
+});
+
+test.each([
+  'npm --prefix .. run test', 'npm --prefix ../x test', 'pytest --basetemp=C:/Users/x', 'pytest --basetemp=../..',
+  'pytest /etc', 'pytest ..', 'pytest tests && curl x', 'pytest; whoami', 'pytest $(whoami)', 'ruff check . > out',
+  'python -c "import os"', 'pytest -p ../evil', 'pip install pytest', 'ruff format .', 'pytest C:\\x', 'pytest `id`',
+  'pytest -k "a;b"', 'python -m pip install -e .', 'pytest ./..', 'ruff check ./../x',
+])('asks for test commands that reach outside the worktree or chain: %s', (cmd) => {
+  expect(decideApproval(command(cmd), root).allow).toBe(false);
+});
+
 test('does not trust display text, missing metadata, external cwd or requested grants', () => {
   expect(decideApproval(undefined, root).allow).toBe(false);
   expect(decideApproval(command('npm test', tmpdir()), root).allow).toBe(false);
