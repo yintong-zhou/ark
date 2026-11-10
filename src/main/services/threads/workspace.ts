@@ -114,8 +114,9 @@ async function gitOk(dir: string, args: string[]): Promise<string> {
  * Runs one check. The shell is needed because npm is a .cmd on Windows; commands come from commandOf's fixed forms only.
  * The time and output limits are ours, not execFile's: execFile would kill only the shell, leaving npm and its children
  * running and holding the worktree. On Windows the whole tree goes, while the shell is still alive for taskkill to walk.
+ * An abort of `signal` stops it the same way.
  */
-function runScript(dir: string, script: string, timeout: number): Promise<CheckResult> {
+function runScript(dir: string, script: string, timeout: number, signal?: AbortSignal): Promise<CheckResult> {
   const command = commandOf(dir, script);
   if (!command) return Promise.resolve({ script, ok: false, tail: 'Unknown check' });
   const tool = /^(ruff|python) /.exec(command)?.[1]; // a quoted venv python was found on disk already
@@ -129,6 +130,7 @@ function runScript(dir: string, script: string, timeout: number): Promise<CheckR
       { cwd: dir, shell: true, windowsHide: true, encoding: 'utf8', maxBuffer: 2 * MAX_BUFFER },
       (err, stdout, stderr) => {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
         const out = `${stdout}${stderr}`;
         // Not installed, for ruff and pytest only (npm's 127 means missing node_modules, a real failure): sh's 127,
         // the Windows Store python stub, or Python without the check's module.
@@ -149,6 +151,9 @@ function runScript(dir: string, script: string, timeout: number): Promise<CheckR
       else child.kill();
     };
     const timer = setTimeout(() => stop(`timed out after ${timeout / 1000} s\n`), timeout);
+    const abort = () => stop('stopped\n');
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
     let size = 0;
     const count = (chunk: string) => {
       size += chunk.length;
@@ -216,10 +221,13 @@ export const workspace = {
       (CHECK_SCRIPTS as readonly string[]).includes(s) ? [`npm run ${s}`, ...(s === 'test' ? ['npm test'] : [])] : [s]);
   },
 
-  /** Runs every script in turn, even after a failure. */
-  async runChecks(dir: string, scripts: string[], timeoutMs = CHECK_MS): Promise<CheckResult[]> {
+  /** Runs every script in turn, even after a failure. An abort of `signal` stops the running one and skips the rest. */
+  async runChecks(dir: string, scripts: string[], timeoutMs = CHECK_MS, signal?: AbortSignal): Promise<CheckResult[]> {
     const results: CheckResult[] = [];
-    for (const s of scripts) results.push(await runScript(dir, s, timeoutMs));
+    for (const s of scripts) {
+      if (signal?.aborted) break;
+      results.push(await runScript(dir, s, timeoutMs, signal));
+    }
     return results;
   },
 };

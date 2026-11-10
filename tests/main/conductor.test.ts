@@ -103,9 +103,16 @@ function fakeWorkspace() {
     projectChecks: () => w.checks,
     // As the real one types them: a root script is `npm run <s>`, and test is also `npm test`.
     checkCommands: () => w.checks.flatMap((s) => (/^\w+$/.test(s) ? [`npm run ${s}`, ...(s === 'test' ? ['npm test'] : [])] : [s])),
-    runChecks: async (dir: string, scripts: string[]) => {
+    // 'abort': resolves only 50 ms after its signal aborts; 'never': never resolves.
+    hold: undefined as 'abort' | 'never' | undefined,
+    signal: undefined as AbortSignal | undefined,
+    runChecks: async (dir: string, scripts: string[], _timeoutMs?: number, signal?: AbortSignal) => {
       w.calls.push(['runChecks', dir, scripts]);
-      return w.results.shift() ?? scripts.map((script) => ({ script, ok: true, tail: '' }));
+      w.signal = signal;
+      const r = w.results.shift() ?? scripts.map((script) => ({ script, ok: true, tail: '' }));
+      if (w.hold === 'never') await new Promise(() => {});
+      if (w.hold === 'abort') await new Promise((done) => signal!.addEventListener('abort', () => setTimeout(done, 50)));
+      return r;
     },
   };
   return w;
@@ -192,7 +199,7 @@ test('deleting a thread protects running turns and worktrees and stops idle sess
   await turns(1);
   const trash = async (path: string) => rmSync(path, { recursive: true });
   await expect(c.remove(t.id, trash)).rejects.toThrow('Pause the thread');
-  c.pause(t.id);
+  await c.pause(t.id);
   const paused = thread(t.id);
   store.save({ ...paused, build: { worktree: 'wt', branch: 'b', plan: '', phases: [], current: 0 } });
   await expect(c.remove(t.id, trash)).rejects.toThrow('Remove the thread worktree');
@@ -205,7 +212,7 @@ test('removing a project pauses running threads and keeps them for reimport', as
   const t = create(projectId, 'Test');
   await turns(1);
   const dir = store.projects()[0].dir;
-  c.removeProject(projectId);
+  await c.removeProject(projectId);
   expect(store.projects()).toEqual([]);
   expect(thread(t.id).status).toBe('idle');
   expect(runner.stopped).toContain(runner.turns[0].chatId);
@@ -301,7 +308,7 @@ test('pause stops the turn and the loop', async () => {
   const t = await planning();
   await turns(2);
   const before = store.messages(t.id).length;
-  c.pause(t.id);
+  await c.pause(t.id);
   expect(thread(t.id)).toMatchObject({ status: 'idle' });
   expect(thread(t.id).speaking).toBeUndefined();
   expect(runner.stopped).toEqual([runner.turns[1].chatId]);
@@ -330,7 +337,7 @@ test('a paused hard turn leaves no bumped session behind', async () => {
   const t = await planning();
   runner.reply('project-manager', ark({ next: 'planner', hard: true }));
   await until(() => runner.turns.some((x) => x.agent === 'planner')); // the hard turn is pending
-  c.pause(t.id);
+  await c.pause(t.id);
   runner.reply('planner', 'back');
   runner.reply('project-manager', ark({ ask: 'Done?' }));
   c.send(t.id, '@planner hello');
@@ -419,7 +426,7 @@ test('pause during startAgent stops the session it started', async () => {
   let open!: () => void;
   runner.gate = new Promise((r) => (open = r));
   const t = create(projectId, 'Build a landing page');
-  c.pause(t.id);
+  await c.pause(t.id);
   expect(thread(t.id).status).toBe('idle');
   open();
   for (let i = 0; i < 10; i++) await tick();
@@ -446,7 +453,7 @@ test('approveTeam outside the team phase throws', async () => {
   const t = await planning();
   await turns(2);
   expect(() => c.approveTeam(t.id, ['planner'])).toThrow();
-  c.pause(t.id);
+  await c.pause(t.id);
   expect(() => c.approveTeam(t.id, ['planner'])).toThrow();
 });
 
@@ -462,7 +469,7 @@ test('a fresh manager in the team phase gets the catalog again, once', async () 
   const t = create(projectId, 'Build a landing page');
   await turns(1); // the manager's first turn is pending
   expect(runner.turns[0].text.split('Catalog:')).toHaveLength(2);
-  c.pause(t.id); // the session is gone
+  await c.pause(t.id); // the session is gone
   runner.reply('project-manager', TEAM);
   c.send(t.id, 'Keep it small');
   await idle();
@@ -606,25 +613,25 @@ test('policy changes stop active sessions, expire approvals and persist the effe
   const { id, devChat } = await developing();
   runner.emit(devChat, { type: 'approval', id: 'pending', tool: 'Bash', detail: 'npm ci' });
   const card = store.messages(id).findLast((m) => m.kind === 'approval')!;
-  c.setPermissionMode(id, 'auto');
+  await c.setPermissionMode(id, 'auto');
   expect(thread(id)).toMatchObject({ permissionMode: 'auto', status: 'idle', approvals: [] });
   expect(runner.stopped).toContain(devChat);
   expect(() => c.answer(id, card.seq, true)).toThrow('no longer pending');
-  expect(() => c.setPermissionMode(id, 'unknown')).toThrow('Invalid permission mode');
+  await expect(c.setPermissionMode(id, 'unknown')).rejects.toThrow('Invalid permission mode');
 });
 
 test('a policy change keeps the card the thread waits on, and its cursors', async () => {
   const { id } = await planned();
   const before = thread(id);
   expect(before.status).toBe('waiting');
-  c.setPermissionMode(id, 'full');
+  await c.setPermissionMode(id, 'full');
   expect(thread(id)).toMatchObject({ permissionMode: 'full', status: 'waiting', cursors: before.cursors });
   expect(thread(id).waitingOn).toBe(before.waitingOn);
 });
 
 test('Auto: a developer check command is allowed only after consent; sensitive and unstructured requests still ask', async () => {
   const { id } = await planned();
-  c.setPermissionMode(id, 'auto');
+  await c.setPermissionMode(id, 'auto');
   await c.startDeveloper(id); // no checks yet: no consent card
   await until(() => devTurns().length === 1);
   expect(consentCards(id)).toHaveLength(0);
@@ -948,7 +955,7 @@ test('pause drops pending approvals', async () => {
   const { id, devChat } = await developing();
   runner.emit(devChat, { type: 'approval', id: 'r1', tool: 'Bash', detail: 'npm ci' });
   const card = store.messages(id).findLast((m) => m.kind === 'approval')!;
-  c.pause(id);
+  await c.pause(id);
   expect(thread(id)).toMatchObject({ status: 'idle', approvals: [] });
   expect(runner.stopped).toContain(devChat);
   expect(() => c.answer(id, card.seq, false)).toThrow('This request is no longer pending');
@@ -1049,7 +1056,7 @@ test('pause during review then resume: the developer reads the message, then che
   const from = runner.turns.length - 1;
   runner.reply('developer', 'v1');
   await until(() => runner.turns.at(-1)?.agent === 'code-reviewer');
-  c.pause(id);
+  await c.pause(id);
   expect(thread(id).status).toBe('idle');
   runner.reply('developer', 'Switched to X.');
   runner.reply('code-reviewer', PASS);
@@ -1440,7 +1447,7 @@ test('a consent answer whose card cannot be dropped still resumes the build', as
 
 test('Full access asks nothing and stores nothing', async () => {
   const { id } = await planned();
-  c.setPermissionMode(id, 'full');
+  await c.setPermissionMode(id, 'full');
   ws.checks = ['test'];
   passingBuild();
   await c.startDeveloper(id);
@@ -1458,7 +1465,7 @@ test('a pending consent card expires on pause and is asked again', async () => {
   await c.startDeveloper(id);
   await until(() => !!pendingConsent(id));
   const first = pendingConsent(id)!;
-  c.pause(id);
+  await c.pause(id);
   expect(thread(id)).toMatchObject({ status: 'idle', approvals: [] });
   expect(() => c.answer(id, first.seq, true)).toThrow('This request is no longer pending');
   expect(thread(id).projectCode).toBeUndefined();
@@ -1478,10 +1485,10 @@ test('switching to Full with the card pending, then back to Ask, asks again', as
   await c.startDeveloper(id);
   await until(() => !!pendingConsent(id));
   const first = pendingConsent(id)!;
-  c.setPermissionMode(id, 'full');
+  await c.setPermissionMode(id, 'full');
   expect(thread(id).approvals).toEqual([]);
   expect(() => c.answer(id, first.seq, true)).toThrow('This request is no longer pending');
-  c.setPermissionMode(id, 'ask');
+  await c.setPermissionMode(id, 'ask');
   expect(thread(id).projectCode).toBeUndefined();
   passingBuild();
   c.send(id, 'Go on');
@@ -1504,4 +1511,73 @@ test('Codex developer with consent denied: no checks, same Codex start', async (
   expect(thread(id).assignments?.developer?.engine).toBe('codex');
   expect(runsChecks()).toBe(false);
   expect(notes(id)).toContain(NOTES.checksDenied);
+});
+
+// ---- Pause and permission changes stop the checks ----
+
+const STILL_RUNNING = 'Processes started by the checks may still be running.';
+/** A Full access build whose checks are running in the fake workspace, held as `hold` says. */
+async function checking(hold: 'abort' | 'never' = 'abort') {
+  const { id } = await planned();
+  await c.setPermissionMode(id, 'full');
+  ws.checks = ['test'];
+  ws.hold = hold;
+  runner.reply('developer', 'Built.');
+  await c.startDeveloper(id);
+  await until(() => !!ws.signal);
+  return id;
+}
+
+test('pause waits for the checks to stop before the thread goes idle', async () => {
+  const id = await checking();
+  const p = c.pause(id);
+  expect(ws.signal!.aborted).toBe(true);
+  expect(thread(id).status).toBe('running'); // the worktree stays busy for the Git UI
+  await p;
+  expect(thread(id).status).toBe('idle');
+  expect(notes(id)).not.toContain(STILL_RUNNING);
+  await tick();
+  expect(runner.turns.at(-1)?.agent).toBe('developer'); // the halted loop went no further
+});
+
+test('pause gives up waiting after checksStopMs and says so', async () => {
+  c = new Conductor({ store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
+  const id = await checking('never');
+  const p = c.pause(id);
+  expect(thread(id).status).toBe('running');
+  await p;
+  expect(thread(id).status).toBe('idle');
+  expect(notes(id).filter((n) => n === STILL_RUNNING)).toHaveLength(1);
+});
+
+test('pause with no checks running, or twice, resolves at once with no note', async () => {
+  const { id } = await developing();
+  const p = c.pause(id);
+  expect(thread(id).status).toBe('idle');
+  await p;
+  await c.pause(id);
+  expect(notes(id)).not.toContain(STILL_RUNNING);
+  // Twice while the checks hang: one wait, one note.
+  c = new Conductor({ store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
+  const id2 = await checking('never');
+  await Promise.all([c.pause(id2), c.pause(id2)]);
+  expect(thread(id2).status).toBe('idle');
+  expect(notes(id2).filter((n) => n === STILL_RUNNING)).toHaveLength(1);
+});
+
+test('a permission change stops the checks too', async () => {
+  const id = await checking();
+  const p = c.setPermissionMode(id, 'ask');
+  expect(ws.signal!.aborted).toBe(true);
+  expect(thread(id)).toMatchObject({ status: 'running', permissionMode: 'full' });
+  await p;
+  expect(thread(id)).toMatchObject({ status: 'idle', permissionMode: 'ask' });
+  expect(notes(id)).not.toContain(STILL_RUNNING);
+});
+
+test('stopAll aborts the running checks', async () => {
+  const id = await checking();
+  c.stopAll();
+  expect(ws.signal!.aborted).toBe(true);
+  expect(thread(id).status).toBe('idle');
 });

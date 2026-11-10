@@ -27,7 +27,7 @@ import { afterBuildUser, afterChecks, afterManager, afterReview, openPoints, sta
 import { formatForAgent, NOTES, parsePhases, parseReply, withProtocol } from './protocol';
 import { afterReply, afterUser, approveTeam, mentionOf, needsHandoff, type Step } from './rules';
 import type { ThreadStore } from './store';
-import { branchName, setupHints, type Workspace } from './workspace';
+import { branchName, setupHints, type CheckResult, type Workspace } from './workspace';
 
 export type ConductorDeps = {
   store: ThreadStore;
@@ -37,6 +37,7 @@ export type ConductorDeps = {
   handoffThreshold?: (engine: EngineId) => number; // percent used
   worktrees: string; // root folder of the threads' worktrees
   windows: (engine: EngineId) => { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined; // the account's current usage windows
+  checksStopMs?: number; // how long pause and a permission change wait for stopped checks to exit
 };
 
 /** How speak() runs a turn. */
@@ -67,6 +68,7 @@ export class Conductor {
   private readonly pending = new Map<string, Map<number, { chatId: string; id: string }>>(); // threadId -> approval seq -> engine request
   // threadId -> the pending project code card; in memory only, so after a restart the card shows as expired and is asked again.
   private readonly consent = new Map<string, { seq: number; done: (allow: boolean | undefined) => void }>();
+  private readonly checks = new Map<string, { ac: AbortController; done: Promise<unknown> }>(); // threadId -> its running checks
   private readonly starting = new Set<string>(); // threads whose startDeveloper is in flight
   private readonly deleting = new Set<string>();
 
@@ -131,19 +133,21 @@ export class Conductor {
   }
 
   /** Policy changes are effective only after every old session and approval has been invalidated. */
-  setPermissionMode(threadId: string, value: unknown): void {
+  async setPermissionMode(threadId: string, value: unknown): Promise<void> {
     const mode = permissionMode(value);
     const t = this.thread(threadId);
     if (modeOf(t) === mode) return;
     if (this.starting.has(threadId)) throw new Error('Wait for the developer to finish starting before changing permissions');
     this.halt(t);
     for (const agent of [...(this.sessions.get(threadId)?.keys() ?? [])]) this.dropSession(threadId, agent);
+    const late = this.checks.has(threadId) ? await this.checksStopped(threadId) : [];
+    if (!late) return; // a newer pause or permission change took over
     // A thread waiting on the user keeps its card (team, plan or ask) and who asked; only a running one goes idle.
     const cur = this.thread(threadId);
     const waiting = cur.status === 'waiting';
     const next: Thread = { ...cur, permissionMode: mode, ...(!waiting && { status: 'idle', speaking: undefined, waitingOn: undefined }) };
     this.deps.store.save(next);
-    this.emit(next, [this.deps.store.append(threadId, { kind: 'note', text: `Permissions changed to ${PERMISSION_LABEL[mode]}. Sessions stopped${waiting ? '.' : '; send a message to continue.'}` })]);
+    this.emit(next, [...late, this.deps.store.append(threadId, { kind: 'note', text: `Permissions changed to ${PERMISSION_LABEL[mode]}. Sessions stopped${waiting ? '.' : '; send a message to continue.'}` })]);
   }
 
   react(threadId: string, seq: number, emoji: Reaction): void {
@@ -269,20 +273,25 @@ export class Conductor {
     this.setApprovals(threadId, drop, [this.deps.store.append(threadId, { kind: 'decision', target: seq, allow })]);
   }
 
-  /** Stops the running turn; nothing it would have said is recorded. Does nothing when no turn runs. */
-  pause(threadId: string): void {
+  /**
+   * Stops the running turn; nothing it would have said is recorded. Does nothing when no turn runs. During the checks the
+   * thread stays 'running' (its worktree busy for the Git UI) until they have stopped.
+   */
+  async pause(threadId: string): Promise<void> {
     const t = this.thread(threadId);
     if (t.status !== 'running' && !this.starting.has(threadId)) return;
     this.halt(t);
-    this.save({ ...t, status: 'idle', speaking: undefined }, []);
+    const late = this.checks.has(threadId) ? await this.checksStopped(threadId) : [];
+    if (!late) return; // a newer pause or permission change took over
+    this.save({ ...t, status: 'idle', speaking: undefined }, late);
   }
 
-  removeProject(projectId: string): void {
+  async removeProject(projectId: string): Promise<void> {
     const threads = this.deps.store.threads().filter((t) => t.projectId === projectId);
     if (threads.some((t) => this.starting.has(t.id))) {
       throw new Error('Wait for the project\'s thread to finish starting before removing it');
     }
-    for (const t of threads) if (t.status === 'running') this.pause(t.id);
+    await Promise.all(threads.filter((t) => t.status === 'running').map((t) => this.pause(t.id)));
     this.deps.store.removeProject(projectId);
   }
 
@@ -309,6 +318,7 @@ export class Conductor {
 
   stopAll(): void {
     for (const [id, n] of this.generation) this.generation.set(id, n + 1);
+    for (const c of this.checks.values()) c.ac.abort(); // quitting: no wait
     this.interrupts.clear();
     for (const id of new Set([...this.pending.keys(), ...this.consent.keys()])) this.dropApprovals(id);
     for (const chats of this.sessions.values()) for (const chatId of chats.values()) this.stopChat(chatId);
@@ -458,9 +468,30 @@ export class Conductor {
   /** Stops the thread's loop and the speaking agent's session, and drops its pending approvals. */
   private halt(t: Thread): void {
     this.generation.set(t.id, (this.generation.get(t.id) ?? 0) + 1);
+    this.checks.get(t.id)?.ac.abort();
     this.interrupts.delete(t.id);
     this.dropApprovals(t.id);
     if (t.speaking) this.dropSession(t.id, t.speaking);
+  }
+
+  /**
+   * After halt(): waits, at most checksStopMs, for the checks it aborted to exit. A hostile repo can start processes that
+   * escape the tree kill, so past the bound the thread goes idle anyway with a note (returned, already appended).
+   * Undefined when another halt happened meanwhile: that caller saves the thread instead.
+   */
+  private async checksStopped(threadId: string): Promise<ThreadMessage[] | undefined> {
+    const c = this.checks.get(threadId);
+    if (!c) return [];
+    const gen = this.generation.get(threadId);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = await Promise.race([
+      c.done.then(() => false, () => false),
+      new Promise<boolean>((r) => { timer = setTimeout(r, this.deps.checksStopMs ?? 10_000, true); }),
+    ]);
+    clearTimeout(timer);
+    if (this.checks.get(threadId) === c) this.checks.delete(threadId); // past the bound, a later pause does not wait on it again
+    if (this.generation.get(threadId) !== gen) return undefined;
+    return late ? [this.deps.store.append(threadId, { kind: 'note', text: 'Processes started by the checks may still be running.' })] : [];
   }
 
   /** Applies a step: a turn starts the loop; wait and idle are saved with the messages added. */
@@ -795,7 +826,19 @@ ${NOTES.userFix}` : NOTES.userFix;
         await askConsent(b.worktree, checks); // checks the developer added during the turn
         if (!live()) return;
         const denied = checks.length > 0 && !this.projectCode(id);
-        const results = denied ? [] : await ws.runChecks(b.worktree, checks);
+        let results: CheckResult[] = [];
+        if (!denied) {
+          // halt() aborts these; pause and a permission change wait on `done` before the thread goes idle.
+          const ac = new AbortController();
+          const done = ws.runChecks(b.worktree, checks, undefined, ac.signal);
+          const own = { ac, done };
+          this.checks.set(id, own);
+          try {
+            results = await done;
+          } finally {
+            if (this.checks.get(id) === own) this.checks.delete(id);
+          }
+        }
         if (!live()) return;
         const failed = results.filter((x) => !x.ok).map((x) => x.script);
         const skipped = results.filter((x) => x.skipped).map((x) => x.script);

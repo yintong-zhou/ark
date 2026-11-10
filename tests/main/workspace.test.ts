@@ -196,6 +196,17 @@ test('a check killed by its timeout says "timed out"', async () => {
   expect(r.tail).toContain('timed out after');
 }, 60_000);
 
+test('runChecks stops the running check on abort and skips the rest', async () => {
+  const d = pkg({ test: `node -e "setTimeout(()=>{},60000)"`, lint: `node -e ""` });
+  const ac = new AbortController();
+  const p = workspace.runChecks(d, ['test', 'lint'], 60_000, ac.signal);
+  setTimeout(() => ac.abort(), 300);
+  const r = await p;
+  expect(r).toHaveLength(1);
+  expect(r[0]).toMatchObject({ script: 'test', ok: false });
+  expect(r[0].tail.startsWith('stopped')).toBe(true);
+}, 30_000);
+
 test('branchName slugs the title and keeps the id prefix', () => {
   expect(branchName('Add login page!', '1234abcd-0000-0000-0000-000000000000')).toBe('ark/add-login-page-1234abcd');
   expect(branchName('x'.repeat(39) + ' yyy', '1234abcd-0')).toBe(`ark/${'x'.repeat(39)}-1234abcd`);
