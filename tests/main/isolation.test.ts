@@ -143,6 +143,21 @@ test('checkClaudeInit flags each kind of leak', () => {
   expect(checkClaudeInit(undefined, [], none)).toEqual(['no init event']);
 });
 
+test.each(['dir-name', 'shown-name', 'deploy', 'team:deploy'])('checkClaudeInit refuses project command %s in slash_commands', (name) => {
+  const init = { plugins: [], mcp_servers: [], skills: [], slash_commands: ['help', name] };
+  expect(checkClaudeInit(init, [], new Set([name]), new Set([name]))).toEqual([`command not allowed: ${name}`]);
+});
+
+test('checkClaudeInit allows built-in commands that share a personal skill name', () => {
+  const init = { plugins: [], mcp_servers: [], skills: [], slash_commands: ['init', 'review'] };
+  expect(checkClaudeInit(init, [], new Set(['init', 'review']), new Set(['deploy']))).toEqual([]);
+});
+
+test.each([undefined, 'deploy'])('checkClaudeInit skips a missing or non-array slash_commands field: %s', (commands) => {
+  const init = { plugins: [], mcp_servers: [], skills: [], ...(commands !== undefined && { slash_commands: commands }) };
+  expect(checkClaudeInit(init, [], new Set(['deploy']), new Set(['deploy']))).toEqual([]);
+});
+
 test('checkClaudeInit fails closed on a malformed init', () => {
   const ok = { plugins: [{ name: 'ark-agent', path: 'D:\\x' }], mcp_servers: [], skills: ['ark-agent:x'] };
   const none = new Set<string>();

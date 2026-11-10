@@ -192,6 +192,7 @@ test("forbids the project's own skills and the user's Claude skills", async () =
   expect(forbidden.has('local-skill')).toBe(true);
   expect(forbidden.has('mine')).toBe(true);
   expect(forbidden.has('alpha')).toBe(false);
+  expect(t.claudeCalls[0].projectCommands).toEqual(new Set(['local-skill']));
 });
 
 test('Claude forbids user skills by folder and by frontmatter name', async () => {
@@ -200,6 +201,7 @@ test('Claude forbids user skills by folder and by frontmatter name', async () =>
   const forbidden = t.claudeCalls[0].forbidden as Set<string>;
   expect(forbidden.has('x-folder')).toBe(true);
   expect(forbidden.has('x-name')).toBe(true);
+  expect(t.claudeCalls[0].projectCommands).toEqual(new Set());
 });
 
 test('forwards session events with the chat id, until unsubscribed', async () => {
@@ -425,4 +427,5 @@ test("forbids the project's skills by frontmatter name and its slash commands", 
   await t.runner.start('tester', project);
   const forbidden = t.claudeCalls[0].forbidden as Set<string>;
   for (const n of ['dir-name', 'shown-name', 'deploy', 'nested', 'team:nested']) expect(forbidden.has(n)).toBe(true);
+  expect(t.claudeCalls[0].projectCommands).toEqual(new Set(['dir-name', 'shown-name', 'deploy', 'nested', 'team:nested']));
 });

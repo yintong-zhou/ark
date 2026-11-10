@@ -168,6 +168,9 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   and the Claude developer's check commands need no card. **Deny**: Ark runs no checks (the thread says so) and each check
   command the developer runs asks for approval. The answer is saved with the thread, survives restarts and permission
   changes, and there is no card when the project has no checks. Full access never asks.
+  The Python flag list is a second layer: repository config (`pytest` addopts, ruff `cache-dir`/`extend`) can set the
+  same options without a flag. The project code consent card is the protection against running repository code with
+  your permissions.
 - **Checks**: after each developer turn Ark runs the checks it finds: the `typecheck`, `lint`, `test` and `build` scripts of
   `package.json` at the root and in direct subfolders (`npm --prefix web run test`), `ruff check .` when the Python project
   configures ruff, and `python -m pytest -q` when it configures pytest or has a `tests` folder. The developer is told the
@@ -186,9 +189,12 @@ usage page), so a thread can run for a long time.
 proposal or a question, and runs the approval round trip (deny and allow) with a Claude build agent, and a deny with a
 Codex build agent.
 
-Known limit: Claude Code reloads `.claude/settings.json` while a session runs. Ark checks the file only when a session
+Known limits: Claude Code reloads `.claude/settings.json` while a session runs. Ark checks the file only when a session
 starts, so a hook written into it during a session is not caught until the next fresh session. An edit by the developer
-gets an approval card, but a check command that writes the file would not. This has not been verified live.
+gets an approval card, but a check command that writes the file would not. Claude also loads nested `CLAUDE.md` files
+and nested `.claude/skills` folders as it works with files in subfolders, after Ark's start-time import scan and init
+skill check. Those checks do not catch these later loads or `.claude/rules` symlinks to files outside the project.
+These behaviors have not been verified live.
 
 Known limit: Ark does not rely on Codex's experimental skill roots (codex-cli 0.132.0 lacks them, 0.167.0 has them
 again). It turns off every skill Codex finds and gives a Codex agent its own skills as a list (name, description, file)

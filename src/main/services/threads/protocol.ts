@@ -65,7 +65,7 @@ export const NOTES = {
   // checks note after a denial. The copy must say the repository's code runs with the user's permissions.
   consentTool: "this repository's code",
   consent: (commands: string[]) =>
-    `Ark will run this repository's checks (${commands.join(', ')}) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow only if you would run this code yourself.`,
+    `Ark will run this repository's checks (${commands.join(', ')}) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow also lets the Claude developer run these commands without another card. Allow only if you would run this code yourself.`,
   checksDenied: 'Checks not run: you did not allow project code in this thread.',
   developDenied: DEVELOP_DENIED,
   fix: 'The reviewers asked for changes (their findings are above). Fix them; Ark re-runs the checks and the reviews.',

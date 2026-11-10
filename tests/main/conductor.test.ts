@@ -1373,7 +1373,7 @@ test('asks once per thread before the first developer turn when the worktree has
   const card = pendingConsent(id)!;
   expect(card).toMatchObject({ kind: 'approval', agent: 'developer', tool: "this repository's code", detail: NOTES.consent(['npm run test', 'npm test']) });
   expect(card.kind === 'approval' && card.detail).toBe(
-    "Ark will run this repository's checks (npm run test, npm test) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow only if you would run this code yourself.");
+    "Ark will run this repository's checks (npm run test, npm test) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow also lets the Claude developer run these commands without another card. Allow only if you would run this code yourself.");
   expect(thread(id).approvals).toEqual([card.seq]);
   expect(devCodes()).toEqual([]); // no developer session yet
   expect(runsChecks()).toBe(false);

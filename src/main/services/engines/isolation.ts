@@ -178,7 +178,7 @@ export function codexArgs(deny: { skillPaths: string[]; mcpServers: string[] }):
 }
 
 /** Violations in Claude Code's `system/init` event; empty means the session is isolated. Fails closed on odd shapes. */
-export function checkClaudeInit(init: unknown, expectedFolders: string[], forbidden: ReadonlySet<string>): string[] {
+export function checkClaudeInit(init: unknown, expectedFolders: string[], forbidden: ReadonlySet<string>, projectCommands: ReadonlySet<string> = new Set()): string[] {
   const ev = obj(init);
   if (!ev) return ['no init event'];
   const out: string[] = [];
@@ -210,6 +210,12 @@ export function checkClaudeInit(init: unknown, expectedFolders: string[], forbid
   }
   for (const f of expectedFolders) {
     if (!skills.includes(`${ARK_PLUGIN}:${f}`)) out.push(`skill not loaded: ${ARK_PLUGIN}:${f}`);
+  }
+  // Personal skill names can collide with built-in commands; only project names belong in this second check.
+  if (Array.isArray(ev.slash_commands)) {
+    for (const command of ev.slash_commands) {
+      if (typeof command === 'string' && projectCommands.has(command)) out.push(`command not allowed: ${command}`);
+    }
   }
   for (const f of malformed) out.push(`init malformed: ${f}`);
   return out;

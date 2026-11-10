@@ -43,6 +43,16 @@ test('ignores a top CLAUDE.md that links outside the project', () => {
   expect(codexProjectRules(dir)).toBeUndefined();
 });
 
+test.for(['CLAUDE.md', 'CLAUDE.local.md', '.claude/CLAUDE.md'])('refuses a top %s that links outside the project for Claude', (name, t) => {
+  const outside = project({ 'secret.md': 'SECRET' });
+  const dir = project({});
+  mkdirSync(join(dir, '.claude'));
+  const file = join(dir, name);
+  try { symlinkSync(join(outside, 'secret.md'), file, 'file'); } catch { t.skip(); return; } // no symlink rights on this machine
+  expect(claudeImportProblem(dir)).toContain(file);
+  expect(claudeImportProblem(dir)).toContain('outside the project');
+});
+
 test('stops at depth 3 on a cycle', () => {
   expect(codexProjectRules(project({ 'CLAUDE.md': '@CLAUDE.md\n' }))).toBe('@CLAUDE.md');
 });
@@ -104,6 +114,13 @@ describe('claudeImportProblem', () => {
   test('refuses an outside import reached through a nested file, naming that file', () => {
     const dir = project({ 'CLAUDE.md': '@a.md\n', 'a.md': `@${secret}\n` });
     expect(claudeImportProblem(dir)).toContain(join(dir, 'a.md'));
+  });
+
+  test('refuses an outside import at the fifth hop', () => {
+    const dir = project({
+      'CLAUDE.md': '@a.md', 'a.md': '@b.md', 'b.md': '@c.md', 'c.md': '@d.md', 'd.md': `@${secret}`,
+    });
+    expect(claudeImportProblem(dir)).toContain(join(dir, 'd.md'));
   });
 
   test('scans CLAUDE.local.md and .claude/CLAUDE.md', () => {

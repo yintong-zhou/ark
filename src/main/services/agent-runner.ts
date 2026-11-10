@@ -94,7 +94,8 @@ export class AgentRunner {
         // What the engine must not load: the user's own Claude skills and the project's.
         // Claude lists skills by frontmatter name, so forbid both the folder and the name.
         const forbidden = new Set(index.filter((s) => s.source === 'claude-user').flatMap((s) => [s.folder, s.name]));
-        for (const n of projectSkillNames(projectDir)) forbidden.add(n);
+        const projectCommands = new Set(projectSkillNames(projectDir));
+        for (const n of projectCommands) forbidden.add(n);
         session = this.deps.startClaude({
           exe,
           cwd: projectDir,
@@ -102,6 +103,7 @@ export class AgentRunner {
           env: claudeEnv(this.deps.env()),
           expectedFolders: built.folders,
           forbidden,
+          projectCommands,
         });
       } else {
         // Codex loads ~/.codex/AGENTS.md into every session and has no switch for it: refuse instead.

@@ -50,7 +50,7 @@ export function codexProjectRules(projectDir: string): string | undefined {
   return expand(top, 0);
 }
 
-const IMPORT_DEPTH = 4; // Claude Code follows at most four hops of @imports
+const IMPORT_DEPTH = 5; // scan one extra hop beyond Claude Code's documented four (fail closed)
 const IMPORT_TOKEN = /(?:^|\s)@((?:\\ |\S)+)/g;
 
 /** The text where Claude Code looks for @imports: fenced blocks and code spans are skipped. */
@@ -80,6 +80,9 @@ export function claudeImportProblem(projectDir: string): string | undefined {
   const seen = new Set<string>();
   const scan = (file: string, depth: number): string | undefined => {
     const real = realpathSync(file);
+    if (!isInside(root, real)) {
+      return `${file} resolves outside the project, so Claude Code would load it into the agent. Remove the link, then try again.`;
+    }
     if (seen.has(real)) return undefined;
     seen.add(real);
     for (const m of importable(readFileSync(real, 'utf8')).matchAll(IMPORT_TOKEN)) {

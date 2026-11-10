@@ -8,6 +8,8 @@ import { resolveInside } from '../files/guard';
 // path, `..` or shell syntax. A quoted token is allowed only right after -k or -m (a pytest expression), because the
 // shell strips quotes and would otherwise let "--basetemp" or ".." through. Flags that write, load code or move the root (--basetemp, -p, -c,
 // --rootdir, -o, --output-file, --config, --cache-dir) are not on the list, so they get a card.
+// This flag list is a second layer: project config (pytest addopts, ruff cache-dir/extend) can do the same without flags.
+// The project code consent card is the protection against running repository-supplied code with the user's permissions.
 const NPM_CHECK = /^npm(?:\.cmd)? (?:--prefix \w[\w.-]* )?(?:test|run (?:typecheck|lint|test|build))$/;
 const PYTEST_FLAG = String.raw`-qq?|-vv?|-[xsl]|--(?:lf|ff|sw|no-header)|-r[a-zA-Z]+|--tb=(?:auto|long|short|line|native|no)|--(?:maxfail|durations)=\d+|-[km](?: "(?!-)(?!.*\.\.)[\w .-]*")?`;
 const RUFF_FLAG = String.raw`--(?:fix|diff|statistics|show-fixes|quiet|no-cache|exit-zero)|-q|--(?:select|ignore)=[A-Za-z0-9,]+|--output-format=\w+`;
