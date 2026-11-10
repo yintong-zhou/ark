@@ -140,14 +140,15 @@ export class Conductor {
     if (this.starting.has(threadId)) throw new Error('Wait for the developer to finish starting before changing permissions');
     this.halt(t);
     for (const agent of [...(this.sessions.get(threadId)?.keys() ?? [])]) this.dropSession(threadId, agent);
-    const late = this.checks.has(threadId) ? await this.checksStopped(threadId) : [];
-    if (!late) return; // a newer pause or permission change took over
-    // A thread waiting on the user keeps its card (team, plan or ask) and who asked; only a running one goes idle.
+    // The mode is saved at once, so a later pause or change sees it. A thread waiting on the user keeps its card (team,
+    // plan or ask) and who asked; a running one goes idle, once its checks (if any) have stopped.
     const cur = this.thread(threadId);
     const waiting = cur.status === 'waiting';
-    const next: Thread = { ...cur, permissionMode: mode, ...(!waiting && { status: 'idle', speaking: undefined, waitingOn: undefined }) };
+    const checks = this.checks.has(threadId);
+    const next: Thread = { ...cur, permissionMode: mode, ...(!waiting && !checks && { status: 'idle', speaking: undefined, waitingOn: undefined }) };
     this.deps.store.save(next);
-    this.emit(next, [...late, this.deps.store.append(threadId, { kind: 'note', text: `Permissions changed to ${PERMISSION_LABEL[mode]}. Sessions stopped${waiting ? '.' : '; send a message to continue.'}` })]);
+    this.emit(next, [this.deps.store.append(threadId, { kind: 'note', text: `Permissions changed to ${PERMISSION_LABEL[mode]}. Sessions stopped${waiting ? '.' : '; send a message to continue.'}` })]);
+    if (checks) await this.idleAfterChecks(next);
   }
 
   react(threadId: string, seq: number, emoji: Reaction): void {
@@ -281,9 +282,8 @@ export class Conductor {
     const t = this.thread(threadId);
     if (t.status !== 'running' && !this.starting.has(threadId)) return;
     this.halt(t);
-    const late = this.checks.has(threadId) ? await this.checksStopped(threadId) : [];
-    if (!late) return; // a newer pause or permission change took over
-    this.save({ ...t, status: 'idle', speaking: undefined }, late);
+    if (this.checks.has(threadId)) return this.idleAfterChecks(t);
+    this.save({ ...t, status: 'idle', speaking: undefined }, []);
   }
 
   async removeProject(projectId: string): Promise<void> {
@@ -475,14 +475,15 @@ export class Conductor {
   }
 
   /**
-   * After halt(): waits, at most checksStopMs, for the checks it aborted to exit. A hostile repo can start processes that
-   * escape the tree kill, so past the bound the thread goes idle anyway with a note (returned, already appended).
-   * Undefined when another halt happened meanwhile: that caller saves the thread instead.
+   * After halt(): waits, at most checksStopMs, for the checks it aborted to exit, then saves `t` idle. A hostile repo can
+   * start processes that escape the tree kill, so past the bound the thread goes idle anyway with a note. Saves nothing
+   * when another halt happened meanwhile: that caller saves the thread instead.
    */
-  private async checksStopped(threadId: string): Promise<ThreadMessage[] | undefined> {
+  private async idleAfterChecks(t: Thread): Promise<void> {
+    const threadId = t.id;
     const c = this.checks.get(threadId);
-    if (!c) return [];
     const gen = this.generation.get(threadId);
+    if (!c) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = await Promise.race([
       c.done.then(() => false, () => false),
@@ -490,8 +491,13 @@ export class Conductor {
     ]);
     clearTimeout(timer);
     if (this.checks.get(threadId) === c) this.checks.delete(threadId); // past the bound, a later pause does not wait on it again
-    if (this.generation.get(threadId) !== gen) return undefined;
-    return late ? [this.deps.store.append(threadId, { kind: 'note', text: 'Processes started by the checks may still be running.' })] : [];
+    if (this.generation.get(threadId) !== gen) return;
+    const added: ThreadMessage[] = [];
+    try {
+      if (late) added.push(this.deps.store.append(threadId, { kind: 'note', text: 'Processes started by the checks may still be running.' }));
+    } finally {
+      this.save({ ...t, status: 'idle', speaking: undefined }, added); // never left 'running' with no loop
+    }
   }
 
   /** Applies a step: a turn starts the loop; wait and idle are saved with the messages added. */

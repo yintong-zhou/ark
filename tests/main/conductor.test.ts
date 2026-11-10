@@ -1569,10 +1569,44 @@ test('a permission change stops the checks too', async () => {
   const id = await checking();
   const p = c.setPermissionMode(id, 'ask');
   expect(ws.signal!.aborted).toBe(true);
-  expect(thread(id)).toMatchObject({ status: 'running', permissionMode: 'full' });
+  expect(thread(id)).toMatchObject({ status: 'running', permissionMode: 'ask' }); // the new mode holds at once
   await p;
   expect(thread(id)).toMatchObject({ status: 'idle', permissionMode: 'ask' });
   expect(notes(id)).not.toContain(STILL_RUNNING);
+});
+
+test('a pause during a permission change keeps the new mode', async () => {
+  const id = await checking();
+  const change = c.setPermissionMode(id, 'ask');
+  const pause = c.pause(id);
+  await Promise.all([change, pause]);
+  expect(thread(id)).toMatchObject({ status: 'idle', permissionMode: 'ask' });
+});
+
+test('Ask, then Full and back to Ask while the checks stop, ends in Ask', async () => {
+  const { id } = await planned();
+  ws.checks = ['test'];
+  ws.hold = 'abort';
+  runner.reply('developer', 'Built.');
+  await c.startDeveloper(id);
+  await allowProjectCode(id);
+  await until(() => !!ws.signal);
+  const toFull = c.setPermissionMode(id, 'full');
+  const back = c.setPermissionMode(id, 'ask');
+  await Promise.all([toFull, back]);
+  expect(thread(id)).toMatchObject({ status: 'idle', permissionMode: 'ask' });
+});
+
+test('the thread goes idle even when the late note cannot be written', async () => {
+  c = new Conductor({ store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
+  const id = await checking('never');
+  const append = store.append.bind(store);
+  store.append = (tid, m) => {
+    if (m.kind === 'note' && m.text === STILL_RUNNING) throw new Error('disk full');
+    return append(tid, m);
+  };
+  await expect(c.pause(id)).rejects.toThrow('disk full');
+  expect(thread(id).status).toBe('idle');
 });
 
 test('stopAll aborts the running checks', async () => {
