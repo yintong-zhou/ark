@@ -348,6 +348,6 @@ test('a permission change stops the checks too', ...);
 
 - [ ] **Step 1: Edit README.** Read-only per engine: Claude advisors and reviewers have no edit, write or shell tools; Codex ones run in a read-only sandbox. Add the project code consent (once per thread, outside Full access, what Allow and Deny do) and the Claude settings allowlist (only `$schema`, `permissions.deny`, `permissions.ask`; anything else stops the session with the file and keys named). Handoff threshold: default 40%, configurable in Settings. Add Task 2's known limits, if any.
 - [ ] **Step 2: Edit PROJECT.** One worktree per thread today; a worktree per agent stays roadmap.
-- [ ] **Step 3: Check** there are no em dashes: `grep -n "—" README.md PROJECT.md` prints nothing.
+- [ ] **Step 3: Check** there are no em dashes: `grep -nP "\x{2014}" README.md PROJECT.md` prints nothing.
 - [ ] **Step 4: Final checks.** `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, all pass.
 - [ ] **Step 5: Commit** `docs: describe agent permissions, consent and settings rules`
