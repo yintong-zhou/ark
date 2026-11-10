@@ -33,7 +33,7 @@ The usage view only reads. It never runs the agents and never sends anything any
 
 | Agent       | Where the numbers come from                                                                |
 | ----------- | ------------------------------------------------------------------------------------------ |
-| Claude Code | Its status line (after you click **Connect status line**) and `claude auth status`        |
+| Claude Code | Its status line (after you click **Connect status line**) and `claude auth status`         |
 | Codex       | Its local session files in `~/.codex/sessions` (read-only) and `codex app-server`          |
 | OpenCode    | Detection only for now                                                                     |
 
@@ -63,8 +63,8 @@ editor and keep it in Git. It has a role prompt, an engine (Claude Code or Codex
 Each agent sees only its own skills. The project's own `CLAUDE.md` or `AGENTS.md` is kept, so the agent follows the
 project's rules. Your personal instructions, memory, other skills, plugins and MCP servers are left out: Claude Code's
 auto-memory is turned off, and Ark refuses to start a Codex agent while `~/.codex/AGENTS.md` (or `AGENTS.override.md`)
-exists, because Codex would load it into every session. In this step every agent is read-only: it can read the project
-but has no edit, write or shell tools.
+exists, because Codex would load it into every session. In this step every agent is read-only, on both engines: a
+Claude agent can read the project but has no edit, write or shell tools; a Codex agent runs in a read-only sandbox.
 
 Agents never change `~/.claude` or `~/.codex`: Ark only reads skills and agents there, and copies the skills an agent
 needs into a private folder for each session. The engines themselves still keep their usual session logs
@@ -108,8 +108,10 @@ worktrees and original folder. Running threads are paused. Add the same folder a
     a valid plan straight into the build. Members' questions go to the project manager, who asks you only about
     missing intent, scope changes, sensitive decisions or real blockers. Ark itself allows only edits inside the worktree
     (not `.git`, `.claude`, `.codex`, `.env*` or credential files) and test and lint commands: `npm test` / `npm run typecheck|lint|test|build`,
-    also in a subfolder with `--prefix web`, `ruff check` / `ruff format --check` and `pytest`, with relative paths only;
-    anything else, including compound shell commands, still shows a card. A Codex developer can't run in this mode (its
+    also in a subfolder with `--prefix web`, `ruff check` / `ruff format --check` and `pytest`, with relative paths only
+    and only a short list of harmless flags (flags that write output, set a root or load a plugin or another config
+    need a card); anything else, including compound shell commands,
+    still shows a card. A Codex developer can't run in this mode (its
     protocol has no complete pre-action gate), so Auto routing gives this role to Claude.
   - **Full access**: the developer's tools run without approval prompts, including writes outside the worktree and network
     access. Read-only agents stay read-only in every mode.
@@ -155,22 +157,38 @@ worktrees and original folder. Running threads are paused. Add the same folder a
 - **Approvals**: build agents can edit files in the worktree, but anything risky (installing packages, network commands,
   commands outside the worktree) shows an approval card with the agent, the tool and the command. **Allow** or **Deny**
   it; a card that was not answered before its turn ended shows "Expired". A thread that waits on an approval gets a badge.
-  Ark refuses to start any Claude session when the project's `.claude/settings.json` sets anything beyond `$schema` and
-  `permissions.deny` / `permissions.ask` (hooks, env, allow rules and the like could skip a card) or is not valid JSON; the error names the file.
+  Before every Claude session, for every role, Ark checks the project's `.claude/settings.json`. It may hold only
+  `$schema`, `permissions.deny` and `permissions.ask`; hooks, env, allow rules and the like could run commands or skip a
+  card. Anything else, or a file that is not valid JSON, stops the session and the error names the file and the keys.
+  Project skills and `.claude/commands` are refused the same way, by folder and by name. A project `CLAUDE.md` (or a file
+  it imports) with an `@` import outside the project, such as `@~/.claude/notes.md`, also blocks Claude agents in that
+  project until you remove the import; Codex is not affected.
+- **Project code consent**: outside Full access, the first time Ark would run the project's checks in a thread, a card
+  "Developer wants to use this repository's code" asks once. **Allow**: Ark runs the checks after each developer turn,
+  and the Claude developer's check commands need no card. **Deny**: Ark runs no checks (the thread says so) and each check
+  command the developer runs asks for approval. The answer is saved with the thread, survives restarts and permission
+  changes, and there is no card when the project has no checks. Full access never asks.
 - **Checks**: after each developer turn Ark runs the checks it finds: the `typecheck`, `lint`, `test` and `build` scripts of
   `package.json` at the root and in direct subfolders (`npm --prefix web run test`), `ruff check .` when the Python project
   configures ruff, and `python -m pytest -q` when it configures pytest or has a `tests` folder. The developer is told the
-  exact commands. A check whose tool is not installed is reported as skipped, not failed.
+  exact commands. A check whose tool is not installed is reported as skipped, not failed. Pause and a permission change
+  stop running checks; the thread shows as running for up to about 10 seconds until they exit, then goes idle (with a
+  note if processes the checks started may still be running).
 - **Dependencies**: a new worktree has no `node_modules` (root or subfolder) and no Python environment, so the developer
   is told to run `npm ci` / `npm --prefix web ci`, or to create a git-ignored `.venv` that Ark then uses for the Python checks.
   Installing is one approval card per thread outside Full access; Ark never installs anything by itself.
 
 If Ark is closed during a turn, the thread notes it and continues when you send a message. A long agent session is
-handed off to a fresh one at 50% of its context, so a thread can run for a long time.
+handed off to a fresh one at 40% of its context by default (change it per engine under **Handoff settings** on the
+usage page), so a thread can run for a long time.
 
 `npm run test:live` also starts a real thread on the light tier and checks that the project manager answers with a team
 proposal or a question, and runs the approval round trip (deny and allow) with a Claude build agent, and a deny with a
 Codex build agent.
+
+Known limit: Claude Code reloads `.claude/settings.json` while a session runs. Ark checks the file only when a session
+starts, so a hook written into it during a session is not caught until the next fresh session. An edit by the developer
+gets an approval card, but a check command that writes the file would not. This has not been verified live.
 
 Known limit: Ark does not rely on Codex's experimental skill roots (codex-cli 0.132.0 lacks them, 0.167.0 has them
 again). It turns off every skill Codex finds and gives a Codex agent its own skills as a list (name, description, file)

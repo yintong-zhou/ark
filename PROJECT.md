@@ -58,7 +58,7 @@ Ark is a local, open-source desktop app (React + Electron) that merges the chann
    - Cheaper models that interact with each other to understand the state of the project or session.
    - Advanced models that create plans and implement them in code.
    - Project memory shared across agents.
-   - An isolated Git worktree for each agent.
+   - One isolated Git worktree per thread today, shared by its developer and reviewers; a worktree for each agent is roadmap.
    - Human approval for risky actions.
    - Checkpoints and rollback of agent changes.
    - Per-agent management of MCP servers and skills.
