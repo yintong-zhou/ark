@@ -44,6 +44,18 @@ test.each([
   expect(decideApproval(command(cmd), root, true).allow).toBe(false);
 });
 
+test.each([
+  'python -m pytest -q', 'pytest -x -q tests/test_a.py::test_b', 'pytest -k "slow or fast" tests',
+  'pytest --tb=short --maxfail=2', 'ruff check .', 'ruff check --fix src', 'ruff format --check .',
+  '.venv/Scripts/python.exe -m pytest -q',
+])('Auto allows a check with harmless flags: %s', (cmd) => expect(isProjectCheck(cmd)).toBe(true));
+
+test.each([
+  'pytest --basetemp=/audit-outside', 'ruff check --output-file=/audit-outside.txt',
+  'pytest -p evil', 'pytest -c other.ini', 'pytest --rootdir=x', 'pytest -o cache_dir=/x',
+  'ruff check --config=x.toml', 'pytest /etc', 'pytest C:/x', 'pytest ../x', 'ruff check --cache-dir=x',
+])('Auto asks for flags that write, load or leave the worktree: %s', (cmd) => expect(isProjectCheck(cmd)).toBe(false));
+
 test('a project check needs project code consent', () => {
   expect(decideApproval(command('npm test'), root, false).allow).toBe(false);
   expect(decideApproval(command('npm test'), root, true).allow).toBe(true);
