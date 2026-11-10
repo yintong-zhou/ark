@@ -24,7 +24,7 @@ OpenCode) into one place. It runs on your own subscriptions: no server, no accou
 
 Ark shows, for the agents installed on your machine:
 
-- **Each open session's context**: how full it is, with a tick at 50%, so you can decide when to compact or hand off.
+- **Each open session's context**: how full it is, with a tick at your handoff threshold (40% by default), so you can decide when to compact or hand off.
 - **The 5-hour and weekly limits** of each agent, with time to reset. A tick on the weekly bar marks where usage would
   be if you spread the week evenly.
 - **History** of the last 7 days, and **which account** each agent is signed in with.
@@ -107,12 +107,12 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   - **Approve for me** (the default for new threads): the team picks its members, agrees on routine choices and goes from
     a valid plan straight into the build. Members' questions go to the project manager, who asks you only about
     missing intent, scope changes, sensitive decisions or real blockers. Ark itself allows only edits inside the worktree
-    (not `.git`, `.claude`, `.codex`, `.env*` or credential files) and test and lint commands: `npm test` / `npm run typecheck|lint|test|build`,
-    also in a subfolder with `--prefix web`, `ruff check` / `ruff format --check` and `pytest`, with relative paths only
-    and only a short list of harmless flags (flags that write output, set a root or load a plugin or another config
-    need a card); anything else, including compound shell commands,
-    still shows a card. A Codex developer can't run in this mode (its
-    protocol has no complete pre-action gate), so Auto routing gives this role to Claude.
+    (not `.git`, `.claude`, `.codex`, `.env*` or credential files) and, once you allow the repository's code (see
+    **Project code consent**), test and lint commands: `npm test` / `npm run typecheck|lint|test|build`, also in a
+    subfolder with `--prefix web`, `ruff check` / `ruff format --check` and `pytest`, with relative paths only and
+    only a short list of harmless flags (flags that write output, set a root or load a plugin or another config need a
+    card); anything else, including compound shell commands, still shows a card. A Codex developer can't run in this
+    mode (its protocol has no complete pre-action gate), so Auto routing gives this role to Claude.
   - **Full access**: the developer's tools run without approval prompts, including writes outside the worktree and network
     access. Read-only agents stay read-only in every mode.
   Threads created before this setting existed open as **Ask for approval**.
@@ -160,9 +160,9 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   Before every Claude session, for every role, Ark checks the project's `.claude/settings.json`. It may hold only
   `$schema`, `permissions.deny` and `permissions.ask`; hooks, env, allow rules and the like could run commands or skip a
   card. Anything else, or a file that is not valid JSON, stops the session and the error names the file and the keys.
-  Project skills and `.claude/commands` are refused the same way, by folder and by name. A project `CLAUDE.md` (or a file
-  it imports) with an `@` import outside the project, such as `@~/.claude/notes.md`, also blocks Claude agents in that
-  project until you remove the import; Codex is not affected.
+  When Claude lists project skills or `.claude/commands`, they are refused the same way, by folder and by name. A
+  project `CLAUDE.md` (or a file it imports) with an `@` import outside the project, such as `@~/.claude/notes.md`, also
+  blocks Claude agents in that project until you remove the import; Codex is not affected.
 - **Project code consent**: outside Full access, the first time Ark would run the project's checks in a thread, a card
   "Developer wants to use this repository's code" asks once. **Allow**: Ark runs the checks after each developer turn,
   and the Claude developer's check commands need no card. **Deny**: Ark runs no checks (the thread says so) and each check
