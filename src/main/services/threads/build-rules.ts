@@ -3,6 +3,7 @@
 // Nothing here mutates its input or touches status; `finish` only moves the thread phase to 'done'.
 import { REVIEW_ROUNDS, type Build, type BuildPhase, type Control, type Thread, type ThreadMessage } from '@shared/thread';
 import { NOTES } from './protocol';
+import { reviewer } from '@shared/roles';
 import type { CheckResult } from './workspace';
 
 export type BuildStep =
@@ -38,16 +39,32 @@ function fail(t: Thread, why: 'checks' | 'review', results?: CheckResult[], extr
 }
 
 export function startBuild(
-  t: Thread, build: Omit<Build, 'current' | 'phases'> & { phases: { title: string; text: string }[] },
+  t: Thread, build: Omit<Build, 'current' | 'phases'> & { phases: { title: string; text: string; builder?: string }[] },
 ): BuildDecision {
-  const phases = build.phases.map((p): BuildPhase => ({ title: p.title, text: p.text, step: 'develop', rounds: 0, notes: 0, open: 0 }));
+  const phases = build.phases.map((p): BuildPhase => {
+    const builder = p.builder && t.roles?.builders.includes(p.builder) ? p.builder : t.roles?.builders[0];
+    return { title: p.title, text: p.text, ...(builder && { builder }), step: 'develop', rounds: 0, notes: 0, open: 0 };
+  });
   return { thread: { ...t, phase: 'build', retried: false, build: { ...build, phases, current: 0 } }, step: { do: 'develop' } };
 }
 
-export function afterChecks(t: Thread, results: CheckResult[]): BuildDecision {
+export function afterChecks(t: Thread, results: CheckResult[], unread = false): BuildDecision {
   if (!results.every((r) => r.ok)) return fail(t, 'checks', results);
-  const { thread } = withPhase(t, (p) => { p.checks = results.map((r) => r.script); p.step = 'review'; });
-  return { thread, step: { do: 'review', who: 'code' } };
+  const code = reviewer(t, 'code');
+  const security = reviewer(t, 'security');
+  const { thread } = withPhase(t, (p) => { p.checks = results.map((r) => r.script); p.open = 0; p.step = code ? 'review' : security ? 'security' : 'develop'; });
+  if (code) return { thread, step: { do: 'review', who: 'code' } };
+  if (security) return { thread, step: { do: 'review', who: 'security' } };
+  return settlePhase(thread, unread);
+}
+
+function settlePhase(t: Thread, unread: boolean): BuildDecision {
+  const { thread, p, build } = withPhase(t, () => {});
+  if (p.open > 0) return fail(thread, 'review');
+  if (unread) { p.step = 'develop'; return { thread, step: { do: 'fix', why: 'user' } }; }
+  p.step = 'done';
+  if (build.current + 1 >= build.phases.length) return { thread, step: { do: 'summary' } };
+  return { thread: { ...thread, build: { ...build, current: build.current + 1 } }, step: { do: 'develop' } };
 }
 
 /** `unread`: the user wrote something the developer has not read yet; the phase cannot end before it does. */
@@ -60,17 +77,10 @@ export function afterReview(t: Thread, who: 'code' | 'security', control: Contro
   const keep = { retried: false };
   if (who === 'code') {
     const { thread } = withPhase(t, (p) => { p.open = n; p.notes += n; p.step = 'security'; }, keep);
-    return { thread, step: { do: 'review', who: 'security' } };
+    return reviewer(t, 'security') ? { thread, step: { do: 'review', who: 'security' } } : settlePhase(thread, unread);
   }
-  const { thread, p, build } = withPhase(t, (q) => { q.open += n; q.notes += n; }, keep);
-  if (p.open > 0) return fail(thread, 'review');
-  if (unread) {
-    p.step = 'develop';
-    return { thread, step: { do: 'fix', why: 'user' } };
-  }
-  p.step = 'done';
-  if (build.current + 1 >= build.phases.length) return { thread, step: { do: 'summary' } };
-  return { thread: { ...thread, build: { ...build, current: build.current + 1 } }, step: { do: 'develop' } };
+  const { thread } = withPhase(t, (q) => { q.open += n; q.notes += n; }, keep);
+  return settlePhase(thread, unread);
 }
 
 export function afterBuildUser(t: Thread): BuildDecision {

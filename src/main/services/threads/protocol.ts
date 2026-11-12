@@ -1,34 +1,54 @@
 // The agent protocol: agents end a reply with a fenced `ark` JSON block. This module parses it,
 // formats the transcript an agent receives, and holds the protocol prompts and Ark's own notes.
-import type { AgentDef } from '@shared/agent-file';
+import { AGENT_ID_RE, type AgentDef } from '@shared/agent-file';
 import { SWITCH_AT } from '@shared/agent-problems';
 import type { Attachment } from '@shared/attachments';
 import type { PermissionMode } from '@shared/permissions';
 import {
-  CODE_REVIEWER, DEVELOPER, MANAGER, PLANNING_BUDGET, SECURITY_REVIEWER,
-  type Control, type Phase, type TeamPick, type ThreadMessage,
+  MANAGER, PLANNING_BUDGET,
+  type Control, type ReviewKind, type Roles, type TeamPick, type ThreadMessage,
 } from '@shared/thread';
 import { obj, str } from '../json';
 import type { CheckResult } from './workspace';
 
 export const DIFF_MAX = 100_000;
 
-export const MANAGER_PROTOCOL = `# Working in an Ark thread
-You are the project manager of this thread: a conversation between the user and a team of agents. Ark relays it. On your turn you receive the new messages since your last turn, each starting with [Name]; lines starting with [Ark] are instructions from Ark.
+export const HEAD_PROTOCOL = `# Working in an Ark thread
+You are the Head of Staff of this thread: a conversation between the user, who is your boss, and a team of the user's own agents. Ark relays it. On your turn you receive the new messages since your last turn, each starting with [Name]; lines starting with [Ark] are instructions from Ark.
+You do not do the work yourself. You read the request, judge how hard it is, and put the right agents and models on it.
 End every reply with exactly one Ark block: a fenced code block tagged ark holding one JSON object.
-- Team phase (Ark tells you): {"team":[{"agent":"<id>","reason":"<one line>"}],"leftOut":"<one line on the obvious agents you left out>"}. Pick only ids from the catalog Ark lists, never yourself.
-- To give the floor to one team member: {"next":"<id>"}. One agent speaks per turn; after they reply it is your turn again. Add "hard":true when the task is hard: that one turn runs on a stronger model.
+
+## First: propose the team
+Ark lists the catalog: each agent's username, name and task, and whether it can change files. Reply with
+{"team":[{"agent":"<username>","reason":"<one line>"}],"leftOut":"<one line on the obvious agents you left out>","difficulty":"easy"|"hard","planner":"<username>","builders":["<username>"],"codeReview":"<username>","securityReview":"<username>"}
+- Pick only usernames from the catalog, never yourself. Everyone with a role must be in team.
+- difficulty: easy for a small, precise change such as fixing one known bug; hard for a new feature, a refactoring, or anything whose requirements are not settled.
+- A request that changes no files (a question, an analysis) needs only team and difficulty.
+- builders: only agents that can change files. Name one per area that must change, for example backend and frontend.
+- planner: who writes the plan. For an easy request leave it out: the first builder writes a short plan and nobody else is consulted. For a hard request choose an agent whose task is managing or planning.
+- codeReview and securityReview: agents suited to review, never a builder of this thread. One agent may do both.
+When the catalog lacks someone the work needs, do not improvise. Ask the user and say which agent to create in Agents:
+- a hard request and no agent suited to manage and plan it: a project manager agent;
+- files must change and no agent can change files: an agent that can build;
+- no agent suited to a review: a reviewer. Offer the choices "I will create a reviewer" and "Go on without it". If the user goes on without it, leave that review out; Ark confirms it with the user before the build.
+
+## Then: lead the planning (hard requests)
+- To give the floor to one team member: {"next":"<username>"}. One agent speaks per turn; after they reply it is your turn again. Add "level":"light"|"standard"|"heavy" to run that one turn on a lighter or stronger model than the agent's own. An agent whose model the user locked ignores it.
+- First have the manager work out with the user what is wanted, then have the builders size the work, then give the floor to the planner to write the plan, with "level":"heavy".
 - To ask the user: {"ask":"<one clear question>","choices":["<short answer>"]}. choices is optional, at most 4. The team waits for the answer.
-When the team agrees on what to build, give the floor to the planner to write the plan.
-Team members are advisors: they read the project but cannot change files or run commands. Building is Ark's job: once the plan is approved, Ark's developer implements it phase by phase in its own Git worktree, runs the project's tests and checks, and Ark's code and security reviewers review each phase. Never ask the user to apply a patch, open another session or grant tools: to get something built, get the plan written.`;
+- To change who plans, builds or reviews before the build starts: {"roles":{"builders":["<username>"]}} with only the keys that change (planner, builders, codeReview, securityReview), team members only.
+The plan's phases are the tasks. A phase heading may end with (@username) to name the builder of that phase.
+
+## Building
+Team members read the project but change nothing while the thread plans. Once the plan is approved, Ark runs the build: each phase is implemented by its builder in the thread's own Git worktree, Ark commits and runs the project's checks, and the reviewers review each phase. Never ask the user to apply a patch, open another session or grant tools: to get something built, get the plan written. When Ark tells you a phase is blocked, ask the user how to continue. When the build is finished, Ark asks you for the summary.`;
 export const MEMBER_PROTOCOL = `# Working in an Ark thread
-You are a member of this thread's team, led by the project manager. Ark relays the conversation. On your turn you receive the new messages since your last turn, each starting with [Name]; lines starting with [Ark] are instructions from Ark. You speak only when the project manager gives you the floor: answer what you were asked, briefly. You read the project but cannot change files or run commands: describe the changes for the plan instead of writing full patches. Ark's developer implements the approved plan and runs the tests.
+You are a member of this thread's team, led by the Head of Staff. Ark relays the conversation. On your turn you receive the new messages since your last turn, each starting with [Name]; lines starting with [Ark] are instructions from Ark. You speak only when you are given the floor: answer what you were asked, briefly. While the thread plans you read the project but cannot change files or run commands, even if you build later: describe the changes for the plan instead of writing patches.
 You may end your reply with one Ark block, a fenced code block tagged ark holding one JSON object:
 - To ask the user: {"ask":"<one clear question>","choices":["<short answer>"]} (choices optional, at most 4).
-- When your reply is the complete plan in Markdown, split into phases each with its goal and its checks: {"plan":true}. Start each phase with a heading "## Phase <n>: <title>".
-Without a block the floor goes back to the project manager.`;
-export const DEVELOPER_PROTOCOL = `# Working in an Ark thread
-You are the developer. You work alone in your own Git worktree, one plan phase at a time. Ark relays the reviewers' findings and the user's replies as [Ark] notes and messages. Do not commit: Ark commits. Run the project's checks before you finish. No Ark block is needed.`;
+- When your reply is the complete plan in Markdown, split into phases each with its goal and its checks: {"plan":true}. Start each phase with a heading "## Phase <n>: <title>"; add " (@username)" at the end of a heading to name the builder who implements that phase.
+Without a block the floor goes back to the Head of Staff.`;
+export const BUILDER_PROTOCOL = `# Working in an Ark thread
+You are the builder of this phase. You work in the thread's Git worktree, one plan phase at a time. Ark relays the reviewers' findings and the user's replies as [Ark] notes and messages. Do not commit: Ark commits. Run the project's checks before you finish. No Ark block is needed.`;
 export const REVIEWER_PROTOCOL = `# Working in an Ark thread
 You review the diff of one phase of the plan. You are read-only: do not change any file. Ark gives you the phase and its diff.
 End your reply with exactly one Ark block, a fenced code block tagged ark holding one JSON object:
@@ -36,11 +56,17 @@ End your reply with exactly one Ark block, a fenced code block tagged ark holdin
 - Something to fix: {"review":"changes","findings":["<one concrete finding>"]} with 1 to 20 findings.`;
 const DEVELOP_DENIED = "Ark will not run this project's checks in this thread: the user did not allow project code. Running one yourself asks the user each time.";
 export const NOTES = {
-  teamStart: (project: string, dir: string, catalog: AgentDef[]) =>
-    `The user started a thread in project ${project} (${dir}). Propose the team.\nCatalog:\n` +
-    catalog.filter((a) => a.id !== MANAGER).map((a) => `- ${a.id}: ${a.name}. ${a.description}`).join('\n'),
+  noAgents: 'No agents yet. Create an agent or add a ready team in Agents.',
+  teamStart: (project: string, dir: string) => `The user started a thread in project ${project} (${dir}). Propose the team.`,
+  catalog: (agents: AgentDef[]) => 'Catalog:\n' + agents.filter((a) => a.id !== MANAGER).map((a) => `- ${a.id}: ${a.name}. ${a.description}${a.permissions === 'build' ? ' [can change files]' : ''}`).join('\n'),
   roster: (team: { id: string; name: string }[]) => `Team: ${team.map((a) => `${a.id} (${a.name})`).join(', ')}.`,
   teamApproved: (names: string[]) => `The user approved the team: ${names.join(', ')}. Lead the planning.`,
+  easyPlan: 'This is an easy request: no discussion. Write the short plan now: one phase, or one phase per builder when more than one must change files. End with {"plan":true}.',
+  rolesChanged: 'Roles updated. Go on.',
+  legacyBuild: "This build used Ark's built-in developer and reviewers, which no longer exist. Send a message and the Head of Staff will pick who continues.",
+  assignRoles: 'This thread is mid-build and has nobody set to build or review. Pick them from the catalog with one roles block, or ask the user to create an agent that can build.',
+  waiveTool: (kind: ReviewKind) => `a build without a ${kind} review`,
+  waive: (kind: ReviewKind) => `No agent on this thread is set to do the ${kind} review. Allow builds this thread without it. Deny keeps the plan waiting: create a reviewer in Agents, then ask the Head of Staff to pick it.`,
   invalid: (error: string) => `Your reply had no valid Ark block (${error}). Reply again, ending with one valid Ark block.`,
   budget: `${PLANNING_BUDGET} agent turns without a plan. Write the user a short summary of where the discussion stands and ask how to continue.`,
   autoBudget: `${PLANNING_BUDGET} agent turns without a plan. Synthesize the team's work now: produce a complete plan with numbered phase headings and a plan block, or ask the user about one specific unresolved blocker. Do not delegate more turns.`,
@@ -65,7 +91,7 @@ export const NOTES = {
   // checks note after a denial. The copy must say the repository's code runs with the user's permissions.
   consentTool: "this repository's code",
   consent: (commands: string[]) =>
-    `Ark will run this repository's checks (${commands.join(', ')}) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow also lets the Claude developer run these commands without another card. Allow only if you would run this code yourself.`,
+    `Ark will run this repository's checks (${commands.join(', ')}) on your computer with your permissions, after each builder turn, for the rest of this thread. The builder can change what they run. Allow also lets the Claude builder run these commands without another card. Allow only if you would run this code yourself.`,
   checksDenied: 'Checks not run: you did not allow project code in this thread.',
   developDenied: DEVELOP_DENIED,
   fix: 'The reviewers asked for changes (their findings are above). Fix them; Ark re-runs the checks and the reviews.',
@@ -84,33 +110,16 @@ export const NOTES = {
   fresh: (handoff: string) => `You are continuing this thread in a fresh session. Your handoff:\n${handoff}`,
 };
 
-const protocolFor = (id: string, phase: Phase) => {
-  if (id === MANAGER) return MANAGER_PROTOCOL;
-  if (phase === 'build' && id === DEVELOPER) return DEVELOPER_PROTOCOL;
-  if (phase === 'build' && (id === CODE_REVIEWER || id === SECURITY_REVIEWER)) return REVIEWER_PROTOCOL;
-  return MEMBER_PROTOCOL;
-};
-export const withProtocol = (agent: AgentDef, phase: Phase = 'planning', mode: PermissionMode = 'ask'): AgentDef => ({
+export type ThreadRole = 'head' | 'member' | 'builder' | 'reviewer';
+const protocolFor = (role: ThreadRole) => role === 'head' ? HEAD_PROTOCOL : role === 'builder' ? BUILDER_PROTOCOL : role === 'reviewer' ? REVIEWER_PROTOCOL : MEMBER_PROTOCOL;
+export const withProtocol = (agent: AgentDef, role: ThreadRole = 'member', mode: PermissionMode = 'ask'): AgentDef => ({
   ...agent,
-  prompt: `${agent.prompt}\n\n${protocolFor(agent.id, phase)}\n\n${mode === 'ask'
-    ? 'Session policy: Ask for approval. The user confirms the team and starts the developer after the plan.'
-    : `# Autonomous session policy (overrides earlier turn-routing instructions)\nThe user authorized the team to select its members, agree on routine implementation decisions and proceed from a valid plan into the build. Do not ask the user to approve ordinary team choices, planning, inspections, local edits or checks.\nMembers may hand off to another approved team member with {"next":"<id>"}, never themselves or an outsider. Member ask blocks are questions to the project manager, who resolves them using context and specialists. Only the manager escalates missing user intent, material scope changes, sensitive decisions or real blockers. A complete valid plan starts the developer automatically.\nKeep decisions within the user's goal and report them in the conversation. Ark enforces tool approvals independently. Your role's read-only/build capability remains in force. Permission mode: ${mode}.`}`,
+  prompt: `${agent.prompt}\n\n${protocolFor(role)}\n\n${mode === 'ask'
+    ? 'Session policy: Ask for approval. The user confirms the team and starts the build after the plan.'
+    : `# Autonomous session policy (overrides earlier turn-routing instructions)\nThe user authorized the team to select its members, agree on routine implementation decisions and proceed from a valid plan into the build. Do not ask the user to approve ordinary team choices, planning, inspections, local edits or checks.\nMembers may hand off to another approved team member with {"next":"<id>"}, never themselves or an outsider. Member ask blocks are questions to the Head of Staff, who resolves them using context and specialists. Only the Head of Staff escalates missing user intent, material scope changes, sensitive decisions or real blockers. A complete valid plan starts the build automatically.\nKeep decisions within the user's goal and report them in the conversation. Ark enforces tool approvals independently. Your role's read-only/build capability remains in force. Permission mode: ${mode}.`}`,
 });
 
-const PHASE_HEADING = /^(#{1,3})[ \t]+\S+[ \t]+\d+[ \t]*[:.\-–\u2014][ \t]*(.+)$/gm;
-/**
- * The plan's phases: each numbered heading at the shallowest level used starts a phase, which runs to the next
- * (or the end); numbered sub-headings (`### Step 1: …`) stay inside their phase.
- */
-export function parsePhases(markdown: string): { title: string; text: string }[] {
-  const all = [...markdown.matchAll(PHASE_HEADING)];
-  const top = Math.min(...all.map((h) => h[1].length)); // a numbered sub-heading may come before Phase 1
-  const heads = all.filter((h) => h[1].length === top);
-  return heads.map((h, i) => ({
-    title: h[2].trim(),
-    text: markdown.slice(h.index, heads[i + 1]?.index ?? markdown.length).trim(),
-  }));
-}
+export { parsePhases } from '@shared/plan';
 
 const BLOCK = /```ark\s*\n([\s\S]*?)\n```/g;
 const MAX_CHOICES = 4;
@@ -118,6 +127,21 @@ const MAX_CHOICE = 60;
 const MAX_FINDINGS = 20;
 const MAX_FINDING = 2000;
 const fail = (error: string) => ({ error: `ark block: ${error}` });
+
+function parseRoles(o: Record<string, unknown>): { roles: Partial<Roles> } | { error: string } {
+  const roles: Partial<Roles> = {};
+  for (const key of ['planner', 'codeReview', 'securityReview'] as const) {
+    if (o[key] !== undefined) {
+      if (typeof o[key] !== 'string' || !AGENT_ID_RE.test(o[key])) return fail(`${key} must be an agent id`);
+      roles[key] = o[key];
+    }
+  }
+  if (o.builders !== undefined) {
+    if (!Array.isArray(o.builders) || !o.builders.every((id) => typeof id === 'string' && AGENT_ID_RE.test(id))) return fail('builders must be a list of agent ids');
+    roles.builders = o.builders;
+  }
+  return { roles };
+}
 
 /** Validates the JSON of one ark block into a Control, or an error message. */
 function toControl(json: string): { control: Control } | { error: string } {
@@ -129,8 +153,8 @@ function toControl(json: string): { control: Control } | { error: string } {
   }
   const o = obj(raw);
   if (!o) return fail('not valid JSON');
-  const kinds = ['team', 'next', 'ask', 'plan', 'review'].filter((k) => o[k] !== undefined);
-  if (kinds.length !== 1) return fail('use exactly one of team, next, ask, plan, review');
+  const kinds = ['team', 'next', 'ask', 'plan', 'review', 'roles'].filter((k) => o[k] !== undefined);
+  if (kinds.length !== 1) return fail('use exactly one of team, next, ask, plan, review, roles');
   switch (kinds[0]) {
     case 'team': {
       if (!Array.isArray(o.team) || o.team.length === 0) return fail('team needs at least one pick');
@@ -141,11 +165,25 @@ function toControl(json: string): { control: Control } | { error: string } {
         if (!agent || !reason) return fail('each pick needs an agent and a reason');
         picks.push({ agent, reason });
       }
-      return { control: { kind: 'team', picks, leftOut: typeof o.leftOut === 'string' ? o.leftOut : '' } };
+      if (o.difficulty !== undefined && o.difficulty !== 'easy' && o.difficulty !== 'hard') return fail('difficulty must be easy or hard');
+      const parsed = parseRoles(o);
+      if ('error' in parsed) return parsed;
+      const roles = Object.keys(parsed.roles).length ? { builders: [], ...parsed.roles } : undefined;
+      return { control: { kind: 'team', picks, leftOut: typeof o.leftOut === 'string' ? o.leftOut : '', ...(o.difficulty !== undefined && { difficulty: o.difficulty }), ...(roles && { roles }) } };
+    }
+    case 'roles': {
+      const value = obj(o.roles);
+      if (!value) return fail('roles needs planner, builders, codeReview or securityReview');
+      const parsed = parseRoles(value);
+      if ('error' in parsed) return parsed;
+      if (!Object.keys(parsed.roles).length) return fail('roles needs planner, builders, codeReview or securityReview');
+      return { control: { kind: 'roles', roles: parsed.roles } };
     }
     case 'next': {
       const agent = str(o.next);
-      return agent ? { control: { kind: 'next', agent, ...(o.hard === true ? { hard: true as const } : {}) } } : fail('next must be an agent id');
+      if (!agent) return fail('next must be an agent id');
+      if (o.level !== undefined && o.level !== 'light' && o.level !== 'standard' && o.level !== 'heavy') return fail('level must be light, standard or heavy');
+      return { control: { kind: 'next', agent, ...(o.level !== undefined && { level: o.level }) } };
     }
     case 'ask': {
       const question = str(o.ask);

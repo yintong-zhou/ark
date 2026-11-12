@@ -1,4 +1,4 @@
-import type { AgentDef, EngineId, Tier } from './agent-file';
+import type { AgentDef, EngineId, EngineSetting, Tier } from './agent-file';
 import type { ImageInput, Upload } from './attachments';
 import type { BrowserCapture, BrowserKey, BrowserState, Picked, Rect } from './browser';
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
@@ -51,12 +51,14 @@ export type UsageState = { agents: AgentStatus[]; sessions: Session[] };
 
 export type StatuslineStatus = 'connected' | 'disconnected' | 'bypassed';
 
-export type SkillSource = 'claude-user' | 'claude-plugin' | 'agents-user' | 'codex-user' | 'codex-system';
+export type SkillSource = 'ark' | 'claude-user' | 'claude-plugin' | 'agents-user' | 'codex-user' | 'codex-system';
 
 export type CatalogList = { agents: AgentDef[]; invalid: { file: string; error: string }[] };
 export type ImportableAgent = { path: string; name: string; source: string }; // source: 'Claude Code' or the plugin name
+export type TeamInfo = { id: string; name: string; description: string; count: number; present: number };
 
 export type SkillInfo = { name: string; source: SkillSource; description: string };
+export type HeadSettings = { skills: string[]; engine: EngineSetting; lock: boolean };
 
 export type EngineInfo = { id: EngineId; installed: boolean; path?: string; version?: string; manual: boolean };
 export type EnginesConfig = { claude?: { path?: string }; codex?: { path?: string; tiers?: Partial<Record<Tier, string>> } };
@@ -93,16 +95,26 @@ export interface ArkApi {
   settings: { getView(): Promise<ViewMode>; setView(v: ViewMode): Promise<void>; getHandoffThresholds(): Promise<Record<EngineId, number>>; setHandoffThreshold(engine: EngineId, percent: number): Promise<void> };
   catalog: {
     list(): Promise<CatalogList>;
-    addItServices(): Promise<{ added: string[]; skipped: string[] }>;
-    addThreadAgents(): Promise<{ added: string[]; skipped: string[] }>;
-    save(a: AgentDef): Promise<void>;
+    teams(): Promise<TeamInfo[]>;
+    addTeam(id: string): Promise<{ added: string[]; skipped: string[] }>;
+    updateTeam(id: string): Promise<{ updated: string[] }>;
+    save(a: AgentDef, image?: ImageInput | null): Promise<void>;
+    pickImage(): Promise<ImageInput | null>;
+    image(id: string): Promise<ImageInput | null>;
     remove(id: string): Promise<void>;
     importable(): Promise<ImportableAgent[]>;
     import(path: string): Promise<AgentDef>;
     draft(description: string): Promise<AgentDef>;
   };
-  skills: { list(): Promise<SkillInfo[]> };
-  engines: { status(): Promise<EngineInfo[]>; save(c: EnginesConfig): Promise<void> };
+  head: { get(): Promise<AgentDef>; save(s: HeadSettings): Promise<void> };
+  skills: {
+    list(): Promise<SkillInfo[]>;
+    /** Main opens a folder dialog. 'exists' means a skill of that name is already imported: call replace() to overwrite it. */
+    import(): Promise<{ status: 'imported' | 'exists' | 'cancelled'; name?: string }>;
+    replace(): Promise<{ name: string }>;
+    remove(name: string): Promise<void>;
+  };
+  engines: { status(): Promise<EngineInfo[]>; codexModels(): Promise<string[]>; save(c: EnginesConfig): Promise<void> };
   chat: {
     pickFolder(): Promise<string | null>;
     start(agentId: string, projectDir: string, mode?: PermissionMode): Promise<ChatStarted>;

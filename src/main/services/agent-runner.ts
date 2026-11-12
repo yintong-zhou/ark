@@ -18,6 +18,7 @@ import { workspace } from './threads/workspace';
 export type RunnerDeps = {
   catalog: Pick<Catalog, 'get'>;
   skills: () => SkillEntry[];
+  personalSkills: () => SkillEntry[];
   engines: () => Promise<EngineInfo[]>;
   config: () => EnginesConfig;
   tempDir: string;
@@ -93,7 +94,7 @@ export class AgentRunner {
         model = plan.model ?? CLAUDE_TIER_MODEL[plan.tier];
         // What the engine must not load: the user's own Claude skills and the project's.
         // Claude lists skills by frontmatter name, so forbid both the folder and the name.
-        const forbidden = new Set(index.filter((s) => s.source === 'claude-user').flatMap((s) => [s.folder, s.name]));
+        const forbidden = new Set(this.deps.personalSkills().flatMap((s) => [s.folder, s.name]));
         const projectCommands = new Set(projectSkillNames(projectDir));
         for (const n of projectCommands) forbidden.add(n);
         session = this.deps.startClaude({

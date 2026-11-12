@@ -148,3 +148,14 @@ test('saveFile keeps an upload under the thread and readFile refuses anything el
   for (const bad of ['../thread.json', 'thread.json', '12345678-../x', 'a/b']) expect(() => s.readFile(t.id, bad)).toThrow('Unknown attachment');
   expect(() => s.saveFile(t.id, { name: 'x.exe', bytes: new Uint8Array(1) })).toThrow("isn't supported");
 });
+
+test('an old mid-build thread gets one note and is saved upgraded', () => {
+  const store = new ThreadStore(root);
+  const projectId = store.addProject(dir('app')).id;
+  const t = store.create(projectId, 'T');
+  store.save({ ...t, phase: 'build', status: 'idle', team: ['project-manager', 'developer'], build: { worktree: 'w', branch: 'b', plan: 'p', phases: [], current: 0 } });
+  store.recover();
+  store.recover();
+  expect(store.messages(t.id).filter((m) => m.kind === 'note')).toHaveLength(1);
+  expect(store.get(t.id)).toMatchObject({ team: ['head-of-staff', 'developer'], roles: { builders: [] } });
+});

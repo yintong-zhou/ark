@@ -3,7 +3,7 @@ import type { AgentDef } from '@shared/agent-file';
 import type { UsageState } from '@shared/types';
 import { AGENT_NAME, type Navigate, type Screen } from '../agents';
 import { AgentTag } from './AgentTag';
-import { Avatar, initials } from './Avatar';
+import { AgentAvatar } from './Avatar';
 import { NavIcon, UsageIcon } from './Icons';
 import { Sidebar, SideLabel, SideRow } from './Shell';
 
@@ -45,12 +45,12 @@ export function AgentsNav({ screen, onNavigate }: { screen: Screen; onNavigate: 
   }, [screen]);
   return (
     <Sidebar title="Agents" label="Agents">
-      <SideRow lead={<NavIcon kind="catalog" />} selected={screen.name === 'agents' || screen.name === 'agent-form'} onClick={() => onNavigate({ name: 'agents' })}>Catalog</SideRow>
+      <SideRow lead={<NavIcon kind="catalog" />} selected={screen.name === 'agents' || screen.name === 'agent-form' || screen.name === 'head-form'} onClick={() => onNavigate({ name: 'agents' })}>Catalog</SideRow>
       <SideLabel>Chat</SideLabel>
       {agents.map((a) => (
         <SideRow
           key={a.id}
-          lead={<Avatar text={initials(a.name)} size={24} />}
+          lead={<AgentAvatar agent={a} name={a.name} size={24} />}
           selected={screen.name === 'chat' && screen.agentId === a.id}
           onClick={() => onNavigate({ name: 'chat', agentId: a.id })}
         >

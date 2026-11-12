@@ -60,7 +60,7 @@ class FakeSession implements EngineSession {
   }
 }
 
-function setup(o: { limited?: boolean; claude?: boolean; codex?: boolean; skills?: SkillEntry[]; agent?: AgentDef } = {}) {
+function setup(o: { limited?: boolean; claude?: boolean; codex?: boolean; skills?: SkillEntry[]; personal?: SkillEntry[]; agent?: AgentDef } = {}) {
   const session = new FakeSession();
   const claudeCalls: Record<string, unknown>[] = [];
   const codexCalls: Record<string, unknown>[] = [];
@@ -68,6 +68,7 @@ function setup(o: { limited?: boolean; claude?: boolean; codex?: boolean; skills
   const deps: RunnerDeps = {
     catalog: { get: (id) => (id === a.id ? a : undefined) },
     skills: () => o.skills ?? [skill('alpha')],
+    personalSkills: () => o.personal ?? (o.skills ?? []).filter((s) => s.source === 'claude-user'),
     engines: async () => [
       { id: 'claude', installed: o.claude ?? true, path: 'C:\\bin\\claude.exe', manual: false },
       { id: 'codex', installed: o.codex ?? true, path: 'C:\\bin\\codex.exe', manual: false },
@@ -428,4 +429,13 @@ test("forbids the project's skills by frontmatter name and its slash commands", 
   const forbidden = t.claudeCalls[0].forbidden as Set<string>;
   for (const n of ['dir-name', 'shown-name', 'deploy', 'nested', 'team:nested']) expect(forbidden.has(n)).toBe(true);
   expect(t.claudeCalls[0].projectCommands).toEqual(new Set(['dir-name', 'shown-name', 'deploy', 'nested', 'team:nested']));
+});
+
+test('a personal skill hidden by an imported one of the same name is still forbidden', async () => {
+  const imported = skill('handoff', 'ark');
+  const personal: SkillEntry = { ...imported, dir: join(root, 'claude', 'skills', 'handoff'), source: 'claude-user' };
+  const t = setup({ skills: [imported], personal: [personal], agent: agent({ skills: ['handoff'] }) });
+  await t.runner.start('tester', project);
+  expect(t.claudeCalls[0].expectedFolders).toEqual(['handoff']); // Ark's copy, loaded as ark-agent:handoff
+  expect((t.claudeCalls[0].forbidden as Set<string>).has('handoff')).toBe(true); // the user's own, loaded bare, is a violation
 });

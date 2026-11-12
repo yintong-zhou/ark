@@ -3,7 +3,9 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, write
 import { basename, join, resolve } from 'node:path';
 import { kindOf, type Attachment, type Upload } from '@shared/attachments';
 import type { NewMessage, Project, Thread, ThreadMessage } from '@shared/thread';
+import { upgradeThread } from '@shared/thread-upgrade';
 import { writeAtomic } from '../files';
+import { NOTES } from './protocol';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A stored attachment: 8 hex digits, a dash, then a plain file name. Nothing that could leave the folder matches.
@@ -94,12 +96,17 @@ export class ThreadStore {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  get(id: string): Thread | undefined {
+  private raw(id: string): Thread | undefined {
     try {
       return JSON.parse(readFileSync(join(this.dir(id), 'thread.json'), 'utf8'));
     } catch {
       return undefined;
     }
+  }
+
+  get(id: string): Thread | undefined {
+    const t = this.raw(id);
+    return t ? upgradeThread(t) : undefined;
   }
 
   create(projectId: string, title: string): Thread {
@@ -189,12 +196,17 @@ export class ThreadStore {
 
   /** After a crash or close: a thread left `running` has no live sessions any more. */
   recover(): void {
-    for (const t of this.threads()) {
-      if (t.status !== 'running') continue;
+    for (const listed of this.threads()) {
+      const raw = this.raw(listed.id);
+      if (!raw) continue;
+      const legacyBuild = raw.phase === 'build' && raw.roles === undefined;
+      const t = upgradeThread(raw);
+      if (t.status !== 'running' && !legacyBuild) continue;
       try {
         // note first: if save then fails, the thread stays running and is recovered on the next start
-        this.append(t.id, { kind: 'note', text: 'Ark was closed during a turn. Send a message to continue.' });
-        this.save({ ...t, status: 'idle', speaking: undefined, cursors: {}, approvals: undefined }); // JSON drops the undefined keys
+        if (legacyBuild) this.append(t.id, { kind: 'note', text: NOTES.legacyBuild });
+        if (t.status === 'running') this.append(t.id, { kind: 'note', text: 'Ark was closed during a turn. Send a message to continue.' });
+        this.save(t.status === 'running' ? { ...t, status: 'idle', speaking: undefined, cursors: {}, approvals: undefined } : t);
       } catch {
         // one unreadable thread must not stop the others (or app start)
       }

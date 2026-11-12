@@ -126,13 +126,13 @@ describe('afterReply', () => {
     expect(summary.thread.summarizing).toBe(false);
   });
 
-  test('hard passes from the manager next to the step', () => {
-    const d = afterReply(th(), MANAGER, { kind: 'next', agent: 'planner', hard: true }, undefined);
-    expect(d.step).toEqual({ do: 'turn', agent: 'planner', hard: true });
+  test('level passes from the manager next to the step', () => {
+    const d = afterReply(th(), MANAGER, { kind: 'next', agent: 'planner', level: 'heavy' }, undefined);
+    expect(d.step).toEqual({ do: 'turn', agent: 'planner', level: 'heavy' });
   });
 
-  test('an interrupt or the budget drops hard', () => {
-    const hard: Control = { kind: 'next', agent: 'planner', hard: true };
+  test('an interrupt or the budget drops level', () => {
+    const hard: Control = { kind: 'next', agent: 'planner', level: 'heavy' };
     expect(afterReply(th(), MANAGER, hard, undefined, {}).step).toEqual({ do: 'turn', agent: MANAGER });
     expect(afterReply(th({ agentTurns: PLANNING_BUDGET - 1 }), MANAGER, hard, undefined).step).toEqual({ do: 'turn', agent: MANAGER, note: NOTES.budget });
   });
@@ -194,4 +194,37 @@ test('needsHandoff is false without a window and true at exactly 40%', () => {
   expect(needsHandoff(59, 100, 0.6)).toBe(false);
   expect(needsHandoff(60, 100, 0.6)).toBe(true);
   expect(needsHandoff(HANDOFF_AT * 100, 100)).toBe(true);
+});
+
+const names = { planner: 'Planner', dev: 'Dev', seo: 'SEO' };
+
+test('an easy team goes straight to its builder for a short plan', () => {
+  const d = approveTeam(th({ phase: 'team', team: [] }), ['dev', 'seo'], names, { difficulty: 'easy', roles: { builders: ['dev'], codeReview: 'seo' } });
+  expect(d.thread).toMatchObject({ phase: 'planning', team: [MANAGER, 'dev', 'seo'], difficulty: 'easy', roles: { planner: 'dev', builders: ['dev'], codeReview: 'seo' } });
+  expect(d.step).toEqual({ do: 'turn', agent: 'dev', note: NOTES.easyPlan, level: 'standard' });
+});
+
+test('a hard team, or one with nobody to build, goes to the Head of Staff as before', () => {
+  const hard = approveTeam(th({ phase: 'team', team: [] }), ['planner', 'dev'], names, { difficulty: 'hard', roles: { planner: 'planner', builders: ['dev'] } });
+  expect(hard.step).toMatchObject({ do: 'turn', agent: MANAGER });
+  expect(hard.thread.roles).toEqual({ planner: 'planner', builders: ['dev'] });
+  expect(approveTeam(th({ phase: 'team', team: [] }), ['seo'], names).step).toMatchObject({ do: 'turn', agent: MANAGER });
+});
+
+test('roles held by someone the user left off the team are dropped', () => {
+  const d = approveTeam(th({ phase: 'team', team: [] }), ['dev'], names, { difficulty: 'hard', roles: { planner: 'planner', builders: ['dev'], codeReview: 'seo' } });
+  expect(d.thread.roles).toEqual({ builders: ['dev'] });
+});
+
+test('a roles block from the Head of Staff updates the roles and gives it the floor again', () => {
+  const d = afterReply(th({ roles: { planner: 'planner', builders: [] } }), MANAGER, { kind: 'roles', roles: { builders: ['dev'] } }, undefined);
+  expect(d.thread.roles).toEqual({ planner: 'planner', builders: ['dev'] });
+  expect(d.step).toEqual({ do: 'turn', agent: MANAGER, note: NOTES.rolesChanged });
+});
+
+test('a roles block is not valid in the team phase, and a member cannot send one', () => {
+  expect(afterReply(th({ phase: 'team' }), MANAGER, { kind: 'roles', roles: { builders: ['dev'] } }, undefined).thread.retried).toBe(true);
+  const d = afterReply(th({ roles: { builders: [] } }), 'planner', { kind: 'roles', roles: { builders: ['dev'] } }, undefined);
+  expect(d.thread.roles).toEqual({ builders: [] });
+  expect(d.step).toEqual({ do: 'turn', agent: MANAGER });
 });

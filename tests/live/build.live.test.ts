@@ -12,7 +12,7 @@ import { startClaudeSession } from '../../src/main/services/engines/claude-sessi
 import { codexModels, startCodexSession } from '../../src/main/services/engines/codex-session';
 import { engineStatus } from '../../src/main/services/engines/config';
 import { cleanEnv } from '../../src/main/services/engines/isolation';
-import { indexSkills, type SkillEntry } from '../../src/main/services/skills';
+import { indexSkills, personalSkills, type SkillEntry } from '../../src/main/services/skills';
 
 const tmp = mkdtempSync(join(tmpdir(), 'ark-live-build-'));
 const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex');
@@ -31,7 +31,8 @@ const probes = [probe('a'), probe('b')];
 
 const runner = new AgentRunner({
   catalog: { get: () => undefined },
-  skills: () => [...indexSkills({ claudeConfigDir, home: homedir(), codexHome }), ...probes],
+  skills: () => [...indexSkills({ claudeConfigDir, home: homedir(), codexHome, ark: join(tmp, 'skills') }), ...probes],
+  personalSkills: () => personalSkills({ claudeConfigDir, home: homedir(), codexHome, ark: join(tmp, 'skills') }),
   engines: () => engineStatus({}),
   config: () => ({}),
   tempDir: tmp,

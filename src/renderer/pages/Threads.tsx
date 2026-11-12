@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { AgentDef } from '@shared/agent-file';
 import { rootKey, type RootRef } from '@shared/files';
 import type { Project, Thread } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
@@ -56,6 +57,12 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const [filter, setFilter] = useState<string>(); // a #tag the thread list is narrowed to
   const mine = ws.threads.filter((t) => t.projectId === project?.id);
   const thread = draft ? undefined : mine.find((t) => t.id === ws.selected);
+  const [threadAgents, setThreadAgents] = useState<AgentDef[]>([]);
+  useEffect(() => {
+    let active = true;
+    void Promise.all([window.ark.head.get(), window.ark.catalog.list()]).then(([head, catalog]) => { if (active) setThreadAgents([head, ...catalog.agents]); }, () => {});
+    return () => { active = false; };
+  }, [thread?.id]);
   const tags = [...new Set(mine.flatMap((t) => t.tags ?? []))];
   const only = filter && tags.includes(filter) ? filter : undefined;
   const listed = only ? mine.filter((t) => t.tags?.includes(only)) : mine;
@@ -229,7 +236,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
               <PaneHeader title="New thread" meta={[`in ${project.name}`]} />
               <div className="flex min-h-0 flex-1 flex-col justify-end">
                 <Empty glyph="💡" title="What do you want to work on?">
-                  {permissionMode === 'ask' ? 'The project manager proposes a team and waits for your approval.' : 'The team plans and builds autonomously. You can pause it at any time.'}
+                  {permissionMode === 'ask' ? 'The Head of Staff proposes a team and waits for your approval.' : 'The team plans and builds autonomously. You can pause it at any time.'}
                 </Empty>
               </div>
               <div className="px-2 pb-0.5 lg:px-3"><PermissionSelect value={permissionMode} onChange={setPermissionMode} /></div>
@@ -250,7 +257,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
               />
             </>
           ) : thread ? (
-            <ThreadView key={thread.id} thread={thread} messages={ws.messages} agents={ws.agents} tags={tags} onTag={(t) => setFilter(only === t ? undefined : t)} />
+            <ThreadView key={thread.id} thread={thread} messages={ws.messages} agents={threadAgents} tags={tags} onTag={(t) => setFilter(only === t ? undefined : t)} />
           ) : (
             <>
               <PaneHeader title={project.name} />
@@ -259,7 +266,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 title={mine.length === 0 ? 'No threads yet' : 'Pick a thread'}
                 action={<button onClick={() => onDraft(true)} className={CTA}>New thread</button>}
               >
-                {mine.length === 0 ? 'Start one and the project manager will propose a team.' : 'Open one on the left, or start a new one.'}
+                {mine.length === 0 ? 'Start one and the Head of Staff will propose a team.' : 'Open one on the left, or start a new one.'}
               </Empty>
             </>
           )}
@@ -312,7 +319,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
           }
         >
           {view === 'team' && thread ? (
-            <TeamPanel thread={thread} messages={ws.messages} agents={ws.agents} />
+            <TeamPanel thread={thread} messages={ws.messages} agents={threadAgents} />
           ) : (
             <div className="p-1">
               {worktree && (

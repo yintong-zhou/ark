@@ -55,9 +55,11 @@ and Max plans.
 Ark keeps a catalog of agents. Each agent is a Markdown file in `%APPDATA%\ark\agents`, so you can edit it in any
 editor and keep it in Git. It has a role prompt, an engine (Claude Code or Codex), and the list of skills it may use.
 
-- **Default**: Alex, the project manager, is added automatically so you can start a thread.
+- **Head of Staff**: Ark has a built-in coordinator. The catalog starts empty; create agents or add a team before starting a thread.
 - **Import**: copy agents from `~/.claude/agents` and from Claude Code plugins into the catalog.
+- **New agent**: choose a profile image, alias, role and unique username, then set its task, model, file permissions, skills and system prompt. Lock a model when it must always be used.
 - **Draft with AI**: describe an agent in one sentence and a light-tier agent writes a draft for you to approve.
+- **Import skill**: in the Skills field of an agent (or of the Head of Staff), choose a folder with a `SKILL.md` and Ark copies it to `%APPDATA%\ark\skills` (up to 200 files and 5 MB, no links followed). It shows as `Ark`, wins over an installed skill of the same name, and `Remove` sends the copy to the Recycle Bin. Your own Claude skills stay out of reach of the agents.
 - **Chat**: pick an agent and a project folder and talk to it, on Claude Code or Codex.
 
 Each agent sees only its own skills. The project's own `CLAUDE.md` or `AGENTS.md` is kept, so the agent follows the
@@ -80,16 +82,9 @@ Atlas lead product, development, QA and DevOps, with Pixel, Sage, Orion, Forge, 
 as specialists. Profiles carry their role, reporting line, handoff rules and L1/L2/L3 decision boundaries. You are
 `@head_of_engineering`; this human role is never an AI agent.
 
-New catalogs start with the project manager. **Agents > Add thread roles** adds only the project manager. Builds use Ark's built-in `developer`, `code-reviewer` and `security-reviewer` roles; create an agent with one of those ids in **Agents** to replace it (a custom developer needs build permission). Team members from the catalog are advisors: they read the project but never change files or run commands. Open **Agents > Add IT Services team** to add missing profiles;
-customized or invalid files are kept, and repeating the action does not duplicate profiles. Agents use the standard's
-usernames, for example `@frontend_dev`, in mentions and task assignments once approved for the thread. Engine **Auto**
-uses the existing Claude Code/Codex routing; profiles need no extra skills and can be edited like any other agent.
+Under **Agents > Ready teams**, add IT Services to copy missing profiles into your catalog without replacing existing files. **Update team** asks before replacing its profiles and restores deleted members; edits to those profiles are lost. Its developers build, its tech lead reviews code and its security agent reviews security. Agents use usernames such as `@frontend_dev` for mentions and task assignments. The Head of Staff chooses the team and its roles for each thread.
 
-These profiles advise in Chat and planning with read-only access. The reporting hierarchy and governance rules are
-instructions in their prompts, not a separate scheduler or an automated release gate. Ark's existing project manager
-still coordinates turns, and its developer and reviewers still run the approved build. Specialists hand implementation
-to that developer; they gain no production, deployment or write access. OpenCode execution and configuration remain
-on hold.
+Agents are read-only in Chat and planning. During a build, the thread's selected builders work in its worktree and its reviewers review each phase. The hierarchy in the IT Services profiles is prompt guidance, not a separate scheduler. OpenCode execution and configuration remain on hold.
 
 ## Threads
 
@@ -105,22 +100,22 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   (a change stops the thread's agent sessions, so no agent keeps working under the old setting; send a message to continue):
   - **Ask for approval**: you approve the team and the plan, and every risky action shows a card.
   - **Approve for me** (the default for new threads): the team picks its members, agrees on routine choices and goes from
-    a valid plan straight into the build. Members' questions go to the project manager, who asks you only about
+    a valid plan straight into the build. Members' questions go to the Head of Staff, who asks you only about
     missing intent, scope changes, sensitive decisions or real blockers. Ark itself allows only edits inside the worktree
     (not `.git`, `.claude`, `.codex`, `.env*` or credential files) and, once you allow the repository's code (see
     **Project code consent**), test and lint commands: `npm test` / `npm run typecheck|lint|test|build`, also in a
     subfolder with `--prefix web`, `ruff check` / `ruff format --check` and `pytest`, with relative paths only and
     only a short list of harmless flags (flags that write output, set a root or load a plugin or another config need a
-    card); anything else, including compound shell commands, still shows a card. A Codex developer can't run in this
+    card); anything else, including compound shell commands, still shows a card. A Codex builder can't run in this
     mode (its protocol has no complete pre-action gate), so Auto routing gives this role to Claude.
-  - **Full access**: the developer's tools run without approval prompts, including writes outside the worktree and network
+  - **Full access**: the builder's tools run without approval prompts, including writes outside the worktree and network
     access. Read-only agents stay read-only in every mode.
   Threads created before this setting existed open as **Ask for approval**.
-- **Team phase**: when you start a thread, the project manager reads your request and proposes a team from the catalog,
+- **Team phase**: when you start a thread, the Head of Staff reads your request and proposes a team from the catalog,
   with a one-line reason for each agent. In **Ask for approval** you edit the list and press **Approve team**, and nobody
   else speaks until you do; otherwise the team starts at once.
-- **Planning**: the project manager gives the floor to one agent at a time. Only one agent speaks per turn, and each
-  agent sees only its own skills, as in Chat. After 20 agent turns without a plan, the manager summarizes and asks you
+- **Planning**: the Head of Staff gives the floor to one agent at a time. Only one agent speaks per turn, and each
+  agent sees only its own skills, as in Chat. After 20 agent turns without a plan, the Head of Staff summarizes and asks you
   how to continue.
 - **`@you`**: an agent that needs your decision tags you. The thread is marked **Your turn** (an Accent bar on the
   message and the thread) and the team pauses until you answer, with the quick replies the agent offers or in your own
@@ -135,22 +130,10 @@ worktrees and original folder. Running threads are paused. Add the same folder a
 - **Emoji**: the smiley in the composer opens a grid of emoji.
 - **Reactions**: react 👍 or 👎 to any agent message. A reaction does not start a turn: the agents see it on their next turn ("the user reacted 👍 to ...").
 - **The plan card**: when the planner finishes, its plan appears as a card in the thread and is saved as `plan.md` in the
-  thread's folder. In **Ask for approval**, **Start developer** approves it; otherwise the build starts by itself.
+  thread's folder. In **Ask for approval**, **Start build** approves it; otherwise the build starts by itself.
 
-- **Build phase**: **Start developer** creates a Git worktree on a new branch `ark/<title>-<id>` (under
-  `%APPDATA%\ark\worktrees`) from the project's current commit, so uncommitted changes are not in it, and your checked-out
-  branch is never touched. The plan is copied into the worktree and committed first. The developer then builds the plan
-  phase by phase. After each developer turn Ark commits the work and runs the project's checks (see **Checks**),
-  then the code reviewer and the security reviewer each get a turn. After two rounds without agreement the
-  project manager sends the open points to you. When every phase is done the manager closes the thread with a summary.
-- **Auto**: an agent runs at its own `tier`. When the project manager marks a task as hard (`"hard": true`), that one turn runs
-  one tier up, in a fresh session. In a thread, agents set to `engine: auto` are spread over Claude Code and Codex when both
-  are installed: when only one engine has a 5-hour or weekly window at 90% or more, new sessions go to the other; otherwise
-  Ark balances the thread's members between the two, starting from the role (the manager and planner lean to Claude, the
-  developer and reviewers to Codex). The choice is made when a session starts and kept for that member, so a running
-  session never moves. Agents with a fixed engine or model never move. Each message and team member shows the engine and
-  model it actually ran on, for example `Codex / gpt-6-terra`. Chat outside threads keeps the old rule: Claude first, light
-  and standard work on Codex once a Claude window reaches 90%.
+- **Build phase**: **Start build** creates a Git worktree on a new branch `ark/<title>-<id>` under `%APPDATA%\ark\worktrees`. The plan is committed there first. Each phase is built by its assigned builder, followed by Ark's checks and the thread's code and security reviewers. A missing review is skipped only after you explicitly allow it on a card, in every permission mode. The Head of Staff raises blocked work and summarizes the result.
+- **Difficulty and models**: for an easy change, the first builder writes a short plan without a discussion. For a hard request, the Head of Staff involves a manager-type agent and sends the planner a heavy-level turn. A locked exact model stays fixed; unlocked agents may run a turn at the selected level. Auto sessions are balanced between installed engines and keep their chosen engine for the session.
 - **Thread cost**: the team panel shows tokens per model, and how the usage windows moved while the thread ran, for example
   `Claude 5h 41% → 44%`, marked "Including your other sessions" because a window counts all your usage. The build summary
   lists the same.
@@ -164,16 +147,16 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   project `CLAUDE.md` (or a file it imports) with an `@` import outside the project, such as `@~/.claude/notes.md`, also
   blocks Claude agents in that project until you remove the import; Codex is not affected.
 - **Project code consent**: outside Full access, the first time Ark would run the project's checks in a thread, a card
-  "Developer wants to use this repository's code" asks once. **Allow**: Ark runs the checks after each developer turn,
-  and the Claude developer's check commands need no card. **Deny**: Ark runs no checks (the thread says so) and each check
-  command the developer runs asks for approval. The answer is saved with the thread, survives restarts and permission
+  "Developer wants to use this repository's code" asks once. **Allow**: Ark runs the checks after each builder turn,
+  and the Claude builder's check commands need no card. **Deny**: Ark runs no checks (the thread says so) and each check
+  command the builder runs asks for approval. The answer is saved with the thread, survives restarts and permission
   changes, and there is no card when the project has no checks. Full access never asks.
   The Python flag list is a second layer: repository config (`pytest` addopts, ruff `cache-dir`/`extend`) can set the
   same options without a flag. The project code consent card is the protection against running repository code with
   your permissions.
-- **Checks**: after each developer turn Ark runs the checks it finds: the `typecheck`, `lint`, `test` and `build` scripts of
+- **Checks**: after each builder turn Ark runs the checks it finds: the `typecheck`, `lint`, `test` and `build` scripts of
   `package.json` at the root and in direct subfolders (`npm --prefix web run test`), `ruff check .` when the Python project
-  configures ruff, and `python -m pytest -q` when it configures pytest or has a `tests` folder. The developer is told the
+  configures ruff, and `python -m pytest -q` when it configures pytest or has a `tests` folder. The builder is told the
   exact commands. A check whose tool is not installed is reported as skipped, not failed. Pause and a permission change
   stop running checks; the thread shows as running for up to about 10 seconds until they exit, then goes idle (with a
   note if processes the checks started may still be running).
@@ -185,7 +168,7 @@ If Ark is closed during a turn, the thread notes it and continues when you send 
 handed off to a fresh one at 40% of its context by default (change it per engine under **Handoff settings** on the
 usage page), so a thread can run for a long time.
 
-`npm run test:live` also starts a real thread on the light tier and checks that the project manager answers with a team
+`npm run test:live` also starts a real thread on the light tier and checks that the Head of Staff answers with a team
 proposal or a question, and runs the approval round trip (deny and allow) with a Claude build agent, and a deny with a
 Codex build agent.
 

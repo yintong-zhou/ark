@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { AgentDef } from '@shared/agent-file';
-import { type CodexModel, codexTierModel, resolveRun } from '../../src/main/services/engines/models';
+import { type CodexModel, codexTierModel, resolveRun, visibleModels } from '../../src/main/services/engines/models';
 
 // Observed model/list output, newest first.
 const models: CodexModel[] = [
@@ -63,4 +63,14 @@ test('resolveRun', () => {
   expect(resolveRun(agent({ kind: 'auto' }), { claude: true, codex: false }, true)).toEqual({ engine: 'claude', tier: 'light' });
   expect(resolveRun(agent({ kind: 'engine', engine: 'claude' }), both, true)).toEqual({ engine: 'claude', tier: 'light' });
   expect(resolveRun(agent({ kind: 'model', engine: 'claude', model: 'opus' }, 'standard'), both, true)).toEqual({ engine: 'claude', tier: 'standard', model: 'opus' });
+});
+
+test('visibleModels drops hidden models and puts the default first', () => {
+  const models = [
+    { id: 'gpt-x-luna', hidden: false, isDefault: false },
+    { id: 'gpt-internal', hidden: true, isDefault: false },
+    { id: 'gpt-x', hidden: false, isDefault: true },
+  ];
+  expect(visibleModels(models)).toEqual(['gpt-x', 'gpt-x-luna']);
+  expect(visibleModels([])).toEqual([]);
 });

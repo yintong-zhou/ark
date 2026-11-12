@@ -5,7 +5,7 @@ import { actionable, decisionsOf, lastModel, reactionsOf, startsGroup } from '@s
 import { tokenize } from '@shared/tokens';
 import { readable } from '../errors';
 import { Sent, toUploads } from './Attachments';
-import { Avatar, initials } from './Avatar';
+import { AgentAvatar, Avatar } from './Avatar';
 import { ApprovalCard, Cards, PhaseCard, PlanCard } from './Cards';
 import { Composer } from './Composer';
 import { PHASE_GLYPH, shortModel } from './glyphs';
@@ -47,6 +47,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
   const [board, setBoard] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [inflight, setInflight] = useState(0); // IPC calls awaiting main; the one-shot buttons wait for them
+  const [answering, setAnswering] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   // keep the latest message and the composer in view
   useEffect(() => {
@@ -57,6 +58,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
   const card = actionable(thread, messages);
   const reactions = reactionsOf(messages);
   const decisions = decisionsOf(messages);
+  const reviewApprovalPending = messages.some((m) => m.kind === 'approval' && thread.approvals?.includes(m.seq) && (m.tool === 'a build without a code review' || m.tool === 'a build without a security review'));
 
   /** Runs one IPC call; a refusal shows over the composer. */
   const run = async (call: () => Promise<void>) => {
@@ -117,7 +119,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
               const phase = thread.build?.phases[m.index];
               return phase && (
                 <li key={m.seq} className="mt-2 pl-[68px] pr-2 lg:pl-[80px] lg:pr-3">
-                  <PhaseCard phase={phase} index={m.index} total={thread.build?.phases.length ?? 0} />
+                  <PhaseCard phase={phase} index={m.index} total={thread.build?.phases.length ?? 0} builder={phase.builder ? name(phase.builder) : undefined} reviews={{ code: !!thread.roles?.codeReview, security: !!thread.roles?.securityReview }} />
                 </li>
               );
             }
@@ -129,8 +131,8 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
                     name={name(m.agent)}
                     pending={thread.approvals?.includes(m.seq) ?? false}
                     decision={decisions.get(m.seq)}
-                    busy={inflight > 0}
-                    answer={(allow) => run(() => window.ark.threads.answer(thread.id, m.seq, allow))}
+                    busy={answering}
+                    answer={(allow) => { setAnswering(true); void run(() => window.ark.threads.answer(thread.id, m.seq, allow)).finally(() => setAnswering(false)); }}
                   />
                 </li>
               );
@@ -145,7 +147,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
                 {mine && <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-accent" />}
                 <div className="w-5 shrink-0">
                   {first ? (
-                    <Avatar text={you ? 'You' : initials(author)} you={you} />
+                    you ? <Avatar text="You" you /> : <AgentAvatar agent={m.kind === 'agent' ? agents.find((a) => a.id === m.agent) : undefined} name={author} />
                   ) : (
                     <time dateTime={new Date(m.at).toISOString()} className="block whitespace-nowrap pr-1 text-right text-meta leading-[22px] text-muted opacity-0 group-hover:opacity-100">
                       {new Date(m.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
@@ -166,7 +168,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
                     </div>
                   )}
                   {m.kind === 'agent' && m.control?.kind === 'plan' ? (
-                    <PlanCard text={m.text} active={mine} pending={inflight > 0} start={() => run(() => window.ark.threads.startDeveloper(thread.id))} />
+                    <PlanCard text={m.text} active={mine} pending={inflight > 0} name={name} roles={thread.roles} start={() => run(() => window.ark.threads.startDeveloper(thread.id))} />
                   ) : (
                     m.text && <Body text={m.text} agents={agents} onTag={onTag} />
                   )}
@@ -201,7 +203,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
       </div>}
 
       <div className="flex items-center gap-1 px-2 pb-0.5 lg:px-3">
-        <PermissionSelect value={modeOf(thread)} disabled={inflight > 0} onChange={(mode) => void run(() => window.ark.threads.setPermissionMode(thread.id, mode))} />
+        <PermissionSelect value={modeOf(thread)} disabled={inflight > 0 && !reviewApprovalPending} onChange={(mode) => void run(() => window.ark.threads.setPermissionMode(thread.id, mode))} />
         {thread.status === 'running' && <span className="text-meta text-muted">Changing permissions pauses the team</span>}
       </div>
       <Composer
@@ -211,11 +213,11 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
         onChange={setText}
         onSubmit={submit}
         attach
-        mentions={thread.team.map((id) => ({ id, name: name(id) }))}
+        mentions={thread.team.map((id) => ({ id, name: name(id), avatar: agents.find((a) => a.id === id)?.avatar }))}
         tags={tags}
         problem={problem}
         extra={
-          thread.status === 'running' && (
+          (thread.status === 'running' || reviewApprovalPending) && (
             <button onClick={() => void run(() => window.ark.threads.pause(thread.id))} aria-label="Pause" title="Pause the turn" className={ICON_BUTTON}>
               <PauseIcon />
             </button>

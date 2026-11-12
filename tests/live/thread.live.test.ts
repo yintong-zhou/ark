@@ -12,7 +12,8 @@ import { startClaudeSession } from '../../src/main/services/engines/claude-sessi
 import { codexModels, startCodexSession } from '../../src/main/services/engines/codex-session';
 import { engineStatus } from '../../src/main/services/engines/config';
 import { cleanEnv } from '../../src/main/services/engines/isolation';
-import { indexSkills } from '../../src/main/services/skills';
+import { indexSkills, personalSkills } from '../../src/main/services/skills';
+import { HEAD } from '../../src/main/services/head-of-staff';
 import { Conductor } from '../../src/main/services/threads/conductor';
 import { ThreadStore } from '../../src/main/services/threads/store';
 import { workspace } from '../../src/main/services/threads/workspace';
@@ -28,7 +29,8 @@ const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claud
 const catalog = new Catalog(join(tmp, 'agents'));
 const runner = new AgentRunner({
   catalog,
-  skills: () => indexSkills({ claudeConfigDir, home: homedir(), codexHome }),
+  skills: () => indexSkills({ claudeConfigDir, home: homedir(), codexHome, ark: join(tmp, 'skills') }),
+  personalSkills: () => personalSkills({ claudeConfigDir, home: homedir(), codexHome, ark: join(tmp, 'skills') }),
   engines: () => engineStatus({}),
   config: () => ({}),
   tempDir: tmp,
@@ -40,7 +42,7 @@ const runner = new AgentRunner({
   codexModels: (exe) => codexModels(exe, cleanEnv(process.env)),
 });
 const store = new ThreadStore(join(tmp, 'data'));
-const conductor = new Conductor({ store, catalog, runner, workspace, worktrees: join(tmp, 'worktrees'), windows: () => undefined });
+const conductor = new Conductor({ head: () => HEAD, store, catalog, runner, workspace, worktrees: join(tmp, 'worktrees'), windows: () => undefined });
 
 // A killed engine can hold its cwd for a moment on Windows: wait, then clean up on a best-effort basis (it is only OS temp).
 afterAll(async () => {

@@ -1,7 +1,8 @@
+import { HEAD } from '../../src/main/services/head-of-staff';
 import { expect, test } from 'vitest';
 import type { AgentDef } from '@shared/agent-file';
-import { CODE_REVIEWER, DEVELOPER, MANAGER, SECURITY_REVIEWER, type ThreadMessage } from '@shared/thread';
-import { DEVELOPER_PROTOCOL, MANAGER_PROTOCOL, MEMBER_PROTOCOL, NOTES, REVIEWER_PROTOCOL, formatForAgent, parsePhases, parseReply, withProtocol } from '../../src/main/services/threads/protocol';
+import { MANAGER, type ThreadMessage } from '@shared/thread';
+import { BUILDER_PROTOCOL, HEAD_PROTOCOL, MEMBER_PROTOCOL, NOTES, REVIEWER_PROTOCOL, formatForAgent, parsePhases, parseReply, withProtocol } from '../../src/main/services/threads/protocol';
 
 const block = (o: unknown) => 'Text.\n\n```ark\n' + JSON.stringify(o) + '\n```';
 
@@ -21,8 +22,8 @@ test('last block wins and both are removed from the body', () => {
 test.each([
   ['```ark\nnot json\n```', 'ark block: not valid JSON'],
   ['```ark\n[1]\n```', 'ark block: not valid JSON'],
-  [block({ next: 'a', ask: 'q' }), 'ark block: use exactly one of team, next, ask, plan, review'],
-  [block({}), 'ark block: use exactly one of team, next, ask, plan, review'],
+  [block({ next: 'a', ask: 'q' }), 'ark block: use exactly one of team, next, ask, plan, review, roles'],
+  [block({}), 'ark block: use exactly one of team, next, ask, plan, review, roles'],
   [block({ team: [] }), 'ark block: team needs at least one pick'],
   [block({ team: [{ agent: 'a', reason: '' }] }), 'ark block: each pick needs an agent and a reason'],
   [block({ next: '' }), 'ark block: next must be an agent id'],
@@ -59,11 +60,11 @@ test('formatForAgent shows an ask and cuts long reaction quotes', () => {
 });
 
 const agent = (id: string): AgentDef => ({ id, name: id, description: 'd', engine: { kind: 'auto' }, tier: 'light', skills: [], permissions: 'read-only', prompt: 'Base.' });
-const ASK = '\n\nSession policy: Ask for approval. The user confirms the team and starts the developer after the plan.';
+const ASK = '\n\nSession policy: Ask for approval. The user confirms the team and starts the build after the plan.';
 test('withProtocol appends the manager protocol only to the manager', () => {
-  expect(withProtocol(agent(MANAGER)).prompt).toBe('Base.\n\n' + MANAGER_PROTOCOL + ASK);
+  expect(withProtocol(agent(MANAGER), 'head').prompt).toBe('Base.\n\n' + HEAD_PROTOCOL + ASK);
   expect(withProtocol(agent('planner')).prompt).toBe('Base.\n\n' + MEMBER_PROTOCOL + ASK);
-  expect(withProtocol(agent('planner'), 'planning', 'auto').prompt).toContain('Permission mode: auto.');
+  expect(withProtocol(agent('planner'), 'member', 'auto').prompt).toContain('Permission mode: auto.');
 });
 test('NOTES', () => {
   expect(NOTES.budget).toContain('20 agent turns');
@@ -108,9 +109,10 @@ test('parseReply reads a review pass and a review with findings', () => {
   expect(parseReply(block({ review: 'pass' })).control).toEqual({ kind: 'review', pass: true, findings: [] });
   expect(parseReply(block({ review: 'changes', findings: ['null check'] })).control).toEqual({ kind: 'review', pass: false, findings: ['null check'] });
 });
-test('next carries hard only for true', () => {
-  expect(parseReply(block({ next: 'planner', hard: true })).control).toEqual({ kind: 'next', agent: 'planner', hard: true });
-  expect(parseReply(block({ next: 'planner', hard: 'yes' })).control).toEqual({ kind: 'next', agent: 'planner' });
+test('next carries a level, and a bad level is an error', () => {
+  expect(parseReply(block({ next: 'planner', level: 'heavy' })).control).toEqual({ kind: 'next', agent: 'planner', level: 'heavy' });
+  expect(parseReply(block({ next: 'planner' })).control).toEqual({ kind: 'next', agent: 'planner' });
+  expect(parseReply(block({ next: 'planner', level: 'max' })).error).toBe('ark block: level must be light, standard or heavy');
 });
 test.each([
   [{ review: 'changes', findings: [] }],
@@ -120,12 +122,11 @@ test.each([
   [{ review: 'changes', findings: ['x'.repeat(2001)] }],
   [{ review: 'maybe' }],
 ])('parseReply rejects bad review %j', (o) => expect(parseReply(block(o)).error).toMatch(/1 to 20 findings/));
-test('withProtocol gives build roles their build prompt only in the build phase', () => {
-  expect(withProtocol(agent(DEVELOPER), 'build').prompt).toBe('Base.\n\n' + DEVELOPER_PROTOCOL + ASK);
-  expect(withProtocol(agent(CODE_REVIEWER), 'build').prompt).toBe('Base.\n\n' + REVIEWER_PROTOCOL + ASK);
-  expect(withProtocol(agent(SECURITY_REVIEWER), 'build').prompt).toBe('Base.\n\n' + REVIEWER_PROTOCOL + ASK);
-  expect(withProtocol(agent(MANAGER), 'build').prompt).toBe('Base.\n\n' + MANAGER_PROTOCOL + ASK);
-  expect(withProtocol(agent(DEVELOPER), 'planning').prompt).toBe('Base.\n\n' + MEMBER_PROTOCOL + ASK);
+test('withProtocol selects the prompt by role', () => {
+  expect(withProtocol(agent('developer'), 'builder').prompt).toBe('Base.\n\n' + BUILDER_PROTOCOL + ASK);
+  expect(withProtocol(agent('code-reviewer'), 'reviewer').prompt).toBe('Base.\n\n' + REVIEWER_PROTOCOL + ASK);
+  expect(withProtocol(agent(MANAGER), 'head').prompt).toBe('Base.\n\n' + HEAD_PROTOCOL + ASK);
+  expect(withProtocol(agent('developer'), 'member').prompt).toBe('Base.\n\n' + MEMBER_PROTOCOL + ASK);
 });
 test("formatForAgent shows a reviewer's findings", () => {
   const r = (control: object) => [m(1, { kind: 'agent', agent: 'planner', text: 'r', model: 'x', tokens: t, control })];
@@ -169,4 +170,42 @@ test('the summary lists the window movement', () => {
   const o = { branch: 'ark/x', phases: [], tokens: [] };
   expect(NOTES.summary({ ...o, windows: ['Claude 5h 41% → 44%'] })).toContain('Usage windows (including your other sessions):\n- Claude 5h 41% → 44%');
   expect(NOTES.summary({ ...o, windows: [] })).not.toContain('Usage windows');
+});
+
+test('a team block carries the difficulty and the roles', () => {
+  const c = parseReply(block({ team: [{ agent: 'dev', reason: 'r' }], difficulty: 'easy', builders: ['dev'], codeReview: 'rev' })).control;
+  expect(c).toEqual({ kind: 'team', picks: [{ agent: 'dev', reason: 'r' }], leftOut: '', difficulty: 'easy', roles: { builders: ['dev'], codeReview: 'rev' } });
+  expect(parseReply(block({ team: [{ agent: 'dev', reason: 'r' }] })).control).toEqual({ kind: 'team', picks: [{ agent: 'dev', reason: 'r' }], leftOut: '' });
+  expect(parseReply(block({ team: [{ agent: 'dev', reason: 'r' }], difficulty: 'medium' })).error).toBe('ark block: difficulty must be easy or hard');
+  expect(parseReply(block({ team: [{ agent: 'dev', reason: 'r' }], builders: 'dev' })).error).toBe('ark block: builders must be a list of agent ids');
+});
+
+test('a roles block changes roles', () => {
+  expect(parseReply(block({ roles: { builders: ['dev', 'ui'] } })).control).toEqual({ kind: 'roles', roles: { builders: ['dev', 'ui'] } });
+  expect(parseReply(block({ roles: {} })).error).toBe('ark block: roles needs planner, builders, codeReview or securityReview');
+  expect(parseReply(block({ roles: { builders: ['dev'] }, next: 'dev' })).error).toBe('ark block: use exactly one of team, next, ask, plan, review, roles');
+});
+
+test('a phase heading may name its builder', () => {
+  const phases = parsePhases('## Phase 1: API (@backend_dev)\na\n## Phase 2: UI\nb');
+  expect(phases).toEqual([
+    { title: 'API', text: '## Phase 1: API (@backend_dev)\na', builder: 'backend_dev' },
+    { title: 'UI', text: '## Phase 2: UI\nb' },
+  ]);
+});
+
+test('the protocol follows the job, not the id', () => {
+  const a: AgentDef = { id: 'forge', name: 'Forge', description: '', engine: { kind: 'auto' }, tier: 'standard', skills: [], permissions: 'build', prompt: 'ROLE' };
+  expect(withProtocol(a, 'builder').prompt).toContain(BUILDER_PROTOCOL);
+  expect(withProtocol(a, 'reviewer').prompt).toContain(REVIEWER_PROTOCOL);
+  expect(withProtocol(a).prompt).toContain(MEMBER_PROTOCOL);
+  expect(withProtocol(a, 'head').prompt).toContain(HEAD_PROTOCOL);
+});
+
+test('no protocol text names the removed built-ins', () => {
+  for (const text of [HEAD_PROTOCOL, MEMBER_PROTOCOL, BUILDER_PROTOCOL, REVIEWER_PROTOCOL, withProtocol({ ...HEAD }, 'head', 'auto').prompt]) {
+    expect(text).not.toMatch(/project manager of this thread|Ark's developer/i);
+  }
+  expect(HEAD_PROTOCOL).toContain('"difficulty":"easy"|"hard"');
+  expect(HEAD_PROTOCOL).toContain('a project manager agent');
 });

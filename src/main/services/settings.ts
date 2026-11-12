@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EngineId } from '@shared/agent-file';
 import type { ViewMode } from '@shared/types';
+import { checkHeadSettings, headWith } from './head-of-staff';
 
 const file = (userData: string) => join(userData, 'settings.json');
 function read(userData: string): Record<string, unknown> {
@@ -19,6 +20,12 @@ export function readView(userData: string): ViewMode {
 }
 export function writeView(userData: string, v: ViewMode): void {
   write(userData, { ...read(userData), view: v });
+}
+export function readHead(userData: string) {
+  return headWith(read(userData).headOfStaff);
+}
+export function writeHead(userData: string, v: unknown): void {
+  write(userData, { ...read(userData), headOfStaff: checkHeadSettings(v) });
 }
 export function readHandoffThresholds(userData: string): Record<EngineId, number> {
   const raw = read(userData).handoffThresholds;

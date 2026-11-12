@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
-import type { AgentDef, Tier } from '@shared/agent-file';
-import { agentProblems, claudeLimited, tierUp } from '@shared/agent-problems';
+import type { AgentDef } from '@shared/agent-file';
+import { agentProblems, claudeLimited, ownLevel, atLevel } from '@shared/agent-problems';
 import type { EngineInfo } from '@shared/types';
 
 const agent = (over: Partial<AgentDef> = {}): AgentDef => ({
@@ -39,9 +39,6 @@ test('one entry per missing skill', () => {
   ]);
 });
 
-test('tierUp', () => {
-  expect(['light', 'standard', 'heavy'].map((t) => tierUp(t as Tier))).toEqual(['standard', 'heavy', 'heavy']);
-});
 test('claudeLimited: 90% of either live window', () => {
   const now = 1_000_000;
   const w = (usedPct: number, resetsAt = now + 60) => ({ usedPct, resetsAt, minutes: 300 });
@@ -50,4 +47,26 @@ test('claudeLimited: 90% of either live window', () => {
   expect(claudeLimited({ fiveHour: w(89) }, now)).toBe(false);
   expect(claudeLimited({ fiveHour: w(99, now - 1) }, now)).toBe(false); // expired: Review Focus 1
   expect(claudeLimited(undefined, now)).toBe(false);
+});
+
+const levelAgent = (engine: AgentDef['engine'], extra: Partial<AgentDef> = {}): AgentDef => agent({ engine, ...extra });
+const sonnet = { kind: 'model', engine: 'claude', model: 'sonnet' } as const;
+
+test('ownLevel reads the level off an exact model, else the tier', () => {
+  expect(ownLevel(levelAgent(sonnet))).toBe('standard');
+  expect(ownLevel(levelAgent({ kind: 'model', engine: 'claude', model: 'opus' }))).toBe('heavy');
+  expect(ownLevel(levelAgent({ kind: 'model', engine: 'codex', model: 'gpt-x-luna' }))).toBe('light');
+  expect(ownLevel(levelAgent({ kind: 'model', engine: 'codex', model: 'gpt-x' }))).toBe('heavy');
+  expect(ownLevel(levelAgent({ kind: 'auto' }, { tier: 'light' }))).toBe('light');
+});
+
+test('atLevel moves an unlocked agent and leaves a locked one alone', () => {
+  const auto = levelAgent({ kind: 'auto' });
+  expect(atLevel(auto, undefined)).toBe(auto);
+  expect(atLevel(auto, 'standard')).toBe(auto);
+  expect(atLevel(auto, 'heavy')).toEqual({ ...auto, tier: 'heavy' });
+  const locked = levelAgent(sonnet);
+  expect(atLevel(locked, 'heavy')).toBe(locked);
+  const free = levelAgent(sonnet, { lock: false });
+  expect(atLevel(free, 'heavy')).toEqual({ ...free, tier: 'heavy', engine: { kind: 'engine', engine: 'claude' } });
 });

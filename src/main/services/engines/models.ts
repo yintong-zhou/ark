@@ -11,6 +11,11 @@ export const CODEX_TIER_EFFORT: Record<Tier, 'low' | 'medium' | 'high'> = {
 
 export type CodexModel = { id: string; hidden: boolean; isDefault: boolean };
 
+export function visibleModels(models: CodexModel[]): string[] {
+  const visible = models.filter((model) => !model.hidden);
+  return [...visible.filter((model) => model.isDefault), ...visible.filter((model) => !model.isDefault)].map((model) => model.id);
+}
+
 /** Codex model for a tier, from the list Codex reports: override, then -luna/-terra/default naming, then fallbacks. */
 export function codexTierModel(
   tier: Tier,

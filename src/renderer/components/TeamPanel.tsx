@@ -1,7 +1,8 @@
 import type { AgentDef } from '@shared/agent-file';
 import { MANAGER, type Thread, type ThreadMessage } from '@shared/thread';
 import { lastModel, tokensBy, tokensByAgent, windowLines } from '@shared/thread-view';
-import { Avatar, initials } from './Avatar';
+import { roleLabels } from '@shared/roles';
+import { AgentAvatar } from './Avatar';
 import { shortModel } from './glyphs';
 import { ModelMark } from './Logos';
 import { Presence } from './Shell';
@@ -14,8 +15,8 @@ export function TeamPanel({ thread, messages, agents }: { thread: Thread; messag
   const windows = windowLines(thread.windows);
   const ids = thread.phase === 'team' ? [MANAGER] : thread.team; // the team is picked after the first proposal
   const groups = [
-    { title: '🧭 Manager', ids: ids.filter((id) => id === MANAGER) },
-    { title: '👥 Members', ids: ids.filter((id) => id !== MANAGER) },
+    { title: '🧭 Head of Staff', ids: ids.filter((id) => id === MANAGER) },
+    { title: '👥 Team', ids: ids.filter((id) => id !== MANAGER) },
   ].filter((g) => g.ids.length > 0);
 
   return (
@@ -33,9 +34,10 @@ export function TeamPanel({ thread, messages, agents }: { thread: Thread; messag
                 return (
                   <li key={id} className="relative flex items-center gap-1 px-2 py-1">
                     {state === 'waiting' && <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-accent" />}
-                    <Avatar text={initials(name)} size={32} />
+                    <AgentAvatar agent={agents.find((a) => a.id === id)} name={name} size={32} />
                     <div className="flex min-w-0 flex-1 flex-col">
                       <span className="head truncate leading-[22px]">{name}</span>
+                      {roleLabels(thread.roles, id).length > 0 && <span className="text-meta text-muted">{roleLabels(thread.roles, id).join(', ')}</span>}
                       {model && (
                         <span className="flex items-center gap-[4px] truncate text-meta text-muted" title={model}>
                           <ModelMark model={model} />

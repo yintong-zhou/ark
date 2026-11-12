@@ -3,6 +3,7 @@ import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { registerIpc } from './ipc';
+import { Avatars } from './services/avatars';
 import { claudeAuth, createClaudeAdapter } from './services/adapters/claude';
 import { createCodexAdapter } from './services/adapters/codex';
 import { createOpencodeAdapter } from './services/adapters/opencode';
@@ -13,9 +14,11 @@ import { Catalog } from './services/catalog';
 import { startClaudeSession } from './services/engines/claude-session';
 import { codexModels, startCodexSession } from './services/engines/codex-session';
 import { engineStatus, readEngines } from './services/engines/config';
+import { visibleModels } from './services/engines/models';
 import { cleanEnv } from './services/engines/isolation';
+import { readHead } from './services/settings';
 import { HistoryStore } from './services/history';
-import { indexSkills } from './services/skills';
+import { indexSkills, personalSkills } from './services/skills';
 import { readHandoffThresholds } from './services/settings';
 import type { StatuslinePaths } from './services/statusline';
 import { Conductor } from './services/threads/conductor';
@@ -84,14 +87,14 @@ app.whenReady().then(() => {
     history,
   );
   const catalog = new Catalog(join(userData, 'agents'));
-  catalog.addDefaultAgent();
   // The Claude config dir comes from the CLI (it may be moved); until it answers, ~/.claude is used.
   let claudeConfigDir = join(homedir(), '.claude');
   void claudeAuth().then((a) => {
     if (a?.configDir) claudeConfigDir = a.configDir;
   });
   const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex');
-  const skills = () => indexSkills({ claudeConfigDir, home: homedir(), codexHome });
+  const skillRoots = { claudeConfigDir, home: homedir(), codexHome, ark: join(userData, 'skills') };
+  const skills = () => indexSkills(skillRoots);
   // A crash can leave session folders behind; no chat has started yet, so none of them is live.
   try {
     rmSync(join(app.getPath('temp'), 'ark', 'sessions'), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -101,6 +104,7 @@ app.whenReady().then(() => {
   const runner = new AgentRunner({
     catalog,
     skills,
+    personalSkills: () => personalSkills(skillRoots),
     engines: () => engineStatus(readEngines(userData)),
     config: () => readEngines(userData),
     tempDir: app.getPath('temp'),
@@ -116,7 +120,7 @@ app.whenReady().then(() => {
   });
   const store = new ThreadStore(userData);
   store.recover();
-  const conductor = new Conductor({ store, catalog, runner, workspace, handoffThreshold: (engine) => readHandoffThresholds(userData)[engine], worktrees: join(userData, 'worktrees'), windows: (e) => usage.get().agents.find((a) => a.id === e) });
+  const conductor = new Conductor({ store, catalog, head: () => readHead(userData), runner, workspace, handoffThreshold: (engine) => readHandoffThresholds(userData)[engine], worktrees: join(userData, 'worktrees'), windows: (e) => usage.get().agents.find((a) => a.id === e) });
   const win = createWindow();
   conductor.onUpdate((u) => {
     if (!win.isDestroyed()) win.webContents.send('threads:update', u);
@@ -134,6 +138,15 @@ app.whenReady().then(() => {
     statusline: statuslinePaths(userData),
     userData,
     catalog,
+    avatars: new Avatars(join(userData, 'avatars')),
+    codexModels: async () => {
+      try {
+        const codex = (await engineStatus(readEngines(userData))).find((engine) => engine.id === 'codex');
+        return codex?.installed && codex.path ? visibleModels(await codexModels(codex.path, cleanEnv(process.env))) : [];
+      } catch {
+        return [];
+      }
+    },
     runner,
     store,
     conductor,

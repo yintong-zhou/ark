@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { AGENT_ID_RE, agentId, parseAgentFile, serializeAgentFile, type AgentDef } from '@shared/agent-file';
-import type { CatalogList, ImportableAgent } from '@shared/types';
+import { assignFaces } from '@shared/avatars';
+import type { CatalogList, ImportableAgent, TeamInfo } from '@shared/types';
 import { writeAtomic } from './files';
-import { IT_SERVICES_AGENTS } from './it-services';
+import { READY_TEAMS, type ReadyTeam } from './teams';
 import { pluginInstalls } from './skills';
-import { THREAD_AGENTS } from './thread-agents';
 
 const SAFE_ID = AGENT_ID_RE;
 const mdFiles = (dir: string): string[] => {
@@ -44,7 +44,7 @@ export class Catalog {
       }
     }
     agents.sort((a, b) => a.name.localeCompare(b.name));
-    return { agents, invalid };
+    return { agents: assignFaces(agents), invalid };
   }
 
   get(id: string): AgentDef | undefined {
@@ -67,18 +67,24 @@ export class Catalog {
     rmSync(this.file(id), { force: true });
   }
 
-  /** Explicitly add the bundled team to an existing catalog, preserving even broken or customized files. */
-  addItServices(): { added: string[]; skipped: string[] } {
-    return this.addMissing(IT_SERVICES_AGENTS);
+  private team(id: string): ReadyTeam {
+    const found = READY_TEAMS.find((team) => team.id === id);
+    if (!found) throw new Error('Unknown team');
+    return found;
   }
 
-  addThreadAgents(): { added: string[]; skipped: string[] } {
-    return this.addMissing(THREAD_AGENTS);
+  teams(): TeamInfo[] {
+    return READY_TEAMS.map(({ id, name, description, agents }) => ({ id, name, description, count: agents.length, present: agents.filter((agent) => existsSync(this.file(agent.id))).length }));
   }
 
-  /** Ensure the coordinator exists without replacing a customized or invalid profile. */
-  addDefaultAgent(): { added: string[]; skipped: string[] } {
-    return this.addThreadAgents();
+  addTeam(id: string): { added: string[]; skipped: string[] } {
+    return this.addMissing(this.team(id).agents);
+  }
+
+  updateTeam(id: string): { updated: string[] } {
+    const agents = this.team(id).agents;
+    for (const agent of agents) this.save(agent);
+    return { updated: agents.map((agent) => agent.id) };
   }
 
   private addMissing(agents: AgentDef[]): { added: string[]; skipped: string[] } {

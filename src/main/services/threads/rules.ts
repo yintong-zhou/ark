@@ -1,17 +1,18 @@
 // Turn rules: a pure state machine that decides who speaks next in a thread, or that it waits for the user.
 // The conductor applies the decision: it sets status, speaking and waitingOn from the step.
-import { HANDOFF_AT, MANAGER, PLANNING_BUDGET, type Control, type Thread } from '@shared/thread';
+import { HANDOFF_AT, MANAGER, PLANNING_BUDGET, type Control, type Difficulty, type Level, type Roles, type Thread } from '@shared/thread';
+import { mergeRoles } from '@shared/roles';
 import { NOTES } from './protocol';
 import { autonomous } from '@shared/permissions';
 
-export type Step = { do: 'turn'; agent: string; note?: string; hard?: true } | { do: 'wait'; note?: string } | { do: 'idle' };
+export type Step = { do: 'turn'; agent: string; note?: string; level?: Level } | { do: 'wait'; note?: string } | { do: 'idle' };
 export type Decision = { thread: Thread; step: Step };
 
 /** Is this the manager's control acceptable in the thread's phase (team or planning)? */
 function validForManager(t: Thread, control: Control | undefined): boolean {
   if (t.phase === 'team') return control?.kind === 'team' || control?.kind === 'ask';
   if (control?.kind === 'next') return control.agent !== MANAGER && t.team.includes(control.agent);
-  return control?.kind === 'ask' || control?.kind === 'plan';
+  return control?.kind === 'ask' || control?.kind === 'plan' || control?.kind === 'roles';
 }
 
 export function afterReply(
@@ -44,7 +45,8 @@ export function afterReply(
   // 3. The step comes from the control. Only the manager steers: members' next/team are ignored.
   let thread: Thread = { ...t, retried: false, agentTurns: t.phase === 'planning' ? t.agentTurns + 1 : t.agentTurns };
   let step: Step;
-  if ((isManager || auto) && control?.kind === 'next') step = { do: 'turn', agent: control.agent, ...(control.hard ? { hard: true as const } : {}) };
+  if (isManager && control?.kind === 'roles') { thread = { ...thread, roles: mergeRoles(thread.roles, control.roles) }; step = { do: 'turn', agent: MANAGER, note: NOTES.rolesChanged }; }
+  else if ((isManager || auto) && control?.kind === 'next') step = { do: 'turn', agent: control.agent, ...(control.level ? { level: control.level } : {}) };
   else if (auto && !isManager && control?.kind === 'ask') step = { do: 'turn', agent: MANAGER, note: `Resolve this team question using the context or another specialist. Ask the user only for a sensitive decision, missing intent or a real blocker: ${control.question}` };
   else if (control?.kind === 'ask' || control?.kind === 'plan' || (isManager && control?.kind === 'team')) step = { do: 'wait' };
   else step = { do: 'turn', agent: MANAGER };
@@ -70,10 +72,14 @@ export function afterUser(t: Thread, mention: string | undefined): Decision {
   return { thread, step: { do: 'idle' } };
 }
 
-export function approveTeam(t: Thread, picks: string[], names: Record<string, string>): Decision {
+export function approveTeam(t: Thread, picks: string[], names: Record<string, string>, proposal?: { difficulty?: Difficulty; roles?: Roles }): Decision {
   const team = [MANAGER, ...new Set(picks.filter((id) => id !== MANAGER))];
+  const r = proposal?.roles;
+  const roles = r ? { builders: r.builders.filter((id) => team.includes(id)), ...(r.planner && team.includes(r.planner) && { planner: r.planner }), ...(r.codeReview && team.includes(r.codeReview) && { codeReview: r.codeReview }), ...(r.securityReview && team.includes(r.securityReview) && { securityReview: r.securityReview }) } : undefined;
+  if (roles && proposal?.difficulty === 'easy' && roles.builders.length) roles.planner = roles.builders[0];
+  if (proposal?.difficulty === 'easy' && roles?.builders.length) return { thread: { ...t, team, phase: 'planning', agentTurns: 0, difficulty: proposal.difficulty, roles }, step: { do: 'turn', agent: roles.builders[0], note: NOTES.easyPlan, level: 'standard' } };
   return {
-    thread: { ...t, team, phase: 'planning', agentTurns: 0 },
+    thread: { ...t, team, phase: 'planning', agentTurns: 0, ...(proposal?.difficulty && { difficulty: proposal.difficulty }), ...(roles && { roles }) },
     step: { do: 'turn', agent: MANAGER, note: NOTES.teamApproved(team.map((id) => names[id] ?? id)) },
   };
 }

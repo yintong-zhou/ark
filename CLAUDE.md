@@ -32,14 +32,14 @@ behavior in `README.md`.
 - Always use a hyphen (-) in place of an em dash (U+2014), in project text and responses.
 - Ark only reads `~/.claude` and `~/.codex`. The one exception is **Connect status line** (edits `settings.json`, with a backup).
 - Agents are isolated: each sees only its own skills; the user's memory, plugins and MCP servers are left out. Don't weaken `engines/isolation.ts`.
-- Agents are read-only by default. Only the developer builds, inside a Git worktree `ark/<title>-<id>`; risky actions need an approval card,
-  except in a thread the user explicitly set to **Full access** (`src/shared/permissions.ts`). Keep that the only bypass.
+- Agents are read-only by default. Only a thread's builders build, during the build phase, inside a Git worktree `ark/<title>-<id>`; risky actions need an approval card, except in a thread the user explicitly set to **Full access** (`src/shared/permissions.ts`). Keep that the only bypass. A build skips a review only after the user allowed it on a card.
+- Ark ships no agents. The Head of Staff (`src/main/services/head-of-staff.ts`) is built in and is not a catalog file; the user's agents do the planning, building and reviewing.
 - Ark's own Git runs without project hooks. Keep that.
 - The Git UI runs git only through `services/git/run.ts` (no hooks, literal pathspecs, no prompts).
 - The editor writes only inside a project folder or a thread worktree, when the user saves; the renderer sends a root and a
   relative path, and main checks every path (`services/files/guard.ts`). Deletes go to the Recycle Bin.
 - The terminal is the user's own shell, not an agent: it gets the user's env minus `ELECTRON_*` (not `cleanEnv`) and is
   not isolated. All PTYs die on reload and quit. node-pty stays out of the asar (`electron-builder.yml`); never rebuild it.
-- User data lives in `%APPDATA%\ark` (`agents`, `threads`, `worktrees`, `backups`).
+- User data lives in `%APPDATA%\ark` (`agents`, `avatars`, `skills`, `threads`, `worktrees`, `backups`).
 - Codex skills are passed as a list in the instructions, not via native skill roots (codex-cli 0.132.0 lacks them).
 - UI text is English. Colors and fonts come from `brand-guidelines.md`.

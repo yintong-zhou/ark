@@ -7,14 +7,14 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentId, type AgentDef, type EngineId, type Permissions } from '@shared/agent-file';
-import { BUILD_AGENTS } from '../thread-agents';
 import type { ImageInput, Upload } from '@shared/attachments';
 import {
-  BUILD_ROLES, BUILD_TURN_MS, CODE_REVIEWER, DEVELOPER, MANAGER, SECURITY_REVIEWER,
-  type Control, type NewMessage, type Reaction, type Thread, type ThreadMessage, type ThreadUpdate,
+  BUILD_TURN_MS, MANAGER,
+  type Control, type Level, type NewMessage, type Reaction, type ReviewKind, type Thread, type ThreadMessage, type ThreadUpdate,
 } from '@shared/thread';
 import { taskBoardText, taskInput } from '@shared/tasks';
-import { chooseThreadEngine, tierUp } from '@shared/agent-problems';
+import { atLevel, chooseThreadEngine } from '@shared/agent-problems';
+import { buildProblem, checkProposal, checkRoles, missingReviews, reviewer, rolesLine } from '@shared/roles';
 import { autonomous, modeOf, permissionMode, PERMISSION_LABEL, type PermissionMode } from '@shared/permissions';
 import { decideApproval } from '../engines/approval-policy';
 import { tokensBy, windowLines } from '@shared/thread-view';
@@ -24,7 +24,7 @@ import { moveWindows } from '@shared/usage-math';
 import type { AgentRunner } from '../agent-runner';
 import type { Catalog } from '../catalog';
 import { afterBuildUser, afterChecks, afterManager, afterReview, openPoints, startBuild, withPhase, type BuildStep } from './build-rules';
-import { formatForAgent, NOTES, parsePhases, parseReply, withProtocol } from './protocol';
+import { formatForAgent, NOTES, parsePhases, parseReply, withProtocol, type ThreadRole } from './protocol';
 import { afterReply, afterUser, approveTeam, mentionOf, needsHandoff, type Step } from './rules';
 import type { ThreadStore } from './store';
 import { branchName, setupHints, type CheckResult, type Workspace } from './workspace';
@@ -32,6 +32,7 @@ import { branchName, setupHints, type CheckResult, type Workspace } from './work
 export type ConductorDeps = {
   store: ThreadStore;
   catalog: Pick<Catalog, 'get' | 'list'>;
+  head: () => AgentDef;
   runner: Pick<AgentRunner, 'startAgent' | 'turn' | 'stop' | 'answer' | 'onEvent'>;
   workspace: Workspace;
   handoffThreshold?: (engine: EngineId) => number; // percent used
@@ -47,9 +48,10 @@ type Speak = {
    * `since` (none when undefined); a live one gets the transcript it has not seen. No handoff.
    */
   build?: { cwd: string; permissions?: Permissions; lead?: string; since?: number };
+  role?: ThreadRole;
   note?: string;
-  /** A hard turn: a fresh session one tier up. */
-  hard?: true;
+  /** A single turn at a chosen level. */
+  level?: Level;
   timeoutMs?: number;
   /** An extra check on the parsed reply: an error turns it into a bad block (no control). */
   check?: (control: Control | undefined, body: string) => string | undefined;
@@ -67,7 +69,7 @@ export class Conductor {
   private readonly engines = new Map<string, EngineId>(); // chatId -> the engine that runs it
   private readonly pending = new Map<string, Map<number, { chatId: string; id: string }>>(); // threadId -> approval seq -> engine request
   // threadId -> the pending project code card; in memory only, so after a restart the card shows as expired and is asked again.
-  private readonly consent = new Map<string, { seq: number; done: (allow: boolean | undefined) => void }>();
+  private readonly consent = new Map<string, { seq: number; done: (allow: boolean | undefined) => void; kind?: ReviewKind }>();
   private readonly checks = new Map<string, { ac: AbortController; done: Promise<unknown> }>(); // threadId -> its running checks
   private readonly starting = new Set<string>(); // threads whose startDeveloper is in flight
   private readonly deleting = new Set<string>();
@@ -85,7 +87,7 @@ export class Conductor {
 
   create(projectId: string, text: string, files: Upload[] = [], mode: PermissionMode = 'auto'): Thread {
     const { store, catalog } = this.deps;
-    if (!catalog.get(MANAGER)) throw new Error('Add thread roles in Agents, or fix the project-manager profile if it has errors');
+    if (!catalog.list().agents.length) throw new Error(NOTES.noAgents);
     const project = store.projects().find((p) => p.id === projectId);
     if (!project) throw new Error('Unknown project');
     const title = (text.trim().split('\n')[0].trim() || files[0]?.name || 'New thread').slice(0, TITLE_MAX);
@@ -114,6 +116,12 @@ export class Conductor {
       return;
     }
     if (t.phase === 'build') {
+      // Old thread, or an assigned builder/reviewer that left the catalog or lost write access: the Head reassigns the roles.
+      if (buildProblem(t, (key) => this.deps.catalog.get(key))) {
+        this.save(t, [m]);
+        void this.runLegacy(t, this.nextGen(t.id));
+        return;
+      }
       const d = afterBuildUser(t);
       this.save(d.thread, [m]);
       return this.goBuild(d.thread, d.step);
@@ -127,7 +135,9 @@ export class Conductor {
     if (t.phase !== 'team' || t.status !== 'waiting') throw new Error('The team can be approved only while the manager waits on its proposal');
     for (const id of agentIds) if (!this.deps.catalog.get(id)) throw new Error(`Unknown agent: ${id}`);
     const names = this.names();
-    const d = approveTeam(t, agentIds, names);
+    const proposal = this.deps.store.messages(threadId).findLast((m) => m.kind === 'agent' && m.agent === MANAGER && m.control?.kind === 'team');
+    const control = proposal?.kind === 'agent' && proposal.control?.kind === 'team' ? proposal.control : undefined;
+    const d = approveTeam(t, agentIds, names, control);
     const note = this.deps.store.append(threadId, { kind: 'note', text: `Team approved: ${d.thread.team.map((id) => names[id] ?? id).join(', ')}.` });
     this.settle(d.thread, d.step, [note]);
   }
@@ -137,7 +147,7 @@ export class Conductor {
     const mode = permissionMode(value);
     const t = this.thread(threadId);
     if (modeOf(t) === mode) return;
-    if (this.starting.has(threadId)) throw new Error('Wait for the developer to finish starting before changing permissions');
+    if (this.starting.has(threadId) && !this.consent.get(threadId)?.kind) throw new Error('Wait for the developer to finish starting before changing permissions');
     this.halt(t);
     for (const agent of [...(this.sessions.get(threadId)?.keys() ?? [])]) this.dropSession(threadId, agent);
     // The mode is saved at once, so a later pause or change sees it. A thread waiting on the user keeps its card (team,
@@ -193,10 +203,19 @@ export class Conductor {
     };
     let t = this.thread(threadId);
     let plan = planOf(t);
+    const problem = buildProblem(t, (id) => this.deps.catalog.get(id));
+    if (problem) throw new Error(problem);
     if (this.starting.has(threadId)) throw new Error('The developer is already starting');
     this.starting.add(threadId);
     const entryGen = this.generation.get(threadId);
     try {
+      for (const kind of missingReviews(t)) {
+        const allowed = await this.askWaiver(t, kind);
+        if (!allowed || this.generation.get(threadId) !== entryGen) throw new Error(`The build did not start: there is no ${kind} review. Ask the Head of Staff to pick a reviewer, or allow the build without it.`);
+        t = this.thread(threadId);
+      }
+      const currentProblem = buildProblem(t, (id) => this.deps.catalog.get(id));
+      if (currentProblem) throw new Error(currentProblem);
       const project = store.projects().find((p) => p.id === t.projectId);
       if (!project) throw new Error('Unknown project');
       const head = await ws.head(project.dir);
@@ -205,10 +224,10 @@ export class Conductor {
       // git -C walks up: a folder inside another repository would build that one.
       if (!(await ws.isRepoRoot(project.dir))) throw new Error('The project folder must be the root of its Git repository');
       if (this.generation.get(threadId) !== entryGen) return;
-      // A missing build role falls back to Ark's built-in one; a developer profile in Agents must be able to build.
-      if (this.def(DEVELOPER)!.permissions !== 'build') throw new Error('The developer agent needs permissions: build');
       t = this.thread(threadId); // re-read: the thread may have moved during the await
       plan = planOf(t);
+      const laterProblem = buildProblem(t, (id) => this.deps.catalog.get(id));
+      if (laterProblem) throw new Error(laterProblem);
       const phases = parsePhases(plan.text);
       if (!phases.length) throw new Error('The plan has no phases');
 
@@ -228,16 +247,14 @@ export class Conductor {
       await ws.commitAll(worktree, `docs: plan for ${t.title}`); // the phase-1 base
 
       t = this.thread(threadId);
-      const added = BUILD_ROLES.filter((r) => !t.team.includes(r));
-      const names = this.names();
       const note = store.append(threadId, {
         kind: 'note',
         text: `Building on branch ${branch} from ${head.slice(0, 7)}. Uncommitted changes in the project are not included.` +
-          (added.length ? ` Added to the team: ${added.map((r) => names[r] ?? r).join(', ')}.` : ''),
+          (t.waived?.includes('code') && !reviewer(t, 'code') ? ' No code review in this build.' : '') +
+          (t.waived?.includes('security') && !reviewer(t, 'security') ? ' No security review in this build.' : ''),
       });
-      // The developer's cursor starts at the plan: anything the user writes after it is the developer's to read.
-      const cursors = { ...t.cursors, [DEVELOPER]: plan.seq };
-      const d = startBuild({ ...t, team: [...t.team, ...added], waitingOn: undefined, cursors }, { worktree, branch, plan: planFile, phases });
+      const cursors = { ...t.cursors, ...Object.fromEntries(t.roles!.builders.map((id) => [id, plan.seq])) };
+      const d = startBuild({ ...t, waitingOn: undefined, cursors }, { worktree, branch, plan: planFile, phases });
       // Ark closed during the start: the worktree exists, so the build is recorded, but no loop starts.
       if (this.generation.get(threadId) !== gen) return this.save({ ...d.thread, status: 'idle', speaking: undefined }, [note]);
       this.save(d.thread, [note]);
@@ -255,7 +272,7 @@ export class Conductor {
     if (consent?.seq === seq && t.approvals?.includes(seq)) {
       this.consent.delete(threadId);
       try {
-        this.deps.store.save({ ...t, projectCode: allow ? 'allowed' : 'denied' }); // for the rest of the thread
+        this.deps.store.save(consent.kind ? { ...t, ...(allow && { waived: [...new Set([...(t.waived ?? []), consent.kind])] }) } : { ...t, projectCode: allow ? 'allowed' : 'denied' });
         this.setApprovals(threadId, drop, [this.deps.store.append(threadId, { kind: 'decision', target: seq, allow })]);
       } finally {
         consent.done(allow); // the build goes on (or stops on a stale loop) even if the card could not be dropped
@@ -342,12 +359,11 @@ export class Conductor {
   }
 
   private names(): Record<string, string> {
-    return Object.fromEntries([...BUILD_AGENTS, ...this.deps.catalog.list().agents].map((a) => [a.id, a.name]));
+    return Object.fromEntries([this.deps.head(), ...this.deps.catalog.list().agents].map((a) => [a.id, a.name]));
   }
 
-  /** An agent's profile: the catalog's, or Ark's built-in build role when the catalog has none. */
   private def(id: string): AgentDef | undefined {
-    return this.deps.catalog.get(id) ?? BUILD_AGENTS.find((a) => a.id === id);
+    return id === MANAGER ? this.deps.head() : this.deps.catalog.get(id);
   }
 
   private emit(thread: Thread, added: ThreadMessage[]): void {
@@ -363,7 +379,7 @@ export class Conductor {
   private save(t: Thread, added: ThreadMessage[]): void {
     // A turn works on its own copy; user edits and pending approvals live only on disk.
     const disk = this.deps.store.get(t.id);
-    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), permissionMode: disk?.permissionMode, projectCode: disk?.projectCode, tasks: disk?.tasks, approvals: disk?.approvals };
+    const next: Thread = { ...t, ...(disk?.tags && { tags: disk.tags }), permissionMode: disk?.permissionMode, projectCode: disk?.projectCode, waived: disk?.waived, tasks: disk?.tasks, approvals: disk?.approvals };
     this.deps.store.save(next);
     this.emit(next, added);
   }
@@ -384,7 +400,7 @@ export class Conductor {
           if (c !== chatId) continue;
           const t = this.thread(threadId);
           const mode = modeOf(t);
-          const decision = agent === DEVELOPER && t.build && mode !== 'ask'
+          const decision = agent === t.build?.phases[t.build.current]?.builder && t.build && mode !== 'ask'
             ? mode === 'full' ? { allow: true, reason: 'Full access selected by the user' } : decideApproval(e.request, t.build.worktree, this.projectCode(threadId))
             : { allow: false, reason: '' };
           if (decision.allow) {
@@ -441,9 +457,17 @@ export class Conductor {
   /** Shows the project code card; resolves with the answer, or undefined when the card is dropped (pause, quit...). */
   private askProjectCode(t: Thread, commands: string[]): Promise<boolean | undefined> {
     return new Promise((done) => {
-      const m = this.deps.store.append(t.id, { kind: 'approval', agent: DEVELOPER, tool: NOTES.consentTool, detail: NOTES.consent(commands) });
+      const m = this.deps.store.append(t.id, { kind: 'approval', agent: t.build?.phases[t.build.current]?.builder ?? MANAGER, tool: NOTES.consentTool, detail: NOTES.consent(commands) });
       this.setApprovals(t.id, (a) => [...a, m.seq], [m]);
       this.consent.set(t.id, { seq: m.seq, done });
+    });
+  }
+
+  private askWaiver(t: Thread, kind: ReviewKind): Promise<boolean | undefined> {
+    return new Promise((done) => {
+      const m = this.deps.store.append(t.id, { kind: 'approval', agent: MANAGER, tool: NOTES.waiveTool(kind), detail: NOTES.waive(kind) });
+      this.setApprovals(t.id, (a) => [...a, m.seq], [m]);
+      this.consent.set(t.id, { seq: m.seq, done, kind });
     });
   }
 
@@ -540,7 +564,7 @@ export class Conductor {
 
   /** The first user message the developer has not read yet, if any. */
   private unreadByDeveloper(t: Thread): number | undefined {
-    const from = t.cursors[DEVELOPER] ?? 0;
+    const from = t.cursors[t.build?.phases[t.build.current]?.builder ?? ''] ?? 0;
     return this.deps.store.messages(t.id).find((m) => m.kind === 'user' && m.seq > from)?.seq;
   }
 
@@ -566,8 +590,9 @@ export class Conductor {
       const dir = o.build?.cwd ?? project?.dir;
       if (!dir) throw new Error('Unknown project');
       const mode = modeOf(t);
-      const preferred = chooseThreadEngine(agent, t.assignments ?? {}, { claude: this.deps.windows('claude'), codex: this.deps.windows('codex') }, mode, Date.now() / 1000);
-      const started = await runner.startAgent(withProtocol(o.hard ? { ...def, tier: tierUp(def.tier) } : def, o.build ? 'build' : undefined, mode), dir, o.build?.permissions, mode, preferred, this.projectCode(id));
+      const job = o.role === 'builder' ? 'builder' : o.role === 'reviewer' ? 'reviewer' : 'other';
+      const preferred = chooseThreadEngine(agent, job, t.assignments ?? {}, { claude: this.deps.windows('claude'), codex: this.deps.windows('codex') }, mode, Date.now() / 1000);
+      const started = await runner.startAgent(withProtocol(atLevel(def, o.level), o.role ?? (agent === MANAGER ? 'head' : 'member'), mode), dir, o.build?.permissions, mode, preferred, this.projectCode(id));
       chatId = started.chatId;
       if (!live()) {
         this.stopChat(chatId); // paused while starting: the session was never registered
@@ -609,8 +634,8 @@ export class Conductor {
           })
         : [],
     );
-    // A manager session that starts in the team phase (first turn, or after a pause, an error, a handoff or a restart) has never seen the catalog.
-    if (fresh && project && t.phase === 'team' && agent === MANAGER) parts.push('[Ark] ' + NOTES.teamStart(project.name, project.dir, catalog.list().agents));
+    if (fresh && project && t.phase === 'team' && agent === MANAGER) parts.push('[Ark] ' + NOTES.teamStart(project.name, project.dir));
+    if (t.phase === 'team' && agent === MANAGER) parts.push('[Ark] ' + NOTES.catalog(catalog.list().agents));
     const tasks = store.get(id)?.tasks;
     if (tasks) parts.push(taskBoardText(tasks, names));
     if (o.note) parts.push('[Ark] ' + o.note);
@@ -632,7 +657,7 @@ export class Conductor {
     const { body, control, error } = bad ? { body: parsed.body, control: undefined, error: bad } : parsed;
     const msg = store.append(id, { kind: 'agent', agent, text: body, model: result.model, engine, tokens: result.tokens, ...(control ? { control } : {}) });
     if (control?.kind === 'plan' && (t.phase === 'team' || t.phase === 'planning')) store.writePlan(id, body);
-    t = { ...t, cursors: { ...t.cursors, [agent]: upTo } };
+    t = { ...t, cursors: { ...t.cursors, [agent]: upTo, ...(o.role === 'builder' ? Object.fromEntries((t.roles?.builders ?? []).map((id) => [id, upTo])) : {}) } };
     this.save(t, [msg]);
 
     // The handoff (live sessions only; build sessions are short).
@@ -668,18 +693,16 @@ export class Conductor {
     t = { ...t, status: 'running', speaking: agent, waitingOn: undefined };
     this.save(t, []);
     try {
-      // A hard turn runs in a fresh session one tier up, and the member goes back to its own tier after.
+      // A changed level uses a fresh session for this turn only.
       const def = this.def(agent);
-      const bump = !!step.hard && !!def && def.engine.kind !== 'model' && tierUp(def.tier) !== def.tier;
+      const bump = !!def && atLevel(def, step.level) !== def;
       if (bump) this.dropSession(id, agent);
       const r = await this.speak(t, agent, gen, {
         note: step.note,
-        hard: bump || undefined,
+        level: step.level,
         check: (control, body) => {
-          // A pick the catalog cannot start would leave the team card unusable: a bad reply, corrected once by the rules.
-          const unknown = agent === MANAGER && control?.kind === 'team' ? control.picks.find((p) => !catalog.get(p.agent)) : undefined;
-          if (unknown) return `ark block: unknown agent: ${unknown.agent}`;
-          if (agent === MANAGER && control?.kind === 'team' && control.picks.some((p) => p.agent === MANAGER)) return 'ark block: the manager is already on the team';
+          if (agent === MANAGER && control?.kind === 'team') return checkProposal(control, (id) => catalog.get(id));
+          if (agent === MANAGER && control?.kind === 'roles') return checkRoles(control.roles, t.roles, t.team, (id) => catalog.get(id));
           // A plan the build cannot split into phases: the same.
           if (control?.kind === 'plan' && !parsePhases(body).length) return 'ark block: plan has no "## Phase N: <title>" headings';
           return undefined;
@@ -695,14 +718,15 @@ export class Conductor {
       const interrupt = this.interrupts.get(id);
       this.interrupts.delete(id);
       if (autonomous(t) && !error && !interrupt && t.phase === 'team' && agent === MANAGER && control?.kind === 'team') {
-        const d = approveTeam(t, control.picks.map((p) => p.agent), this.names());
-        if (d.step.do === 'turn') d.step.note = 'The session policy authorizes this team. Lead the planning and resolve routine decisions within the team.';
+        const d = approveTeam(t, control.picks.map((p) => p.agent), this.names(), control);
+        if (d.step.do === 'turn' && d.step.agent === MANAGER) d.step.note = 'The session policy authorizes this team. Lead the planning and resolve routine decisions within the team.';
         this.settle(d.thread, d.step, [store.append(id, { kind: 'note', text: 'Team selected automatically under the session permission policy.' })]);
         return;
       }
       let d = afterReply(t, agent, control, error, interrupt);
       if (d.step.do === 'wait' && interrupt) d = afterUser(d.thread, interrupt.to);
-      this.settle(d.thread, d.step, [], d.step.do === 'wait' && control?.kind === 'ask' ? agent : undefined);
+      const added = agent === MANAGER && control?.kind === 'roles' && !error && d.thread.roles ? [store.append(id, { kind: 'note', text: `Roles updated: ${rolesLine(d.thread.roles, this.names())}` })] : [];
+      this.settle(d.thread, d.step, added, d.step.do === 'wait' && control?.kind === 'ask' ? agent : undefined);
       if (autonomous(t) && !error && !interrupt && t.phase === 'planning' && control?.kind === 'plan' && d.step.do === 'wait') {
         try {
           await this.startDeveloper(id);
@@ -717,6 +741,60 @@ export class Conductor {
       this.dropSession(id, agent);
       const note = store.append(id, { kind: 'note', text: `${this.names()[agent] ?? agent} stopped: ${e instanceof Error ? e.message : String(e)}` });
       this.save({ ...t, status: 'error', speaking: undefined }, [note]);
+    }
+  }
+
+  private async runLegacy(initial: Thread, gen: number): Promise<void> {
+    const { store, catalog } = this.deps;
+    const id = initial.id;
+    const live = () => this.generation.get(id) === gen;
+    let t = initial;
+    let correction: string | undefined;
+    try {
+      for (;;) {
+        t = { ...t, status: 'running', speaking: MANAGER, waitingOn: undefined };
+        this.save(t, []);
+        const agents = catalog.list().agents;
+        const r = await this.speak(t, MANAGER, gen, {
+          note: [NOTES.assignRoles, NOTES.catalog(agents), correction].filter(Boolean).join('\n\n'),
+          check: (control) => {
+            if (control?.kind === 'ask') return undefined;
+            if (control?.kind !== 'roles') return 'ark block: name the build roles or ask the user';
+            const error = checkRoles(control.roles, t.roles, agents.map((a) => a.id), (key) => catalog.get(key));
+            if (error) return error;
+            return buildProblem({ roles: { builders: [], ...t.roles, ...control.roles } }, (key) => catalog.get(key));
+          },
+        });
+        if (!r || !live()) return;
+        t = r.t;
+        if (r.error || (r.control?.kind !== 'roles' && r.control?.kind !== 'ask')) {
+          if (t.retried) return this.save({ ...t, retried: false, status: 'waiting', speaking: undefined, waitingOn: MANAGER }, [store.append(id, { kind: 'note', text: `${MANAGER} did not give Ark a valid instruction. Reply to continue.` })]);
+          correction = NOTES.invalid(r.error ?? 'missing or not allowed here');
+          t = { ...t, retried: true };
+          continue;
+        }
+        if (r.control.kind === 'ask') return this.save({ ...t, retried: false, status: 'waiting', speaking: undefined, waitingOn: MANAGER }, []);
+        const roles = { builders: [], ...t.roles, ...r.control.roles };
+        let candidate = { ...t, roles };
+        for (const kind of missingReviews(candidate)) {
+          const allowed = await this.askWaiver(candidate, kind);
+          if (!live()) return;
+          if (!allowed) return this.save({ ...t, status: 'waiting', speaking: undefined, waitingOn: MANAGER }, [store.append(id, { kind: 'note', text: `The build did not start: there is no ${kind} review. Ask the Head of Staff to pick a reviewer, or allow the build without it.` })]);
+          candidate = { ...candidate, waived: this.thread(id).waived };
+        }
+        const problem = buildProblem(candidate, (key) => catalog.get(key));
+        if (problem) return this.save({ ...t, status: 'waiting', speaking: undefined, waitingOn: MANAGER }, [store.append(id, { kind: 'note', text: problem })]);
+        const members = [roles.planner, ...roles.builders, roles.codeReview, roles.securityReview].filter((key): key is string => !!key);
+        const build = candidate.build!;
+        t = { ...candidate, retried: false, team: [...new Set([...candidate.team, ...members])], build: { ...build, phases: build.phases.map((phase) => phase.step === 'done' ? phase : { ...phase, builder: roles.builders[0] }) } };
+        this.save(t, [store.append(id, { kind: 'note', text: `Roles updated: ${rolesLine(roles, this.names())}` })]);
+        const d = afterBuildUser(t);
+        this.goBuild(d.thread, d.step);
+        return;
+      }
+    } catch (e) {
+      if (!live()) return;
+      this.save({ ...t, status: 'error', speaking: undefined }, [store.append(id, { kind: 'note', text: `Head of Staff stopped: ${e instanceof Error ? e.message : String(e)}` })]);
     }
   }
 
@@ -751,7 +829,8 @@ export class Conductor {
         const p = b.phases[b.current];
 
         if (step.do === 'review') {
-          const agent = step.who === 'code' ? CODE_REVIEWER : SECURITY_REVIEWER;
+          const agent = reviewer(t, step.who);
+          if (!agent) throw new Error(`No ${step.who} reviewer is assigned`);
           const diff = await ws.diff(b.worktree, p.base!);
           if (!live()) return;
           turn(agent);
@@ -759,13 +838,14 @@ export class Conductor {
           const r = await this.speak(t, agent, gen, {
             build: { cwd: b.worktree, lead: NOTES.review({ kind: step.who, phase: p.text, diff, worktree: b.worktree }) },
             note: step.retry,
+            role: 'reviewer', level: 'standard',
           });
           if (!r) return;
           this.dropSession(id, agent);
           t = r.t;
           turn(undefined); // the next diff or head is Ark's own work: a git failure is not the reviewer's
           ({ thread: t, step } = afterReview(t, step.who, r.control, r.error, this.unreadByDeveloper(t) !== undefined));
-          if (step.do === 'develop' || step.do === 'summary') this.dropSession(id, DEVELOPER); // the phase is over
+          if ((step.do === 'develop' || step.do === 'summary') && p.builder) this.dropSession(id, p.builder);
           continue;
         }
 
@@ -790,13 +870,15 @@ export class Conductor {
         }
 
         // develop / fix: a developer turn, then Ark's commit and the checks.
+        const builder = p.builder;
+        if (!builder || !t.roles?.builders.includes(builder)) throw new Error('No builder is assigned to this phase');
         let note: string | undefined;
         if (step.do === 'develop') {
           const base = await ws.head(b.worktree);
           if (!live()) return;
           if (!base) throw new Error('The worktree has no commit');
           t = withPhase(t, (q) => { q.base = base; }).thread;
-          this.dropSession(id, DEVELOPER); // a fresh session per phase
+          this.dropSession(id, builder); // a fresh session per phase
           turn(undefined, [store.append(id, { kind: 'phase', index: b.current })]);
         } else {
           note = step.why === 'checks' ? NOTES.checksFailed(step.results ?? []) : step.why === 'review' ? NOTES.fix : NOTES.userFix;
@@ -806,20 +888,21 @@ export class Conductor {
         if (unread !== undefined && !(step.do === 'fix' && step.why === 'user')) note = note ? `${note}
 ${NOTES.userFix}` : NOTES.userFix;
         // A fresh developer session: its preallowed check commands are fixed when it starts, so ask before.
-        if (!this.sessions.get(id)?.has(DEVELOPER)) {
+        if (!this.sessions.get(id)?.has(builder)) {
           await askConsent(b.worktree, ws.projectChecks(b.worktree));
           if (!live()) return;
         }
-        turn(DEVELOPER);
+        turn(builder);
         const setup = setupHints(b.worktree);
         const lead = NOTES.develop({
           plan: b.plan, index: b.current, total: b.phases.length, phase: p.text,
           done: b.phases.slice(0, b.current).map((q) => q.title), branch: b.branch, worktree: b.worktree, setup, checks: ws.projectChecks(b.worktree),
           denied: !this.projectCode(id),
         });
-        const r = await this.speak(t, DEVELOPER, gen, {
+        const r = await this.speak(t, builder, gen, {
           build: { cwd: b.worktree, permissions: 'build', lead, since: Math.min(this.phaseSeq(id, b.current), (unread ?? Infinity) - 1) },
           note,
+          role: 'builder', level: 'standard',
           timeoutMs: BUILD_TURN_MS,
         });
         if (!r) return;
@@ -853,7 +936,7 @@ ${NOTES.userFix}` : NOTES.userFix;
           : failed.length ? `Checks failed: ${failed.join(', ')}.` : passed.length ? `Checks passed: ${passed.join(', ')}.` : 'No check could run.') +
           (skipped.length ? ` Skipped, tool not installed: ${skipped.join(', ')}.` : '');
         this.save(t, [store.append(id, { kind: 'note', text })]);
-        ({ thread: t, step } = afterChecks(t, results));
+        ({ thread: t, step } = afterChecks(t, results, this.unreadByDeveloper(t) !== undefined));
         blockedOn = step.do === 'escalate' ? failed : undefined;
       }
     } catch (e) {

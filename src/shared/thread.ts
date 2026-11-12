@@ -1,27 +1,31 @@
 import type { Attachment } from './attachments';
-import type { EngineId } from './agent-file';
+import type { EngineId, Tier } from './agent-file';
 import type { TokenCount } from './types';
 import type { PermissionMode } from './permissions';
 import type { EngineAssignment } from './agent-problems';
 
-export const MANAGER = 'project-manager';
+export const MANAGER = 'head-of-staff';
+export const LEGACY_MANAGER = 'project-manager';
 export const PLANNING_BUDGET = 20;
 export const HANDOFF_AT = 0.4;
 export type Project = { id: string; name: string; dir: string; git: boolean };
 export type Phase = 'team' | 'planning' | 'build' | 'done';
+export type Level = Tier;
 export type ThreadStatus = 'running' | 'waiting' | 'idle' | 'error'; // waiting = for the user
 export type Reaction = '👍' | '👎';
 export type TeamPick = { agent: string; reason: string };
+export type Difficulty = 'easy' | 'hard';
+export type ReviewKind = 'code' | 'security';
+export type Roles = { planner?: string; builders: string[]; codeReview?: string; securityReview?: string };
 export type TaskStatus = 'todo' | 'doing' | 'done';
 export type TaskInput = { title: string; status: TaskStatus; agent?: string };
 export type ThreadTask = TaskInput & { id: string };
 export const REVIEW_ROUNDS = 2;
 export const BUILD_TURN_MS = 3_600_000; // developer turns, approvals included
-export const BUILD_ROLES = ['developer', 'code-reviewer', 'security-reviewer'] as const;
-export const [DEVELOPER, CODE_REVIEWER, SECURITY_REVIEWER] = BUILD_ROLES;
 export type PhaseStep = 'develop' | 'review' | 'security' | 'blocked' | 'done';
 export type BuildPhase = {
   title: string; text: string; step: PhaseStep;
+  builder?: string;
   base?: string;      // commit the phase started from (set when it starts)
   commit?: string;    // last commit Ark made for it
   rounds: number;     // times the developer was sent back (checks or reviews)
@@ -32,8 +36,9 @@ export type BuildPhase = {
 /** `removed` is set once the worktree is removed and never cleared. */
 export type Build = { worktree: string; branch: string; plan: string; phases: BuildPhase[]; current: number; removed?: true };
 export type Control =
-  | { kind: 'team'; picks: TeamPick[]; leftOut: string }
-  | { kind: 'next'; agent: string; hard?: true }
+  | { kind: 'team'; picks: TeamPick[]; leftOut: string; difficulty?: Difficulty; roles?: Roles }
+  | { kind: 'roles'; roles: Partial<Roles> }
+  | { kind: 'next'; agent: string; level?: Level }
   | { kind: 'ask'; question: string; choices: string[] }
   | { kind: 'plan' }
   | { kind: 'review'; pass: boolean; findings: string[] };
@@ -61,6 +66,9 @@ export type Thread = {
   tasks?: ThreadTask[];              // the user's board; assignment never starts an agent
   speaking?: string;                 // agent whose turn is running
   team: string[];                    // approved agent ids, MANAGER first; empty during the team phase
+  roles?: Roles;
+  difficulty?: Difficulty;
+  waived?: ReviewKind[];
   waitingOn?: string;                // agent that asked the user
   agentTurns: number;                // planning agent turns since the last user message
   retried: boolean;                  // the current speaker already got its one correction

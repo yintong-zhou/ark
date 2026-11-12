@@ -6,7 +6,9 @@ export const DRAFTER_PROMPT = `You write agent files for Ark, a desktop app wher
 The user's message lists the skills available and describes the agent they need. Reply with ONLY one agent file in exactly this format, with no commentary before or after it:
 
 ---
-name: <short name, 1 to 4 words>
+name: <alias> - <role>
+alias: <agent's name>
+role: <job title>
 description: <one sentence saying what the agent does>
 engine: auto
 tier: <light | standard | heavy>
