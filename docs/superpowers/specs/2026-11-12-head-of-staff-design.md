@@ -176,11 +176,6 @@ The protocol texts must be rewritten accordingly: there is no "Ark's developer" 
 - Existing threads keep their history and continue with the Head of Staff as coordinator **(call, stated to the user)**.
 - A thread that was mid-build with the removed built-in roles must not crash or lose its worktree: it stops with a note, and on the user's next message the Head of Staff assigns the build roles from the catalog **(call)**.
 - The upgrade does not write the old developer and reviewers into the catalog: the user decided they must not exist any more. An upgraded install whose catalog has no agent that can build is treated like any catalog with a missing role: the Head of Staff tells the user to create one or to add the IT Services team.
-
-### A defect to fix on the way
-
-`catalog:save` and `catalog:remove` in `src/main/ipc/index.ts` pass the id through `agentId()`, which turns `_` into `-`. Editing an agent such as `backend_dev` therefore writes a second file `backend-dev.md`, and Delete removes nothing. Usernames typed by the user make this visible, so it must be fixed with the profile work: an id that is already valid is used as it is. Existing catalogs may hold such dashed duplicates of IT Services agents; **Update team** will meet them and must not treat them as team members.
-
 ## 3. Ready teams
 
 - The Agents page gets a **Ready teams** list in place of the two fixed sections. Each entry has a name, a one-line description, the number of agents and an Add button. Today it holds one entry, IT Services.
