@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Project } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
 import { areaOf, type Screen } from './agents';
+import { ArrowIcon } from './components/Icons';
 import { Main } from './components/Shell';
+import { ICON_BUTTON } from './components/ui';
 import { Rail } from './components/Rail';
 import { AgentsNav, UsageNav } from './components/Sidebars';
 import { StatusBar } from './components/StatusBar';
@@ -74,6 +76,29 @@ export default function App() {
   };
   const area = areaOf(screen);
 
+  // Page history: every (screen, project) pair visited, with back and forward over it.
+  type Stop = { screen: Screen; projectId?: string };
+  const [hist, setHist] = useState<{ trail: Stop[]; at: number }>({ trail: [], at: -1 });
+  const replaying = useRef(false); // a back/forward jump must not be recorded as a new visit
+  useEffect(() => {
+    if (replaying.current) { replaying.current = false; return; }
+    const cur = { screen, projectId: project?.id };
+    setHist((h) => {
+      if (JSON.stringify(h.trail[h.at]) === JSON.stringify(cur)) return h;
+      const trail = [...h.trail.slice(0, h.at + 1), cur].slice(-50);
+      return { trail, at: trail.length - 1 };
+    });
+  }, [screen, project?.id]);
+  const go = (step: number) => {
+    const to = hist.trail[hist.at + step];
+    if (!to) return;
+    replaying.current = true;
+    setHist({ ...hist, at: hist.at + step });
+    setScreen(to.screen);
+    setProjectId(to.projectId);
+    setDraft(false);
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
@@ -88,7 +113,10 @@ export default function App() {
         />
         <div className="flex min-w-0 flex-1 flex-col">
           {/* the window's own title bar: Windows draws only its buttons over this strip */}
-          <div className="drag h-4 shrink-0 bg-primary" />
+          <div className="drag flex h-4 shrink-0 items-center gap-1 bg-primary px-1">
+            <button type="button" onClick={() => go(-1)} disabled={hist.at < 1} aria-label="Back" title="Back" className={`${ICON_BUTTON} no-drag`}><ArrowIcon dir="back" /></button>
+            <button type="button" onClick={() => go(1)} disabled={hist.at >= hist.trail.length - 1} aria-label="Forward" title="Forward" className={`${ICON_BUTTON} no-drag`}><ArrowIcon dir="forward" /></button>
+          </div>
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-tl-lg border-l border-t border-divider">
             {area === 'threads' && (
               <Threads ws={ws} project={project} draft={draft} onDraft={setDraft} problem={problem} attempt={attempt} onAddProject={addProject} />

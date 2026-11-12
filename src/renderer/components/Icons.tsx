@@ -11,6 +11,13 @@ const base = {
   'aria-hidden': true,
 } as const;
 
+/** Back and forward in the page history. */
+export const ArrowIcon = ({ dir }: { dir: 'back' | 'forward' }) => (
+  <svg {...base}>
+    <path d={dir === 'back' ? 'M16 10H4m5-5-5 5 5 5' : 'M4 10h12m-5-5 5 5-5 5'} />
+  </svg>
+);
+
 /** Three usage bars: the track, the fill and a different reading on each. */
 export const UsageIcon = () => (
   <svg {...base}>

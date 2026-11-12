@@ -185,7 +185,19 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     if (ready) agentTeams.write(adoptReadyTeam(agentTeams.read(), { id, name: ready.name }, catalog.presentIds(id)));
     return result;
   });
-  handle('catalog:agent-teams', () => agentTeams.read());
+  handle('catalog:agent-teams', () => {
+    // First run with no file: agents already in the catalog from a ready team get that team, once.
+    // (Later, an agent the user moved to Ungrouped stays there.)
+    if (!agentTeams.exists()) {
+      let t = agentTeams.read();
+      for (const ready of catalog.teams()) {
+        const ids = catalog.presentIds(ready.id);
+        if (ids.length) t = adoptReadyTeam(t, ready, ids);
+      }
+      return agentTeams.write(t);
+    }
+    return agentTeams.read();
+  });
   handle('catalog:save-agent-teams', (t) => agentTeams.write(t));
   handle('catalog:update-team', (id) => {
     if (typeof id !== 'string') throw new Error('Unknown team');
