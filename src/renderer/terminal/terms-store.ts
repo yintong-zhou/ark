@@ -4,7 +4,7 @@ import type { Terminal } from '@xterm/xterm';
 import type { RootRef } from '@shared/files';
 import type { ShellId, ShellOption } from '@shared/terminal';
 import { readable } from '../errors';
-import { loadChoice, loadSize, saveChoice, saveSize } from '../saved';
+import { loadSize, saveSize } from '../saved';
 import { onThemeApplied } from '../theme';
 import { loadXterm } from './xterm';
 
@@ -177,17 +177,7 @@ export function fitTerm(t: Term): void {
 let shellList: Promise<ShellOption[]> | undefined;
 export const shells = (): Promise<ShellOption[]> => (shellList ??= window.ark.terminal.shells());
 
-export const DOCKS = ['bottom', 'top', 'left', 'right'] as const;
-export type Dock = (typeof DOCKS)[number];
-let dock: Dock = loadChoice('ark-terminal-dock', DOCKS, 'bottom');
-export const panelDock = (): Dock => dock;
-export function setPanelDock(d: Dock): void {
-  dock = d;
-  saveChoice('ark-terminal-dock', d);
-  emit();
-}
-
-/** The panel's share of its container, along the dock's axis (height for top/bottom, width for left/right). */
+/** The panel's share of <Main>'s height. */
 export const panelHeight = (): number => height;
 export function setPanelHeight(f: number): void {
   height = Math.min(0.85, Math.max(0.15, f));
