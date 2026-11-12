@@ -1,3 +1,0 @@
-feat: window state, Ark drop-downs, panel docking, thread reactions
-
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
