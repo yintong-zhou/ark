@@ -76,7 +76,7 @@ export function approveTeam(t: Thread, picks: string[], names: Record<string, st
   const team = [MANAGER, ...new Set(picks.filter((id) => id !== MANAGER))];
   const r = proposal?.roles;
   const roles = r ? { builders: r.builders.filter((id) => team.includes(id)), ...(r.planner && team.includes(r.planner) && { planner: r.planner }), ...(r.codeReview && team.includes(r.codeReview) && { codeReview: r.codeReview }), ...(r.securityReview && team.includes(r.securityReview) && { securityReview: r.securityReview }) } : undefined;
-  if (roles && proposal?.difficulty === 'easy' && roles.builders.length && !roles.planner) roles.planner = roles.builders[0];
+  if (roles && proposal?.difficulty === 'easy' && roles.builders.length) roles.planner = roles.builders[0];
   if (proposal?.difficulty === 'easy' && roles?.builders.length) return { thread: { ...t, team, phase: 'planning', agentTurns: 0, difficulty: proposal.difficulty, roles }, step: { do: 'turn', agent: roles.builders[0], note: NOTES.easyPlan, level: 'standard' } };
   return {
     thread: { ...t, team, phase: 'planning', agentTurns: 0, ...(proposal?.difficulty && { difficulty: proposal.difficulty }), ...(roles && { roles }) },
