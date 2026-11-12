@@ -70,6 +70,7 @@ const api: ArkApi = {
     pickFolder: () => ipcRenderer.invoke('chat:pick-folder'),
     start: (agentId, projectDir, mode) => ipcRenderer.invoke('chat:start', agentId, projectDir, mode),
     send: (chatId, text) => ipcRenderer.invoke('chat:send', chatId, text),
+    readFile: (chatId, rel) => ipcRenderer.invoke('chat:read-file', chatId, rel),
     stop: (chatId) => ipcRenderer.invoke('chat:stop', chatId),
     onEvent: (cb) => {
       const listener = (_e: unknown, chatId: string, ev: ChatEvent) => cb(chatId, ev);

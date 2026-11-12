@@ -126,7 +126,7 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   5 MB each) reach the agents as images; text and code files (200 KB each) are pasted into the message they read. Other
   types are refused, since agents only see what Ark gives them. Attachments live in the thread's `files` folder.
 - **Formatting**: agent messages and the plan card render Markdown (headings, bold, lists and checklists, code, tables,
-  quotes), in threads and in Chat. Raw HTML in a message shows as text, and links are not opened: hover one to see its URL.
+  quotes), in threads and in Chat. Raw HTML in a message shows as text. Document links within the project or selected worktree open in Ark; other links stay inside the conversation.
 - **Emoji**: the smiley in the composer opens a grid of emoji.
 - **Reactions**: react 👍 or 👎 to any agent message. A reaction does not start a turn: the agents see it on their next turn ("the user reacted 👍 to ...").
 - **The plan card**: when the planner finishes, its plan appears as a card in the thread and is saved as `plan.md` in the

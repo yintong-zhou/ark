@@ -82,7 +82,7 @@ function TeamCard({ control, name, agents, active, pending, approve }: {
   );
 }
 
-export function PlanCard({ text, active, pending, start, roles, name }: { text: string; active: boolean; pending: boolean; start: () => void; roles?: Roles; name: (id: string) => string }) {
+export function PlanCard({ text, active, pending, start, roles, name, onLink }: { text: string; active: boolean; pending: boolean; start: () => void; roles?: Roles; name: (id: string) => string; onLink?: (href: string) => void }) {
   const phases = parsePhases(text);
   const builds = phases.map((phase, i) => {
     const id = phase.builder && roles?.builders.includes(phase.builder) ? phase.builder : roles?.builders[0];
@@ -92,7 +92,7 @@ export function PlanCard({ text, active, pending, start, roles, name }: { text: 
     <Card>
       <details open={active}>
         <summary className="head cursor-pointer leading-[22px] marker:text-muted"><span aria-hidden>📋 </span>Plan</summary>
-        <Markdown text={text} className="mt-1 text-neutral-light" />
+        <Markdown text={text} className="mt-1 text-neutral-light" onLink={onLink} />
       </details>
       <div className="mt-1 text-meta text-muted">
         <p>{`Builds: ${builds || 'none'}`}</p>

@@ -23,6 +23,7 @@ type Props = {
   messages: ThreadMessage[];
   agents: AgentDef[];
   tags: string[]; // tags already used in the project, offered when the user types #
+  onLink: (href: string) => void;
   onTag: (tag: string) => void; // a #tag was clicked: show the project's threads with it
 };
 
@@ -42,7 +43,7 @@ const clock = (at: number) => {
 };
 
 /** One thread: a header that says where it stands, the messages with the cards the user can act on, and the composer. */
-export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
+export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Props) {
   const [text, setText] = useState('');
   const [board, setBoard] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -168,9 +169,9 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
                     </div>
                   )}
                   {m.kind === 'agent' && m.control?.kind === 'plan' ? (
-                    <PlanCard text={m.text} active={mine} pending={inflight > 0} name={name} roles={thread.roles} start={() => run(() => window.ark.threads.startDeveloper(thread.id))} />
+                    <PlanCard onLink={onLink} text={m.text} active={mine} pending={inflight > 0} name={name} roles={thread.roles} start={() => run(() => window.ark.threads.startDeveloper(thread.id))} />
                   ) : (
-                    m.text && <Body text={m.text} agents={agents} onTag={onTag} />
+                    m.text && <Body text={m.text} agents={agents} onTag={onTag} onLink={onLink} />
                   )}
                   {m.kind === 'user' && m.attachments && <Sent threadId={thread.id} list={m.attachments} />}
                   {m.kind === 'agent' && m.control && (
@@ -229,7 +230,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag }: Props) {
 }
 
 /** Message text; an @mention reads as a chip with the agent's name, a #tag as a chip that filters the threads. */
-function Body({ text, agents, onTag }: { text: string; agents: AgentDef[]; onTag: (tag: string) => void }) {
+function Body({ text, agents, onTag, onLink }: { text: string; agents: AgentDef[]; onTag: (tag: string) => void; onLink: (href: string) => void }) {
   const leaf = (run: string) =>
     tokenize(run).map((t, i) => {
       if (t.kind === 'text') return t.text;
@@ -242,7 +243,7 @@ function Body({ text, agents, onTag }: { text: string; agents: AgentDef[]; onTag
         </button>
       );
     });
-  return <Markdown text={text} leaf={leaf} />;
+  return <Markdown text={text} leaf={leaf} onLink={onLink} />;
 }
 
 /** The two reactions, shown over the message on hover or focus. */

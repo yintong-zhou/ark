@@ -19,6 +19,7 @@ import { engineStatus, mergeEngines, readEngines, validateEngines, writeEngines 
 import { BrowserViews } from '../services/browser/views';
 import { run } from '../services/exec';
 import { normEntry, normRel, normRels, resolveInside, rootDir, rootRef } from '../services/files/guard';
+import { readChatFile } from '../services/files/chat-file';
 import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writeText } from '../services/files/ops';
 import { RootWatcher } from '../services/files/watch';
 import { markIgnored } from '../services/files/ignored';
@@ -277,12 +278,12 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
   });
   // Chats this window started: a reload (Ctrl+R) drops the renderer's state, so they would be orphans.
-  const chats = new Set<string>();
+  const chats = new Map<string, string>();
   // A new page in the main frame, once beforeunload has let it go: `did-start-loading` fired before that, so a reload
   // cancelled at the unsaved-changes dialog still killed every terminal and chat under the page that stayed.
   win.webContents.on('did-start-navigation', (e) => {
     if (!e.isMainFrame || e.isSameDocument) return;
-    for (const id of chats) {
+    for (const id of chats.keys()) {
       try {
         runner.stop(id);
       } catch (err) {
@@ -296,9 +297,10 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
   handle('chat:start', async (id, dir, mode) => {
     const started = await runner.start(agentId(id), projectDir(dir), mode === undefined ? 'ask' : permissionMode(mode));
-    chats.add(started.chatId);
+    chats.set(started.chatId, projectDir(dir));
     return started;
   });
+  handle('chat:read-file', (id, rel) => readChatFile(chats, chatId(id), rel));
   handle('chat:send', (id, text) => runner.send(chatId(id), messageText(text)));
   handle('chat:stop', (id) => {
     const cid = chatId(id);

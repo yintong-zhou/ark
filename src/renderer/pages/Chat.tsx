@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { documentLink } from '@shared/document-link';
 import type { ChatEntry } from '@shared/chat-log';
 import type { AgentDef } from '@shared/agent-file';
 import { AgentAvatar, Avatar } from '../components/Avatar';
@@ -21,6 +22,7 @@ export function Chat({ agentId }: { agentId: string }) {
   const [folder, setFolder] = useState<string | null>(null);
   const [problem, setProblem] = useState<string>();
   const [text, setText] = useState('');
+  const [document, setDocument] = useState<{ name: string; text: string }>();
   const [mode, setMode] = useState<PermissionMode>('ask');
   const end = useRef<HTMLDivElement>(null);
 
@@ -79,17 +81,33 @@ export function Chat({ agentId }: { agentId: string }) {
     );
   }
 
+  const openLink = async (href: string) => {
+    if (!folder) return;
+    const root = { kind: 'project' as const, id: started.chatId };
+    const target = documentLink(href, [{ dir: folder, root }], root);
+    if (!target) {
+      setProblem('Cannot open this link: it does not name a document inside this folder.');
+      return;
+    }
+    try {
+      const result = await window.ark.chat.readFile(started.chatId, target.rel);
+      setDocument({ name: target.rel, text: result.kind === 'text' ? result.text : result.kind === 'binary' ? 'This file is binary.' : 'This file is too large to display.' });
+      setProblem(undefined);
+    } catch (e) { setProblem(readable(e)); }
+  };
+
   return (
     <>
       <PaneHeader title={agentName} meta={[started.model, 'Read-only advisor', folder ?? ''].filter(Boolean)} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {problem && <p role="alert" className="px-3 text-muted">{problem}</p>}
+      {document ? <div className="min-h-0 flex-1 overflow-auto p-3"><button className={BUTTON} onClick={() => setDocument(undefined)}>Back to chat</button><h2 className="head my-1">{document.name}</h2><pre className="whitespace-pre-wrap break-words">{document.text}</pre></div> : <div className="min-h-0 flex-1 overflow-y-auto">
         <ol className="flex max-w-[960px] flex-col pb-2">
           {state.entries.map((e, i) => (
-            <Entry key={i} e={e} agentName={agentName} agent={agent} />
+            <Entry key={i} e={e} agentName={agentName} agent={agent} onLink={(href) => void openLink(href)} />
           ))}
         </ol>
         <div ref={end} />
-      </div>
+      </div>}
       <div className="px-2 pb-0.5 lg:px-3"><PermissionSelect value={mode} onChange={setMode} disabled readOnly /></div>
       <Composer
         label={`Message ${agentName}`}
@@ -106,7 +124,7 @@ export function Chat({ agentId }: { agentId: string }) {
   );
 }
 
-function Entry({ e, agentName, agent }: { e: ChatEntry; agentName: string; agent?: AgentDef }) {
+function Entry({ e, agentName, agent, onLink }: { e: ChatEntry; agentName: string; agent?: AgentDef; onLink: (href: string) => void }) {
   if (e.role === 'error') {
     return <li role="alert" className="mt-2 whitespace-pre-wrap break-words pl-[80px] pr-3 text-meta text-muted">{e.text}</li>;
   }
@@ -125,7 +143,7 @@ function Entry({ e, agentName, agent }: { e: ChatEntry; agentName: string; agent
             </span>
           )}
         </div>
-        {e.text && (you ? <p className="whitespace-pre-wrap break-words">{e.text}</p> : <Markdown text={e.text} />)}
+        {e.text && (you ? <p className="whitespace-pre-wrap break-words">{e.text}</p> : <Markdown text={e.text} onLink={onLink} />)}
         {e.tokens && <TokenLine tokens={e.tokens} />}
       </div>
     </li>

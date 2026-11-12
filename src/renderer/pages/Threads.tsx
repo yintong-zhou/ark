@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentDef } from '@shared/agent-file';
+import { findDocumentLink, threadDocumentRoots } from '@shared/document-link';
 import { rootKey, type RootRef } from '@shared/files';
 import type { Project, Thread } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
@@ -22,6 +23,7 @@ import { ThreadView } from '../components/ThreadView';
 import { BUTTON, CTA, ICON_BUTTON } from '../components/ui';
 import { PermissionSelect } from '../components/PermissionSelect';
 import type { PermissionMode } from '@shared/permissions';
+import { readable } from '../errors';
 import { onBrowserKey, startSelect, useBrowser } from '../browser/browser-store';
 import { activate, BROWSER_TAB, open as openTab, openDiff, useTabs } from '../editor/tabs-store';
 import type { useThreads } from '../hooks/useThreads';
@@ -82,6 +84,23 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   }
   const root: RootRef = worktree && rootSel === 'worktree' && thread ? { kind: 'thread', id: thread.id } : { kind: 'project', id: project?.id ?? '' };
   const openFile = (r: RootRef, rel: string) => project && void attempt(() => openTab(project.id, r, rel));
+  const openLink = (href: string) => {
+    if (!project) return;
+    const roots = threadDocumentRoots(
+      { dir: project.dir, root: { kind: 'project', id: project.id } },
+      worktree && thread ? { dir: worktree, root: { kind: 'thread', id: thread.id } } : undefined,
+    );
+    void attempt(async () => {
+      const target = await findDocumentLink(href, roots, async (r, rel) => {
+        try { return !!await window.ark.files.stat(r, rel); }
+        catch (e) {
+          if (r.kind === 'thread' && readable(e) === 'Worktree not found') return false;
+          throw e;
+        }
+      });
+      await openTab(project.id, target.root, target.rel);
+    });
+  };
   const tabs = useTabs(project?.id);
   const fileDoc = tabs.active ? tabs.docs.find((d) => d.tab.key === tabs.active) : undefined;
   const showThread = () => project && activate(project.id, null);
@@ -258,7 +277,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
               />
             </>
           ) : thread ? (
-            <ThreadView key={thread.id} thread={thread} messages={ws.messages} agents={threadAgents} tags={tags} onTag={(t) => setFilter(only === t ? undefined : t)} />
+            <ThreadView key={thread.id} onLink={openLink} thread={thread} messages={ws.messages} agents={threadAgents} tags={tags} onTag={(t) => setFilter(only === t ? undefined : t)} />
           ) : (
             <>
               <PaneHeader title={project.name} />

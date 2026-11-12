@@ -27,3 +27,9 @@ test('never turns agent text into live HTML or links', () => {
 test('plain runs go through leaf, for mentions and tags', () => {
   expect(html('hi @planner **@dev**', (s) => s.toUpperCase())).toContain('HI @PLANNER <strong class="font-semibold text-secondary">@DEV</strong>');
 });
+
+test('renders document links as buttons when opening is available', () => {
+  const out = renderToStaticMarkup(createElement(Markdown, { text: 'Read [README](README.md)', onLink: () => {} }));
+  expect(out).toMatch(/<button type="button" title="README\.md"[^>]*>README<\/button>/);
+  expect(out).not.toContain('<a ');
+});

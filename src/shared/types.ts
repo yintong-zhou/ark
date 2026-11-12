@@ -123,6 +123,7 @@ export interface ArkApi {
     pickFolder(): Promise<string | null>;
     start(agentId: string, projectDir: string, mode?: PermissionMode): Promise<ChatStarted>;
     send(chatId: string, text: string): Promise<void>;
+    readFile(chatId: string, rel: string): Promise<import('./files').ReadResult>;
     stop(chatId: string): Promise<void>;
     onEvent(cb: (chatId: string, e: ChatEvent) => void): () => void;
   };
