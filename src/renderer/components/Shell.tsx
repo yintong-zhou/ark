@@ -12,10 +12,9 @@ const widthOf = (key: string) => (sidebarWidths[key] ??= loadSize(`ark-width-${k
 const resizeSidebar = (width: number) => Math.max(180, Math.min(600, window.innerWidth - 320, width));
 
 /** A resizable column with a 48px heading or tab bar, scrolling content and an optional footer. */
-export function Sidebar({ title, label, children, footer, side = 'left', header, widthKey = side, order }: {
+export function Sidebar({ title, label, children, footer, side = 'left', header, widthKey = side }: {
   title: string; label: string; children: ReactNode; footer?: ReactNode; side?: 'left' | 'right'; header?: ReactNode;
   widthKey?: string; // which saved width this column uses (default: its side)
-  order?: number; // CSS order among its siblings
 }) {
   const [width, setWidth] = useState(widthOf(widthKey));
   const drag = useRef({ x: 0, width: 0 });
@@ -23,7 +22,7 @@ export function Sidebar({ title, label, children, footer, side = 'left', header,
   useEffect(() => saveSize(`ark-width-${widthKey}`, width), [widthKey, width]);
   const direction = side === 'left' ? 1 : -1;
   return (
-    <nav aria-label={label} style={{ width, order }} className={`relative flex shrink-0 flex-col border-divider bg-sidebar ${side === 'left' ? 'border-r' : 'border-l'}`}>
+    <nav aria-label={label} style={{ width }} className={`relative flex shrink-0 flex-col border-divider bg-sidebar ${side === 'left' ? 'border-r' : 'border-l'}`}>
       <header className={`drag flex h-6 shrink-0 items-center border-b border-divider ${header ? 'px-1' : 'px-2'}`}>
         {header ?? <h2 className="truncate text-body">{title}</h2>}
       </header>
