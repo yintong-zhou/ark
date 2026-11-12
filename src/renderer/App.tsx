@@ -96,6 +96,16 @@ export default function App() {
     setProjectId(to.projectId);
     setDraft(false);
   };
+  // the mouse's side buttons (3 = back, 4 = forward) do the same as the Rail's arrows
+  useEffect(() => {
+    const side = (e: MouseEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      go(e.button === 3 ? -1 : 1);
+    };
+    window.addEventListener('mouseup', side);
+    return () => window.removeEventListener('mouseup', side);
+  });
 
   return (
     <div className="flex h-full flex-col">
