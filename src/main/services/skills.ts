@@ -11,7 +11,8 @@ export type SkillEntry = { name: string; folder: string; dir: string; source: Sk
 export type SkillRoots = { claudeConfigDir: string; home: string; codexHome: string; ark: string };
 export const SKILL_MAX_FILES = 200;
 export const SKILL_MAX_BYTES = 5 * 1024 * 1024;
-const SAFE_SKILL = /^[A-Za-z0-9][\w.-]{0,63}$/;
+// No trailing dot or dash (Windows drops them) and no reserved device names (CON, NUL, COM1...).
+const SAFE_SKILL = /^(?!(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))[a-z0-9][\w.-]{0,63}(?<![.-])$/i;
 
 export function checkSkillFolder(src: string): { name: string; files: string[] } {
   const name = basename(src);
@@ -119,6 +120,8 @@ export function indexSkills(roots: SkillRoots): SkillEntry[] {
   const scan = (base: string, source: SkillSource, prefix = '') => {
     for (const folder of skillDirs(base)) {
       if (source === 'codex-user' && folder.startsWith('.')) continue;
+      // Imported skills: plain folders with a safe name only (no links, no .import-* staging leftovers).
+      if (source === 'ark') { try { arkSkillDir(folder, base); } catch { continue; } }
       const name = prefix + folder;
       if (seen.has(name)) continue;
       seen.add(name);

@@ -137,6 +137,17 @@ test('the copy does not depend on the original', () => {
   expect(readFileSync(join(roots.ark, 'standalone', 'notes.md'), 'utf8')).toBe('n');
 });
 
+test('refuses Windows reserved and trailing-dot names, and the index skips links and staging leftovers in the Ark folder', () => {
+  for (const bad of ['nul', 'COM1', 'foo.']) { skill(src(bad)); expect(() => importSkill(src(bad), roots.ark)).toThrow('Rename the folder'); }
+  const ark = join(root, 'ark-strict');
+  skill(join(ark, '.import-abc'));
+  skill(join(root, 'elsewhere'));
+  symlinkSync(join(root, 'elsewhere'), join(ark, 'linked'), 'junction');
+  skill(join(ark, 'real'));
+  const index = indexSkills({ ...roots, ark });
+  expect(index.filter((s) => s.source === 'ark').map((s) => s.name)).toEqual(['real']);
+});
+
 test('importing a name again needs replace', () => {
   skill(src('twice'), 'first');
   importSkill(src('twice'), roots.ark);
