@@ -116,7 +116,8 @@ export class Conductor {
       return;
     }
     if (t.phase === 'build') {
-      if (!t.roles?.builders.length) {
+      // Old thread, or an assigned builder/reviewer that left the catalog or lost write access: the Head reassigns the roles.
+      if (buildProblem(t, (key) => this.deps.catalog.get(key))) {
         this.save(t, [m]);
         void this.runLegacy(t, this.nextGen(t.id));
         return;

@@ -1800,6 +1800,18 @@ test('an old mid-build thread gets its roles from the Head of Staff on the next 
   expect(thread(t.id).team).toEqual(expect.arrayContaining(['developer', 'code-reviewer', 'security-reviewer']));
 });
 
+test('a build whose reviewer left the catalog is not stuck: the next message goes to the Head of Staff', async () => {
+  const t = store.create(projectId, 'Mid build');
+  const phase = { title: 'A', text: '## Phase 1: A', step: 'review' as const, rounds: 0, notes: 0, open: 0, base: 'abc' };
+  store.save({ ...t, phase: 'build', status: 'error', team: [MANAGER, 'developer'], roles: { builders: ['developer'], codeReview: 'gone-reviewer' }, waived: ['security'], build: { worktree: join(root, 'wt', 'y'), branch: 'ark/y', plan: 'p', phases: [phase], current: 0 } });
+  runner.reply(MANAGER, ark({ ask: 'Pick another reviewer.' }));
+  c.send(t.id, 'continue');
+  await idle();
+  expect(runner.turns[0]).toMatchObject({ agent: MANAGER });
+  expect(runner.turns[0].text).toContain(NOTES.assignRoles);
+  expect(thread(t.id)).toMatchObject({ phase: 'build', status: 'waiting', waitingOn: MANAGER });
+});
+
 test('when nobody can build, the old thread waits on the question and its worktree is kept', async () => {
   const t = store.create(projectId, 'Old build');
   store.save({ ...t, phase: 'build', status: 'idle', team: ['project-manager'], build: { worktree: 'w', branch: 'b', plan: 'p', phases: [{ title: 'A', text: 'a', step: 'develop', rounds: 0, notes: 0, open: 0 }], current: 0 } });
