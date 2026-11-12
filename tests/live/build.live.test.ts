@@ -31,7 +31,7 @@ const probes = [probe('a'), probe('b')];
 
 const runner = new AgentRunner({
   catalog: { get: () => undefined },
-  skills: () => [...indexSkills({ claudeConfigDir, home: homedir(), codexHome }), ...probes],
+  skills: () => [...indexSkills({ claudeConfigDir, home: homedir(), codexHome, ark: join(tmp, 'skills') }), ...probes],
   engines: () => engineStatus({}),
   config: () => ({}),
   tempDir: tmp,

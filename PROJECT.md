@@ -58,7 +58,7 @@ Ark is a local, open-source desktop app (React + Electron) that merges the chann
    - Cheaper models that interact with each other to understand the state of the project or session.
    - Advanced models that create plans and implement them in code.
    - Project memory shared across agents.
-   - One isolated Git worktree per thread today, shared by its developer and reviewers; a worktree for each agent is roadmap.
+   - One isolated Git worktree per thread today, shared by its builders and reviewers; a worktree for each agent is roadmap.
    - Human approval for risky actions.
    - Checkpoints and rollback of agent changes.
    - Per-agent management of MCP servers and skills.
@@ -107,9 +107,7 @@ The catalog integrates the 14 AI profiles in `docs/agents/it-services.md`, inclu
 lines, written handoffs and L1/L2/L3 governance instructions. The Head of engineering is the human user. Profiles are
 available to add to the initially empty catalog without replacing customized files.
 
-These specialists are read-only advisors in Chat and planning using Claude Code or Codex. Ark's existing coordinator,
-developer and reviewers retain the thread and build workflow. The organizational hierarchy is prompt guidance; it does
-not add an automated release gate, parallel execution or production access.
+Ark ships no catalog agents. The built-in Head of Staff selects the user's agents for each thread, including planners, builders and reviewers. An easy request goes directly to a builder for a short plan; a hard request goes through discussion and planning. Builders work only during the build in the thread worktree. A review is skipped only after the user allows it on a card. The organizational hierarchy remains prompt guidance, not an automated release gate, parallel execution or production access.
 
 ## Extra features: current step
 

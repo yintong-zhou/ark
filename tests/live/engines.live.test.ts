@@ -72,7 +72,7 @@ test('Claude Code: only the agent\'s skills, project rules kept', async () => {
   const exe = await which('claude');
   expect(exe, 'claude is not installed').toBeDefined();
   const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
-  const real = indexSkills({ claudeConfigDir, home: homedir(), codexHome: process.env.CODEX_HOME ?? join(homedir(), '.codex') });
+  const real = indexSkills({ claudeConfigDir, home: homedir(), codexHome: process.env.CODEX_HOME ?? join(homedir(), '.codex'), ark: join(tmp, 'skills') });
   const forbidden = new Set(real.filter((s) => s.source === 'claude-user').map((s) => s.folder));
 
   console.log('CLAUDE forbidden user skills:', forbidden.size);

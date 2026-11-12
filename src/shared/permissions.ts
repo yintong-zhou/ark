@@ -12,7 +12,7 @@ export const PERMISSION_LABEL: Record<PermissionMode, string> = { ask: 'Ask for 
 export const PERMISSION_DETAIL: Record<PermissionMode, string> = {
   ask: 'Ask before actions outside the allowed scope. You approve the team and plan.',
   auto: 'Let the team decide and allow routine work. Ask you for sensitive or unknown actions.',
-  full: 'Developer tools run without approval prompts, including writes outside the worktree and network access.',
+  full: "Builders' tools run without approval prompts, including writes outside the worktree and network access.",
 };
 /** Main-process metadata, never reconstructed from a user-facing description. */
 export type ApprovalRequest = { engine: 'claude' | 'codex'; tool: string; input: Record<string, unknown>; cwd: string };

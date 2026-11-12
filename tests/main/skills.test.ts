@@ -1,8 +1,8 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, expect, test } from 'vitest';
-import { buildSkillFolder, indexSkills, type SkillRoots } from '../../src/main/services/skills';
+import { arkSkillDir, buildSkillFolder, importSkill, indexSkills, personalSkills, SKILL_MAX_BYTES, SKILL_MAX_FILES, type SkillRoots } from '../../src/main/services/skills';
 
 let root: string;
 let roots: SkillRoots;
@@ -44,7 +44,7 @@ beforeAll(() => {
       },
     }),
   );
-  roots = { claudeConfigDir: claude, home, codexHome: codex };
+  roots = { claudeConfigDir: claude, home, codexHome: codex, ark: join(root, 'ark') };
 });
 
 const names = () => indexSkills(roots).map((s) => s.name);
@@ -112,10 +112,70 @@ test('copies a symlinked skill folder as a real folder', () => {
   const home = join(root, 'home-link');
   mkdirSync(join(home, '.agents', 'skills'), { recursive: true });
   symlinkSync(src, join(home, '.agents', 'skills', 'linked'), 'junction'); // junction: no privilege needed on Windows
-  const index = indexSkills({ claudeConfigDir: join(root, 'nowhere'), home, codexHome: join(root, 'nowhere') });
+  const index = indexSkills({ claudeConfigDir: join(root, 'nowhere'), home, codexHome: join(root, 'nowhere'), ark: join(root, 'nowhere') });
   expect(index.map((s) => s.name)).toEqual(['linked']);
   const target = join(root, 'out-link');
   buildSkillFolder('codex-root', target, ['linked'], index);
   expect(lstatSync(join(target, 'linked')).isSymbolicLink()).toBe(false);
   expect(existsSync(join(target, 'linked', 'SKILL.md'))).toBe(true);
+});
+
+const src = (name: string) => join(root, 'incoming', name);
+
+test('an imported skill is indexed first and wins over an installed one of the same name', () => {
+  skill(src('handoff'), 'Imported handoff');
+  expect(importSkill(src('handoff'), roots.ark)).toEqual({ status: 'imported', name: 'handoff' });
+  expect(indexSkills(roots).find((s) => s.name === 'handoff')).toMatchObject({ source: 'ark', description: 'Imported handoff', dir: join(roots.ark, 'handoff') });
+  expect(personalSkills(roots).map((s) => s.name)).toContain('handoff'); // the user's own is still known
+});
+
+test('the copy does not depend on the original', () => {
+  skill(src('standalone'), 'x');
+  writeFileSync(join(src('standalone'), 'notes.md'), 'n');
+  importSkill(src('standalone'), roots.ark);
+  rmSync(src('standalone'), { recursive: true });
+  expect(readFileSync(join(roots.ark, 'standalone', 'notes.md'), 'utf8')).toBe('n');
+});
+
+test('importing a name again needs replace', () => {
+  skill(src('twice'), 'first');
+  importSkill(src('twice'), roots.ark);
+  skill(src('twice'), 'second');
+  expect(importSkill(src('twice'), roots.ark)).toEqual({ status: 'exists', name: 'twice' });
+  expect(indexSkills(roots).find((s) => s.name === 'twice')!.description).toBe('first');
+  expect(importSkill(src('twice'), roots.ark, true)).toEqual({ status: 'imported', name: 'twice' });
+  expect(indexSkills(roots).find((s) => s.name === 'twice')!.description).toBe('second');
+});
+
+test('refuses a folder that is not a safe skill, and copies nothing', () => {
+  mkdirSync(src('empty'), { recursive: true });
+  expect(() => importSkill(src('empty'), roots.ark)).toThrow('This folder has no SKILL.md');
+  skill(src('my skill'));
+  expect(() => importSkill(src('my skill'), roots.ark)).toThrow('Rename the folder');
+  skill(src('many'));
+  for (let i = 0; i < SKILL_MAX_FILES; i++) writeFileSync(join(src('many'), `f${i}.txt`), '');
+  expect(() => importSkill(src('many'), roots.ark)).toThrow('The skill has more than 200 files');
+  skill(src('big'));
+  writeFileSync(join(src('big'), 'blob.bin'), Buffer.alloc(SKILL_MAX_BYTES + 1));
+  expect(() => importSkill(src('big'), roots.ark)).toThrow('The skill is larger than 5 MB');
+  for (const n of ['empty', 'my skill', 'many', 'big']) expect(existsSync(join(roots.ark, n))).toBe(false);
+});
+
+test('a link inside the folder stops the import', () => {
+  skill(src('linked'));
+  try {
+    symlinkSync(root, join(src('linked'), 'outside'), 'junction');
+  } catch {
+    return; // this machine cannot create links
+  }
+  expect(() => importSkill(src('linked'), roots.ark)).toThrow('The skill contains a link (outside); links are not imported');
+  expect(existsSync(join(roots.ark, 'linked'))).toBe(false);
+});
+
+test('arkSkillDir names only imported skills', () => {
+  skill(src('mine'));
+  importSkill(src('mine'), roots.ark);
+  expect(arkSkillDir('mine', roots.ark)).toBe(join(roots.ark, 'mine'));
+  expect(() => arkSkillDir('nope', roots.ark)).toThrow('Not an imported skill');
+  expect(() => arkSkillDir('../claude', roots.ark)).toThrow('Not an imported skill');
 });

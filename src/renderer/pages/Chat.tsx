@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatEntry } from '@shared/chat-log';
-import { Avatar, initials } from '../components/Avatar';
+import type { AgentDef } from '@shared/agent-file';
+import { AgentAvatar, Avatar } from '../components/Avatar';
 import { Composer } from '../components/Composer';
 import { shortModel } from '../components/glyphs';
 import { ModelMark } from '../components/Logos';
@@ -16,7 +17,7 @@ import type { PermissionMode } from '@shared/permissions';
 /** Chat with one catalog agent, in a project folder the user picks. */
 export function Chat({ agentId }: { agentId: string }) {
   const { started, starting, state, start, send } = useChat();
-  const [name, setName] = useState<string>();
+  const [agent, setAgent] = useState<AgentDef>();
   const [folder, setFolder] = useState<string | null>(null);
   const [problem, setProblem] = useState<string>();
   const [text, setText] = useState('');
@@ -24,9 +25,9 @@ export function Chat({ agentId }: { agentId: string }) {
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    window.ark.catalog.list().then((c) => setName(c.agents.find((a) => a.id === agentId)?.name), () => {});
+    window.ark.catalog.list().then((c) => setAgent(c.agents.find((a) => a.id === agentId)), () => {});
   }, [agentId]);
-  const agentName = name ?? agentId;
+  const agentName = agent?.name ?? agentId;
   // keep the latest reply and the composer in view
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'end' });
@@ -84,7 +85,7 @@ export function Chat({ agentId }: { agentId: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ol className="flex max-w-[960px] flex-col pb-2">
           {state.entries.map((e, i) => (
-            <Entry key={i} e={e} agentName={agentName} />
+            <Entry key={i} e={e} agentName={agentName} agent={agent} />
           ))}
         </ol>
         <div ref={end} />
@@ -105,7 +106,7 @@ export function Chat({ agentId }: { agentId: string }) {
   );
 }
 
-function Entry({ e, agentName }: { e: ChatEntry; agentName: string }) {
+function Entry({ e, agentName, agent }: { e: ChatEntry; agentName: string; agent?: AgentDef }) {
   if (e.role === 'error') {
     return <li role="alert" className="mt-2 whitespace-pre-wrap break-words pl-[80px] pr-3 text-meta text-muted">{e.text}</li>;
   }
@@ -113,7 +114,7 @@ function Entry({ e, agentName }: { e: ChatEntry; agentName: string }) {
   const author = you ? 'You' : agentName;
   return (
     <li className="mt-2 flex gap-2 px-3 hover:bg-raised/30">
-      <Avatar text={you ? 'You' : initials(author)} you={you} />
+      {you ? <Avatar text="You" you /> : <AgentAvatar agent={agent} name={author} />}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1">
           <span className="head">{author}</span>

@@ -2,7 +2,7 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
-import { readHandoffThresholds, readView, writeHandoffThreshold, writeView } from '../../src/main/services/settings';
+import { readHead, writeHead, readHandoffThresholds, readView, writeHandoffThreshold, writeView } from '../../src/main/services/settings';
 
 test('handoff thresholds are independent, validated and survive view changes', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ark-settings-'));
@@ -15,5 +15,16 @@ test('handoff thresholds are independent, validated and survive view changes', (
     expect(readHandoffThresholds(dir)).toEqual({ claude: 35, codex: 60 });
     expect(() => writeHandoffThreshold(dir, 'claude', 0)).toThrow();
     expect(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).handoffThresholds.claude).toBe(35);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the Head of Staff settings round-trip and leave the other settings alone', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ark-head-settings-'));
+  try {
+  writeView(dir, 'detailed');
+  writeHead(dir, { skills: [], engine: { kind: 'engine', engine: 'codex' }, lock: false });
+  expect(readHead(dir).engine).toEqual({ kind: 'engine', engine: 'codex' });
+  expect(readView(dir)).toBe('detailed');
+  expect(() => writeHead(dir, { skills: [] })).toThrow();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

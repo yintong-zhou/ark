@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ACCEPT, checkUploads } from '@shared/attachments';
 import { activeToken } from '@shared/tokens';
 import { Staged } from './Attachments';
-import { Avatar, initials } from './Avatar';
+import { AgentAvatar } from './Avatar';
 import { EmojiPicker } from './EmojiPicker';
 import { PaperclipIcon, SendIcon } from './Icons';
 import { CTA, CTA_ICON, ICON_BUTTON } from './ui';
@@ -19,7 +19,7 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
   /** Sends the text and the waiting files. Resolves true when it went through, so the files can be cleared. */
   onSubmit: (files: File[]) => Promise<boolean>;
   disabled?: boolean; submitLabel?: string; attach?: boolean;
-  mentions?: { id: string; name: string }[];
+  mentions?: { id: string; name: string; avatar?: string }[];
   /** Tags already on the project's threads; leave undefined where # means nothing. */
   tags?: string[];
   extra?: ReactNode; problem?: string;
@@ -196,11 +196,11 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
 }
 
 /** What typing @ or # offers: the agents that match, or the project's tags that match plus the one being typed. */
-function suggest(trigger: '@' | '#', q: string, mentions: { id: string; name: string }[], tags: string[] | undefined): Option[] {
+function suggest(trigger: '@' | '#', q: string, mentions: { id: string; name: string; avatar?: string }[], tags: string[] | undefined): Option[] {
   if (trigger === '@') {
     return mentions
       .filter((m) => m.id.includes(q) || m.name.toLowerCase().includes(q))
-      .map((m) => ({ key: m.id, insert: `@${m.id} `, lead: <Avatar text={initials(m.name)} size={24} />, label: m.name }));
+      .map((m) => ({ key: m.id, insert: `@${m.id} `, lead: <AgentAvatar agent={m} name={m.name} size={24} />, label: m.name }));
   }
   if (!tags) return [];
   const known: Option[] = tags.filter((t) => t.startsWith(q)).map((t) => ({ key: t, insert: `#${t} `, lead: <span aria-hidden>🏷️</span>, label: `#${t}` }));

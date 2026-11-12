@@ -11,7 +11,7 @@ const changes: Control = { kind: 'review', pass: false, findings: ['a', 'b'] };
 const phase = (o: Partial<BuildPhase> = {}): BuildPhase => ({ title: 'P', text: 'T', step: 'develop', rounds: 0, notes: 0, open: 0, ...o });
 const thread = (phases: BuildPhase[], o: Partial<Thread> = {}): Thread => ({
   id: 't', projectId: 'p', title: 'T', createdAt: 0, phase: 'build', status: 'running',
-  team: [], agentTurns: 0, retried: false, summarizing: false, cursors: {}, handoffs: {},
+  team: [], roles: { builders: ['dev'], codeReview: 'rev', securityReview: 'sec' }, agentTurns: 0, retried: false, summarizing: false, cursors: {}, handoffs: {},
   build: { worktree: 'w', branch: 'b', plan: 'p', phases, current: 0 }, ...o,
 });
 const one = (o: Partial<BuildPhase> = {}, t: Partial<Thread> = {}) => thread([phase(o)], t);
@@ -27,7 +27,7 @@ describe('startBuild', () => {
     expect(d.thread.phase).toBe('build');
     expect(d.thread.retried).toBe(false);
     expect(d.thread.build!.current).toBe(0);
-    expect(d.thread.build!.phases[1]).toEqual({ title: 'B', text: 'b', step: 'develop', rounds: 0, notes: 0, open: 0 });
+    expect(d.thread.build!.phases[1]).toEqual({ title: 'B', text: 'b', builder: 'dev', step: 'develop', rounds: 0, notes: 0, open: 0 });
   });
 });
 
@@ -142,4 +142,28 @@ describe('openPoints', () => {
     expect(openPoints(msgs, 1)).toEqual(['c']);
     expect(openPoints(msgs, 0)).toEqual(['a', 'b', 'c']);
   });
+});
+
+test('startBuild gives each phase its builder, falling back to the first', () => {
+  const t = { ...thread([]), phase: 'planning' as const, build: undefined, roles: { builders: ['dev', 'ui'] } };
+  const d = startBuild(t, { worktree: 'w', branch: 'b', plan: 'p', phases: [{ title: 'A', text: 'a', builder: 'ui' }, { title: 'B', text: 'b', builder: 'ghost' }, { title: 'C', text: 'c' }] });
+  expect(d.thread.build!.phases.map((p) => p.builder)).toEqual(['ui', 'dev', 'dev']);
+});
+
+test('with no code reviewer the checks lead to the security review', () => {
+  expect(afterChecks(one({}, { roles: { builders: ['dev'], securityReview: 'sec' } }), results(true)).step).toEqual({ do: 'review', who: 'security' });
+});
+
+test('with no reviewer at all, passing checks end the phase', () => {
+  const none = { roles: { builders: ['dev'] } };
+  const d = afterChecks(one({}, none), results(true));
+  expect(first(d).step).toBe('done');
+  expect(d.step).toEqual({ do: 'summary' });
+  expect(afterChecks(one({}, none), results(true), true).step).toEqual({ do: 'fix', why: 'user' }); // an unread user message first
+});
+
+test('with no security reviewer the code review settles the phase', () => {
+  const t = one({ step: 'review' }, { roles: { builders: ['dev'], codeReview: 'rev' } });
+  expect(afterReview(t, 'code', pass).step).toEqual({ do: 'summary' });
+  expect(afterReview(t, 'code', changes).step).toEqual({ do: 'fix', why: 'review' });
 });

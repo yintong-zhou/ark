@@ -1,5 +1,5 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { splitFrontmatter } from '@shared/agent-file';
 import type { SkillSource } from '@shared/types';
 import { obj, str } from './json';
@@ -8,7 +8,71 @@ import { obj, str } from './json';
 export const ARK_PLUGIN = 'ark-agent';
 
 export type SkillEntry = { name: string; folder: string; dir: string; source: SkillSource; description: string };
-export type SkillRoots = { claudeConfigDir: string; home: string; codexHome: string };
+export type SkillRoots = { claudeConfigDir: string; home: string; codexHome: string; ark: string };
+export const SKILL_MAX_FILES = 200;
+export const SKILL_MAX_BYTES = 5 * 1024 * 1024;
+const SAFE_SKILL = /^[A-Za-z0-9][\w.-]{0,63}$/;
+
+export function checkSkillFolder(src: string): { name: string; files: string[] } {
+  const name = basename(src);
+  if (!existsSync(join(src, 'SKILL.md'))) throw new Error('This folder has no SKILL.md');
+  if (!SAFE_SKILL.test(name)) throw new Error('Rename the folder: use letters, digits, dots, dashes and underscores');
+  const files: string[] = [];
+  let bytes = 0;
+  const walk = (rel: string) => {
+    for (const entry of readdirSync(join(src, rel))) {
+      const path = join(rel, entry);
+      const stat = lstatSync(join(src, path));
+      if (stat.isSymbolicLink()) throw new Error(`The skill contains a link (${path}); links are not imported`);
+      if (stat.isDirectory()) walk(path);
+      else if (stat.isFile()) {
+        files.push(path); bytes += stat.size;
+        if (files.length > SKILL_MAX_FILES) throw new Error('The skill has more than 200 files');
+        if (bytes > SKILL_MAX_BYTES) throw new Error('The skill is larger than 5 MB');
+      } else throw new Error(`The skill contains an unsupported file (${path})`);
+    }
+  };
+  walk('');
+  return { name, files };
+}
+
+export function importSkill(src: string, arkDir: string, replace = false): { status: 'imported' | 'exists'; name: string } {
+  const { name, files } = checkSkillFolder(src);
+  const target = join(arkDir, name);
+  if (existsSync(target) && !replace) return { status: 'exists', name };
+  mkdirSync(arkDir, { recursive: true });
+  const staging = mkdtempSync(join(arkDir, '.import-'));
+  const backup = `${staging}-old`;
+  let moved = false;
+  try {
+    let total = 0;
+    for (const file of files) {
+      let path = src;
+      for (const part of file.split(/[\\/]/)) {
+        path = join(path, part);
+        if (lstatSync(path).isSymbolicLink()) throw new Error(`The skill contains a link (${file}); links are not imported`);
+      }
+      const bytes = readFileSync(path);
+      total += bytes.length;
+      if (total > SKILL_MAX_BYTES) throw new Error('The skill is larger than 5 MB');
+      mkdirSync(dirname(join(staging, file)), { recursive: true });
+      writeFileSync(join(staging, file), bytes);
+    }
+    if (existsSync(target)) { renameSync(target, backup); moved = true; }
+    try { renameSync(staging, target); } catch (e) { if (moved) { renameSync(backup, target); moved = false; } throw e; }
+    if (moved) rmSync(backup, { recursive: true, force: true });
+    return { status: 'imported', name };
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
+}
+
+export function arkSkillDir(name: string, arkDir: string): string {
+  if (!SAFE_SKILL.test(name)) throw new Error('Not an imported skill');
+  const dir = join(arkDir, name);
+  try { if (lstatSync(dir).isDirectory() && lstatSync(join(dir, 'SKILL.md')).isFile()) return dir; } catch { /* missing */ }
+  throw new Error('Not an imported skill');
+}
 
 /** Subfolders of `dir` that hold a SKILL.md. Unreadable or missing dirs give []. */
 function skillDirs(dir: string): string[] {
@@ -62,12 +126,18 @@ export function indexSkills(roots: SkillRoots): SkillEntry[] {
       out.push({ name, folder, dir, source, description: description(dir) });
     }
   };
+  scan(roots.ark, 'ark');
   scan(join(roots.claudeConfigDir, 'skills'), 'claude-user');
   for (const p of pluginInstalls(roots.claudeConfigDir)) scan(join(p.installPath, 'skills'), 'claude-plugin', `${p.plugin}:`);
   scan(join(roots.home, '.agents', 'skills'), 'agents-user');
   scan(join(roots.codexHome, 'skills'), 'codex-user');
   scan(join(roots.codexHome, 'skills', '.system'), 'codex-system');
   return out;
+}
+
+export function personalSkills(roots: SkillRoots): SkillEntry[] {
+  const base = join(roots.claudeConfigDir, 'skills');
+  return skillDirs(base).map((folder) => ({ name: folder, folder, dir: join(base, folder), source: 'claude-user', description: description(join(base, folder)) }));
 }
 
 /**

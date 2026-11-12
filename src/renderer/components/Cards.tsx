@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import type { AgentDef } from '@shared/agent-file';
-import { MANAGER, type BuildPhase, type Control, type PhaseStep, type ThreadMessage } from '@shared/thread';
-import { Avatar, initials } from './Avatar';
+import { MANAGER, type BuildPhase, type Control, type PhaseStep, type Roles, type ThreadMessage } from '@shared/thread';
+import { parsePhases } from '@shared/plan';
+import { roleLabels } from '@shared/roles';
+import { AgentAvatar } from './Avatar';
 import { Markdown } from './Markdown';
 import { BUTTON_INSET, CTA, FIELD_INSET } from './ui';
 
@@ -48,19 +50,21 @@ function TeamCard({ control, name, agents, active, pending, approve }: {
   return (
     <Card>
       <p className="head leading-[22px]"><span aria-hidden>👥 </span>Proposed team</p>
+      {control.difficulty && <p className="text-meta text-muted">{control.difficulty === 'easy' ? 'Easy request' : 'Hard request'}</p>}
       <ul className="mt-1 flex flex-col gap-1">
         {control.picks.map((p) => (
           <li key={p.agent} className="flex gap-1">
-            <Avatar text={initials(name(p.agent))} size={24} inset />
+            <AgentAvatar agent={agents.find((a) => a.id === p.agent)} name={name(p.agent)} size={24} inset />
             <div className="flex min-w-0 flex-col">
               <span className="head leading-[24px]">{name(p.agent)}</span>
+              <span className="flex flex-wrap gap-[4px]">{roleLabels(control.roles, p.agent).map((role) => <span key={role} className="rounded-full bg-primary px-1 text-meta text-muted">{role}</span>)}</span>
               <span className="text-muted">{p.reason}</span>
             </div>
           </li>
         ))}
         {added.map((id) => (
           <li key={id} className="flex items-center gap-1">
-            <Avatar text={initials(name(id))} size={24} inset />
+            <AgentAvatar agent={agents.find((a) => a.id === id)} name={name(id)} size={24} inset />
             <span className="head">{name(id)}</span>
           </li>
         ))}
@@ -80,23 +84,33 @@ function TeamCard({ control, name, agents, active, pending, approve }: {
             ))}
           </select>
           {/* the manager leads every thread; main puts it first and drops a repeat */}
-          <button onClick={() => approve([MANAGER, ...picked, ...added])} disabled={pending} className={`${CTA} ml-auto`}>✅ Approve team</button>
+          <button onClick={() => approve([...picked, ...added])} disabled={pending} className={`${CTA} ml-auto`}>✅ Approve team</button>
         </div>
       )}
     </Card>
   );
 }
 
-export function PlanCard({ text, active, pending, start }: { text: string; active: boolean; pending: boolean; start: () => void }) {
+export function PlanCard({ text, active, pending, start, roles, name }: { text: string; active: boolean; pending: boolean; start: () => void; roles?: Roles; name: (id: string) => string }) {
+  const phases = parsePhases(text);
+  const builds = phases.map((phase, i) => {
+    const id = phase.builder && roles?.builders.includes(phase.builder) ? phase.builder : roles?.builders[0];
+    return `Phase ${i + 1} - ${id ? name(id) : 'none'}`;
+  }).join(', ');
   return (
     <Card>
       <details open={active}>
         <summary className="head cursor-pointer leading-[22px] marker:text-muted"><span aria-hidden>📋 </span>Plan</summary>
         <Markdown text={text} className="mt-1 text-neutral-light" />
       </details>
+      <div className="mt-1 text-meta text-muted">
+        <p>{`Builds: ${builds || 'none'}`}</p>
+        <p>{`Code review: ${roles?.codeReview ? name(roles.codeReview) : 'none'}`}</p>
+        <p>{`Security review: ${roles?.securityReview ? name(roles.securityReview) : 'none'}`}</p>
+      </div>
       {active && (
         <div className="mt-2">
-          <button onClick={start} disabled={pending} className={CTA}>🚀 Start developer</button>
+          <button onClick={start} disabled={pending} className={CTA}>🚀 Start build</button>
         </div>
       )}
     </Card>
@@ -107,15 +121,15 @@ const STATE: Record<PhaseStep, string> = { develop: 'In progress', review: 'In r
 const ORDER: PhaseStep[] = ['develop', 'review', 'security', 'done'];
 
 /** One build phase: where it stands, and what each step of it has done. Reads the live phase, so it updates in place. */
-export function PhaseCard({ phase, index, total }: { phase: BuildPhase; index: number; total: number }) {
+export function PhaseCard({ phase, index, total, builder, reviews }: { phase: BuildPhase; index: number; total: number; builder?: string; reviews: { code: boolean; security: boolean } }) {
   // a blocked phase stopped in the step it was sent back from; show it as the current development one
   const at = phase.step === 'blocked' ? 0 : ORDER.indexOf(phase.step);
   const mark = (i: number) => (i < at || phase.step === 'done' ? '✓' : i === at ? '…' : '·');
   const checks = phase.checks === undefined ? '' : phase.checks.length === 0 ? 'no checks' : `checks: ${phase.checks.join(', ')}`;
   const lines = [
-    ['development', mark(0)],
-    [`review (${phase.notes} notes)`, mark(1)],
-    ['security', mark(2)],
+    [`development${builder ? ` - ${builder}` : ''}`, mark(0)],
+    [reviews.code ? `review (${phase.notes} notes)` : 'review - skipped', reviews.code ? mark(1) : '·'],
+    [reviews.security ? 'security' : 'security - skipped', reviews.security ? mark(2) : '·'],
     [checks || 'checks', phase.checks !== undefined ? '✓' : at === 0 ? '…' : '·'],
   ];
   return (

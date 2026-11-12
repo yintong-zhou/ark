@@ -28,3 +28,35 @@ export function Avatar({ text, size = 40, you = false, inset = false, title }: {
     </span>
   );
 }
+import { useEffect, useState } from 'react';
+import type { AgentDef } from '@shared/agent-file';
+import type { ImageInput } from '@shared/attachments';
+import { FACE } from './faces';
+
+
+const images = new Map<string, Promise<ImageInput | null>>();
+
+export function forgetImage(id: string): void {
+  images.delete(id);
+}
+
+export function AgentAvatar({ agent, name, size = 40, inset = false, title }: { agent?: Pick<AgentDef, 'id' | 'avatar'>; name: string; size?: 24 | 32 | 40; inset?: boolean; title?: string }) {
+  const [loaded, setLoaded] = useState<{ id: string; image: ImageInput | null }>();
+  const id = agent?.id;
+  const avatar = agent?.avatar;
+  useEffect(() => {
+    if (!id || avatar !== 'custom') return;
+    let active = true;
+    let image = images.get(id);
+    if (!image) {
+      image = window.ark.catalog.image(id).catch(() => null);
+      images.set(id, image);
+    }
+    void image.then((value) => { if (active) setLoaded({ id, image: value }); });
+    return () => { active = false; };
+  }, [id, avatar]);
+  const picture = avatar === 'custom' && loaded && loaded.id === id ? loaded.image : null;
+  if (picture) return <span title={title} aria-hidden className={`inline-flex shrink-0 overflow-hidden rounded-full ${SIZE[size]}`}><img className="h-full w-full object-cover" src={`data:${picture.mime};base64,${picture.data}`} alt="" /></span>;
+  if (avatar && FACE[avatar]) return <span title={title} aria-hidden className={`inline-flex shrink-0 overflow-hidden rounded-full ${SIZE[size]} ${inset ? 'bg-primary' : 'bg-raised'}`}><svg viewBox="0 0 40 40" className="h-full w-full">{FACE[avatar]}</svg></span>;
+  return <Avatar text={initials(name)} size={size} inset={inset} title={title} />;
+}

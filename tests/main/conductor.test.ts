@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import type { AgentDef } from '@shared/agent-file';
-import type { Thread, ThreadMessage } from '@shared/thread';
+import { MANAGER, type Thread, type ThreadMessage } from '@shared/thread';
+import { HEAD } from '../../src/main/services/head-of-staff';
 import type { ImageInput } from '@shared/attachments';
 import type { ChatEvent, TokenCount, TurnResult, UsageWindow } from '@shared/types';
 import { SEED_AGENTS } from '../fixtures/catalog-agents';
@@ -118,7 +119,8 @@ function fakeWorkspace() {
   return w;
 }
 
-const catalog = { get: (id: string) => SEED_AGENTS.find((a) => a.id === id), list: () => ({ agents: SEED_AGENTS, invalid: [] }) };
+let agents: AgentDef[];
+const catalog = { get: (id: string) => agents.find((a) => a.id === id), list: () => ({ agents, invalid: [] }) };
 const ark = (o: object, text = 'ok') => `${text}\n\n\`\`\`ark\n${JSON.stringify(o)}\n\`\`\``;
 const TEAM = ark({ team: [{ agent: 'planner', reason: 'plans' }, { agent: 'seo', reason: 'ranks' }], leftOut: 'no marketing' });
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -132,6 +134,7 @@ let c: Conductor;
 let windows: () => { fiveHour?: UsageWindow } | undefined;
 let projectId: string;
 beforeEach(() => {
+  agents = [...SEED_AGENTS];
   root = mkdtempSync(join(tmpdir(), 'ark-conductor-'));
   mkdirSync(join(root, 'app'));
   store = new ThreadStore(join(root, 'data'));
@@ -140,7 +143,7 @@ beforeEach(() => {
   ws = fakeWorkspace();
   worktrees = join(root, 'wt');
   windows = () => undefined;
-  c = new Conductor({ store, catalog, runner, workspace: ws, worktrees, windows: () => windows() });
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => windows() });
 });
 afterEach(() => {
   c.stopAll();
@@ -167,7 +170,7 @@ const create = (projectId: string, text: string, files: import('@shared/attachme
 
 /** A thread past the team phase: PM proposed planner + seo, the user approved. */
 async function planning(first = 'Build a landing page') {
-  runner.reply('project-manager', TEAM);
+  runner.reply(MANAGER, TEAM);
   const t = create(projectId, first);
   await idle();
   c.approveTeam(t.id, ['planner', 'seo']);
@@ -175,7 +178,7 @@ async function planning(first = 'Build a landing page') {
 }
 
 test('create runs the manager with the catalog and waits on its team card', async () => {
-  runner.reply('project-manager', TEAM);
+  runner.reply(MANAGER, TEAM);
   const t = create(projectId, 'Build a landing page\nwith a form');
   expect(t.title).toBe('Build a landing page');
   await idle();
@@ -187,12 +190,23 @@ test('create runs the manager with the catalog and waits on its team card', asyn
   expect(m.kind === 'agent' && m.control?.kind).toBe('team');
 });
 
-test('create without a manager in the catalog throws', () => {
+test('with no agents a thread does not start and no engine is called', () => {
   const none = { get: () => undefined, list: () => ({ agents: [], invalid: [] }) };
-  expect(() => new Conductor({ store, catalog: none, runner, workspace: ws, worktrees, windows: () => undefined }).create(projectId, 'x')).toThrow(
-    'Add thread roles in Agents, or fix the project-manager profile if it has errors',
-  );
+  const empty = new Conductor({ store, catalog: none, head: () => HEAD, runner, workspace: ws, worktrees, windows: () => undefined });
+  expect(() => empty.create(projectId, 'x')).toThrow('No agents yet. Create an agent or add a ready team in Agents.');
+  expect(store.threads()).toEqual([]);
+  expect(runner.started).toEqual([]);
 });
+
+test('the Head of Staff runs from its built-in profile and is not offered to itself', async () => {
+  runner.reply(MANAGER, TEAM);
+  create(projectId, 'Build a landing page');
+  await idle();
+  expect(runner.started[0]).toMatchObject({ id: MANAGER, name: 'Head of Staff' });
+  expect(runner.started[0].prompt).toContain('You are the Head of Staff of this thread');
+  expect(runner.turns[0].text).not.toContain('- head-of-staff:');
+});
+
 
 test('deleting a thread protects running turns and worktrees and stops idle sessions', async () => {
   const t = create(projectId, 'Test');
@@ -220,14 +234,14 @@ test('removing a project pauses running threads and keeps them for reimport', as
   expect(store.get(t.id)).toBeDefined();
 });
 
-test('IT Services team participates in planning, username mentions and assigned tasks without build access', async () => {
+test('IT Services team participates in planning, username mentions and assigned tasks', async () => {
   const ids = IT_SERVICES_AGENTS.map((a) => a.id);
-  runner.reply('project-manager', ark({ team: ids.map((agent) => ({ agent, reason: 'Relevant specialist' })) }));
+  runner.reply(MANAGER, ark({ team: ids.map((agent) => ({ agent, reason: 'Relevant specialist' })) }));
   const t = create(projectId, 'Plan an IT service');
   await idle();
   expect(runner.turns[0].text).toContain('frontend_dev: Gon - Frontend dev');
   c.approveTeam(t.id, ids);
-  runner.reply('project-manager', ark({ next: 'dev_manager' }), ark({ ask: 'Continue?' }));
+  runner.reply(MANAGER, ark({ next: 'dev_manager' }), ark({ ask: 'Continue?' }));
   runner.reply('dev_manager', 'Objective: implement the approved service. Owner: @frontend_dev.');
   await idle();
   c.saveTask(t.id, null, { title: 'Plan the interface', status: 'todo', agent: 'frontend_dev' });
@@ -235,7 +249,7 @@ test('IT Services team participates in planning, username mentions and assigned 
   runner.reply('frontend_dev', ark({ ask: 'Which API is approved?' }));
   await idle();
   expect(thread(t.id)).toMatchObject({ phase: 'planning', status: 'waiting', waitingOn: 'frontend_dev' });
-  expect(thread(t.id).team).toEqual(['project-manager', ...ids]);
+  expect(thread(t.id).team).toEqual([MANAGER, ...ids]);
   expect(runner.turns.at(-1)).toMatchObject({ agent: 'frontend_dev', text: expect.stringContaining('Plan the interface') });
   expect(runner.started.at(-1)?.prompt).toContain('Your username is @frontend_dev');
   expect(runner.starts.filter((s) => ids.includes(s.id)).every((s) => s.permissions === 'read-only')).toBe(true);
@@ -244,24 +258,24 @@ test('IT Services team participates in planning, username mentions and assigned 
 
 test('approve then planning: manager gives the floor, member replies, floor returns to manager', async () => {
   const t = await planning();
-  runner.reply('project-manager', ark({ next: 'planner' }), ark({ ask: 'Which colour?' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }), ark({ ask: 'Which colour?' }));
   runner.reply('planner', 'I suggest three sections.');
   await idle();
-  expect(runner.turns.map((x) => x.agent)).toEqual(['project-manager', 'project-manager', 'planner', 'project-manager']);
-  expect(store.messages(t.id).some((m) => m.kind === 'note' && m.text === 'Team approved: Project manager, Planner, SEO.')).toBe(true);
-  expect(thread(t.id)).toMatchObject({ status: 'waiting', waitingOn: 'project-manager', phase: 'planning' });
+  expect(runner.turns.map((x) => x.agent)).toEqual([MANAGER, MANAGER, 'planner', MANAGER]);
+  expect(store.messages(t.id).some((m) => m.kind === 'note' && m.text === 'Team approved: Head of Staff, Planner, SEO.')).toBe(true);
+  expect(thread(t.id)).toMatchObject({ status: 'waiting', waitingOn: MANAGER, phase: 'planning' });
   expect(thread(t.id).speaking).toBeUndefined();
 });
 
 test("the member's second turn only gets what it has not seen", async () => {
   await planning('Build a landing page');
-  runner.reply('project-manager', ark({ next: 'planner' }), ark({ next: 'planner' }), ark({ ask: 'Ok?' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }), ark({ next: 'planner' }), ark({ ask: 'Ok?' }));
   runner.reply('planner', 'first answer', 'second answer');
   await idle();
   const planner = runner.turns.filter((x) => x.agent === 'planner');
   expect(planner).toHaveLength(2);
   expect(planner[0].text).toContain('[User] Build a landing page');
-  expect(planner[0].text).toContain('[Ark] Team: project-manager (Project manager)');
+  expect(planner[0].text).toContain('[Ark] Team: head-of-staff (Head of Staff)');
   expect(planner[1].text).not.toContain('[User] Build a landing page');
   expect(planner[1].text).not.toContain('Team:');
   expect(planner[1].text).not.toContain('first answer');
@@ -271,13 +285,14 @@ test("the member's second turn only gets what it has not seen", async () => {
 test('plan reply writes plan.md and waits; startDeveloper moves to build', async () => {
   const t = await planning();
   await expect(c.startDeveloper(t.id)).rejects.toThrow('The developer can start only once the plan is ready');
-  runner.reply('project-manager', ark({ next: 'planner' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }));
   runner.reply('planner', ark({ plan: true }, '# Plan\n## Phase 1: Setup'));
   await idle();
   expect(thread(t.id).status).toBe('waiting');
   expect(thread(t.id).waitingOn).toBeUndefined();
   const plan = join(root, 'data', 'threads', t.id, 'plan.md');
   expect(existsSync(plan) && readFileSync(plan, 'utf8')).toBe('# Plan\n## Phase 1: Setup');
+  store.save({ ...thread(t.id), team: [...thread(t.id).team, 'developer', 'code-reviewer', 'security-reviewer'], roles: { builders: ['developer'], codeReview: 'code-reviewer', securityReview: 'security-reviewer' } });
   await c.startDeveloper(t.id);
   expect(thread(t.id).phase).toBe('build');
 });
@@ -286,10 +301,10 @@ test('user message during a turn routes the next speaker', async () => {
   const t = await planning();
   await turns(2); // PM's planning turn is pending
   c.send(t.id, '@seo what about keywords?');
-  runner.reply('project-manager', ark({ next: 'planner' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }));
   runner.reply('seo', ark({ ask: 'Which market?' }));
   await idle();
-  expect(runner.turns.map((x) => x.agent)).toEqual(['project-manager', 'project-manager', 'seo']);
+  expect(runner.turns.map((x) => x.agent)).toEqual([MANAGER, MANAGER, 'seo']);
   expect(thread(t.id)).toMatchObject({ status: 'waiting', waitingOn: 'seo' });
 });
 
@@ -297,11 +312,11 @@ test('a user message during a turn that ends in an ask still routes the next spe
   const t = await planning();
   await turns(2);
   c.send(t.id, '@seo what about keywords?');
-  runner.reply('project-manager', ark({ ask: 'Which colour?' }));
+  runner.reply(MANAGER, ark({ ask: 'Which colour?' }));
   runner.reply('seo', 'Use these keywords.', ark({ ask: 'Ok?' }));
-  runner.reply('project-manager', ark({ ask: 'Done?' }));
+  runner.reply(MANAGER, ark({ ask: 'Done?' }));
   await idle();
-  expect(runner.turns.map((x) => x.agent).slice(0, 3)).toEqual(['project-manager', 'project-manager', 'seo']);
+  expect(runner.turns.map((x) => x.agent).slice(0, 3)).toEqual([MANAGER, MANAGER, 'seo']);
 });
 
 test('pause stops the turn and the loop', async () => {
@@ -312,7 +327,7 @@ test('pause stops the turn and the loop', async () => {
   expect(thread(t.id)).toMatchObject({ status: 'idle' });
   expect(thread(t.id).speaking).toBeUndefined();
   expect(runner.stopped).toEqual([runner.turns[1].chatId]);
-  runner.reply('project-manager', ark({ next: 'planner' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }));
   for (let i = 0; i < 10; i++) await tick();
   expect(store.messages(t.id)).toHaveLength(before);
   expect(runner.turns).toHaveLength(2);
@@ -323,7 +338,7 @@ const tierOf = (i: number) => runner.started[i].tier;
 
 test('a hard turn runs in a fresh session one tier up, then the member goes back to its own', async () => {
   const t = await planning();
-  runner.reply('project-manager', ark({ next: 'planner' }), ark({ next: 'planner', hard: true }), ark({ next: 'planner' }), ark({ ask: 'Done?' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }), ark({ next: 'planner', level: 'heavy' }), ark({ next: 'planner' }), ark({ ask: 'Done?' }));
   runner.reply('planner', 'one', 'two', 'three');
   await idle();
   const planners = runner.started.map((a, i) => [a.id, i] as const).filter(([id]) => id === 'planner').map(([, i]) => i);
@@ -335,11 +350,11 @@ test('a hard turn runs in a fresh session one tier up, then the member goes back
 
 test('a paused hard turn leaves no bumped session behind', async () => {
   const t = await planning();
-  runner.reply('project-manager', ark({ next: 'planner', hard: true }));
+  runner.reply(MANAGER, ark({ next: 'planner', level: 'heavy' }));
   await until(() => runner.turns.some((x) => x.agent === 'planner')); // the hard turn is pending
   await c.pause(t.id);
   runner.reply('planner', 'back');
-  runner.reply('project-manager', ark({ ask: 'Done?' }));
+  runner.reply(MANAGER, ark({ ask: 'Done?' }));
   c.send(t.id, '@planner hello');
   await idle();
   expect(runner.started.filter((a) => a.id === 'planner').map((a) => a.tier)).toEqual(['heavy', 'standard']);
@@ -347,7 +362,7 @@ test('a paused hard turn leaves no bumped session behind', async () => {
 
 test('engine error then retry', async () => {
   const t = await planning('Build a landing page');
-  runner.reply('project-manager', ark({ next: 'planner' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }));
   runner.reply('planner', new Error('exit code 1'));
   await idle();
   expect(last(t.id)).toMatchObject({ kind: 'note', text: 'Planner stopped: exit code 1' });
@@ -366,20 +381,20 @@ test('engine error then retry', async () => {
 });
 
 test('fresh session replays from the handoff', async () => {
-  runner.reply('project-manager', { text: TEAM, tokens: { input: 600, cached: 0, output: 5 }, contextWindow: 1000 }, 'My handoff: team proposed.');
+  runner.reply(MANAGER, { text: TEAM, tokens: { input: 600, cached: 0, output: 5 }, contextWindow: 1000 }, 'My handoff: team proposed.');
   const t = create(projectId, 'Build a landing page');
   await idle();
-  expect(runner.turns[1]).toMatchObject({ agent: 'project-manager', text: expect.stringContaining('[Ark] Your session is getting long.') });
+  expect(runner.turns[1]).toMatchObject({ agent: MANAGER, text: expect.stringContaining('[Ark] Your session is getting long.') });
   expect(runner.stopped).toEqual([runner.turns[0].chatId]);
-  expect(thread(t.id).handoffs['project-manager'].seq).toBe(2); // includes the recorded engine assignment
-  runner.reply('project-manager', ark({ ask: 'Ready?' }));
+  expect(thread(t.id).handoffs[MANAGER].seq).toBe(2); // includes the recorded engine assignment
+  runner.reply(MANAGER, ark({ ask: 'Ready?' }));
   c.approveTeam(t.id, ['planner']);
   await idle();
   const fresh = runner.turns[2];
   expect(fresh.chatId).not.toBe(runner.turns[0].chatId);
   expect(fresh.text.startsWith('[Ark] You are continuing this thread in a fresh session.')).toBe(true);
   expect(fresh.text).toContain('My handoff: team proposed.');
-  expect(fresh.text).toContain('[Ark] Team approved: Project manager, Planner.');
+  expect(fresh.text).toContain('[Ark] Team approved: Head of Staff, Planner.');
   expect(fresh.text).not.toContain('[User] Build a landing page');
 });
 
@@ -387,9 +402,9 @@ test('a message sent during an agent turn reaches that agent next time', async (
   const t = await planning();
   await turns(2); // PM's planning turn is pending
   c.send(t.id, 'Use blue, please');
-  runner.reply('project-manager', ark({ ask: 'Which font?' }), ark({ ask: 'Anything else?' }));
+  runner.reply(MANAGER, ark({ ask: 'Which font?' }), ark({ ask: 'Anything else?' }));
   await idle();
-  const pm = runner.turns.filter((x) => x.agent === 'project-manager');
+  const pm = runner.turns.filter((x) => x.agent === MANAGER);
   expect(pm).toHaveLength(3);
   expect(pm[1].text).not.toContain('[User] Use blue, please');
   expect(pm[2].text).toContain('[User] Use blue, please');
@@ -397,13 +412,13 @@ test('a message sent during an agent turn reaches that agent next time', async (
 });
 
 test('a failed handoff drops the session and keeps the reply step', async () => {
-  runner.reply('project-manager', { text: TEAM, tokens: { input: 600, cached: 0, output: 5 }, contextWindow: 1000 }, new Error('exit code 1'));
+  runner.reply(MANAGER, { text: TEAM, tokens: { input: 600, cached: 0, output: 5 }, contextWindow: 1000 }, new Error('exit code 1'));
   const t = create(projectId, 'Build a landing page');
   await idle();
-  expect(last(t.id)).toMatchObject({ kind: 'note', text: 'Project manager could not write a handoff: exit code 1' });
+  expect(last(t.id)).toMatchObject({ kind: 'note', text: 'Head of Staff could not write a handoff: exit code 1' });
   expect(thread(t.id)).toMatchObject({ status: 'waiting', phase: 'team', handoffs: {} });
   expect(runner.stopped).toEqual([runner.turns[0].chatId]);
-  runner.reply('project-manager', ark({ ask: 'Ready?' }));
+  runner.reply(MANAGER, ark({ ask: 'Ready?' }));
   c.approveTeam(t.id, ['planner']);
   await idle();
   expect(runner.turns[2].chatId).not.toBe(runner.turns[0].chatId);
@@ -416,7 +431,7 @@ test('stopAll stops a pending turn and saves the thread idle', async () => {
   c.stopAll();
   expect(runner.stopped).toEqual(expect.arrayContaining(runner.started.map((_, i) => `c${i + 1}`)));
   expect(thread(t.id).status).toBe('idle');
-  runner.reply('project-manager', ark({ next: 'planner' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }));
   for (let i = 0; i < 10; i++) await tick();
   expect(runner.turns).toHaveLength(2);
   expect(last(t.id).kind).toBe('note'); // "Team approved", nothing after it
@@ -435,7 +450,7 @@ test('pause during startAgent stops the session it started', async () => {
 });
 
 test('react records and does not start a turn', async () => {
-  runner.reply('project-manager', TEAM);
+  runner.reply(MANAGER, TEAM);
   const t = create(projectId, 'Build a landing page');
   await idle();
   const seen: ThreadMessage[] = [];
@@ -458,19 +473,19 @@ test('approveTeam outside the team phase throws', async () => {
 });
 
 test('approveTeam rejects an unknown agent', async () => {
-  runner.reply('project-manager', TEAM);
+  runner.reply(MANAGER, TEAM);
   const t = create(projectId, 'Build a landing page');
   await idle();
   expect(() => c.approveTeam(t.id, ['planner', 'ghost'])).toThrow('Unknown agent: ghost');
   expect(thread(t.id).phase).toBe('team');
 });
 
-test('a fresh manager in the team phase gets the catalog again, once', async () => {
+test('the manager gets the catalog on every team turn', async () => {
   const t = create(projectId, 'Build a landing page');
   await turns(1); // the manager's first turn is pending
   expect(runner.turns[0].text.split('Catalog:')).toHaveLength(2);
   await c.pause(t.id); // the session is gone
-  runner.reply('project-manager', TEAM);
+  runner.reply(MANAGER, TEAM);
   c.send(t.id, 'Keep it small');
   await idle();
   expect(runner.turns[1].chatId).not.toBe(runner.turns[0].chatId);
@@ -478,16 +493,16 @@ test('a fresh manager in the team phase gets the catalog again, once', async () 
   expect(runner.turns[1].text.split('Catalog:')).toHaveLength(2);
   expect(thread(t.id).status).toBe('waiting');
   // the session is live now: the next message does not repeat it
-  runner.reply('project-manager', TEAM);
+  runner.reply(MANAGER, TEAM);
   c.send(t.id, 'Add a tester');
   await idle();
   expect(runner.turns[2].chatId).toBe(runner.turns[1].chatId);
-  expect(runner.turns[2].text).not.toContain('Catalog:');
+  expect(runner.turns[2].text).toContain('Catalog:');
 });
 
 test('a team pick outside the catalog gets one correction, and the good proposal waits as the card', async () => {
   const bad = ark({ team: [{ agent: 'planner', reason: 'plans' }, { agent: 'ghost', reason: 'boo' }], leftOut: '' });
-  runner.reply('project-manager', bad, TEAM);
+  runner.reply(MANAGER, bad, TEAM);
   const t = create(projectId, 'Build a landing page');
   await idle();
   expect(runner.turns).toHaveLength(2);
@@ -501,7 +516,7 @@ test('a team pick outside the catalog gets one correction, and the good proposal
 
 test('two bad teams in a row wait for the user with no card to approve', async () => {
   const bad = ark({ team: [{ agent: 'ghost', reason: 'boo' }], leftOut: '' });
-  runner.reply('project-manager', bad, bad);
+  runner.reply(MANAGER, bad, bad);
   const t = create(projectId, 'Build a landing page');
   await idle();
   expect(runner.turns).toHaveLength(2);
@@ -512,12 +527,12 @@ test('two bad teams in a row wait for the user with no card to approve', async (
 
 test('the handoff trigger reads the last request, not the turn total', async () => {
   const big = { text: TEAM, tokens: { input: 9000, cached: 0, output: 5 }, contextWindow: 1000 };
-  runner.reply('project-manager', { ...big, contextUsed: 100 }); // summed usage is 9x the window, the last request is 10%
+  runner.reply(MANAGER, { ...big, contextUsed: 100 }); // summed usage is 9x the window, the last request is 10%
   const t = create(projectId, 'Build a landing page');
   await idle();
   expect(runner.turns).toHaveLength(1);
   expect(thread(t.id).handoffs).toEqual({});
-  runner.reply('project-manager', { ...big, contextUsed: 600 }, 'My handoff.');
+  runner.reply(MANAGER, { ...big, contextUsed: 600 }, 'My handoff.');
   c.send(t.id, 'Smaller, please');
   await idle();
   expect(runner.turns[2]).toMatchObject({ text: expect.stringContaining('[Ark] Your session is getting long.') });
@@ -525,9 +540,9 @@ test('the handoff trigger reads the last request, not the turn total', async () 
 
 test('files and tags travel with a message: images reach the agent as images, text files are pasted in', async () => {
   const t = await planning();
-  runner.reply('project-manager', ark({ ask: 'Which one?' }));
+  runner.reply(MANAGER, ark({ ask: 'Which one?' }));
   await idle(); // the thread waits on the user
-  runner.reply('project-manager', ark({ ask: 'Thanks. Which colour?' }));
+  runner.reply(MANAGER, ark({ ask: 'Thanks. Which colour?' }));
   c.send(t.id, 'Fix this #bug please', [
     { name: 'shot.png', bytes: new Uint8Array([9, 9]) },
     { name: 'notes.md', bytes: new TextEncoder().encode('# Hello') },
@@ -548,13 +563,13 @@ test('a tag written during a turn is not lost when the turn saves', async () => 
   await turns(2);
   c.send(t.id, 'make it #urgent');
   expect(thread(t.id).tags).toEqual(['urgent']);
-  runner.reply('project-manager', ark({ ask: 'Which colour?' }), ark({ ask: 'And the font?' }));
+  runner.reply(MANAGER, ark({ ask: 'Which colour?' }), ark({ ask: 'And the font?' }));
   await idle();
   expect(thread(t.id).tags).toEqual(['urgent']);
 });
 
 test('create takes tags from the first message, and a first message that is only a file', async () => {
-  runner.reply('project-manager', TEAM, TEAM);
+  runner.reply(MANAGER, TEAM, TEAM);
   const a = create(projectId, 'Landing #web #ui');
   await idle();
   expect(thread(a.id).tags).toEqual(['web', 'ui']);
@@ -566,16 +581,28 @@ test('create takes tags from the first message, and a first message that is only
 
 // ---- Build phase (step 3) ----
 
+const BUILD_TEAM = ark({
+  team: ['planner', 'developer', 'frontend', 'code-reviewer', 'security-reviewer'].map((agent) => ({ agent, reason: 'r' })),
+  difficulty: 'hard', planner: 'planner', builders: ['developer', 'frontend'], codeReview: 'code-reviewer', securityReview: 'security-reviewer',
+});
+
 const PLAN = '# Plan\n## Phase 1: Setup\nCreate the app.';
 const PLAN2 = `${PLAN}\n## Phase 2: API\nAdd the API.`;
 const PASS = ark({ review: 'pass' });
 const CHANGES = (...findings: string[]) => ark({ review: 'changes', findings });
 
 /** A planning thread whose planner just wrote the plan: the thread waits on the plan card. */
-async function planned(plan = PLAN) {
-  const t = await planning();
-  runner.reply('project-manager', ark({ next: 'planner' }));
-  runner.reply('planner', ark({ plan: true }, plan));
+async function planned(plan = PLAN, teamBlock = BUILD_TEAM) {
+  runner.reply(MANAGER, teamBlock);
+  const t = create(projectId, 'Build a landing page');
+  await idle();
+  const proposal = last(t.id);
+  if (proposal.kind !== 'agent' || proposal.control?.kind !== 'team') throw new Error('missing team');
+  const roles = proposal.control.roles;
+  const planner = roles?.planner ?? roles?.builders[0] ?? 'planner';
+  runner.reply(planner, ark({ plan: true }, plan));
+  c.approveTeam(t.id, proposal.control.picks.map((p) => p.agent));
+  if (proposal.control.difficulty !== 'easy') runner.reply(MANAGER, ark({ next: planner }));
   await idle();
   return t;
 }
@@ -598,7 +625,7 @@ async function allowProjectCode(id: string, allow = true) {
 const devCodes = () => runner.codes.filter((x) => x.id === 'developer').map((x) => x.projectCode);
 
 test('new sessions default to Auto and progress from team to finished build without manual gates', async () => {
-  runner.reply('project-manager', TEAM, ark({ next: 'planner' }), 'Done.');
+  runner.reply(MANAGER, BUILD_TEAM, ark({ next: 'planner' }), 'Done.');
   runner.reply('planner', ark({ plan: true }, PLAN));
   runner.reply('developer', 'Built.');
   runner.reply('code-reviewer', PASS);
@@ -606,7 +633,7 @@ test('new sessions default to Auto and progress from team to finished build with
   const t = c.create(projectId, 'Build a small feature');
   await idle();
   expect(thread(t.id)).toMatchObject({ permissionMode: 'auto', phase: 'done' });
-  expect(agentsOf()).toEqual(['project-manager', 'project-manager', 'planner', 'developer', 'code-reviewer', 'security-reviewer', 'project-manager']);
+  expect(agentsOf()).toEqual([MANAGER, MANAGER, 'planner', 'developer', 'code-reviewer', 'security-reviewer', MANAGER]);
 });
 
 test('policy changes stop active sessions, expire approvals and persist the effective mode', async () => {
@@ -658,7 +685,7 @@ test('Auto: a developer check command is allowed only after consent; sensitive a
 
 test('a plan without phase headings gets one correction and is not written', async () => {
   const t = await planning();
-  runner.reply('project-manager', ark({ next: 'planner' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }));
   runner.reply('planner', ark({ plan: true }, '# Plan\nJust build it.'), ark({ plan: true }, PLAN));
   await idle();
   const planner = runner.turns.filter((x) => x.agent === 'planner');
@@ -712,7 +739,7 @@ test('startDeveloper creates the worktree, commits the plan, adds missing roles 
   expect(readFileSync(join(wt, 'docs', 'plans', `${date}-build-a-landing-page.md`), 'utf8')).toBe(PLAN);
   expect(ws.calls).toContainEqual(['commitAll', wt, 'docs: plan for Build a landing page']);
   expect(notes(id)).toContainEqual(expect.stringMatching(
-    /^Building on branch ark\/build-a-landing-page-[\w-]{8} from abcdef0\. Uncommitted changes in the project are not included\. Added to the team: Developer, Code reviewer, Security reviewer\.$/));
+    /^Building on branch ark\/build-a-landing-page-[\w-]{8} from abcdef0\. Uncommitted changes in the project are not included\.$/));
   expect(store.get(id)!.team).toEqual(expect.arrayContaining(['developer', 'code-reviewer', 'security-reviewer']));
   await until(() => runner.turns.at(-1)?.agent === 'developer');
   expect(runner.started.at(-1)!.id).toBe('developer');
@@ -720,26 +747,18 @@ test('startDeveloper creates the worktree, commits the plan, adds missing roles 
   expect(thread(id).build).toMatchObject({ worktree: wt, current: 0, phases: [{ title: 'Setup', step: 'develop', base: 'abcdef0123456789' }] });
 });
 
-test("a catalog without build roles builds with Ark's built-in developer and reviewers", async () => {
+test('a deleted builder cannot fall back to a built-in agent', async () => {
   const { id } = await planned();
-  const noRoles = { get: (a: string) => (['developer', 'code-reviewer', 'security-reviewer'].includes(a) ? undefined : catalog.get(a)), list: catalog.list };
-  const c2 = new Conductor({ store, catalog: noRoles, runner, workspace: ws, worktrees, windows: () => undefined });
-  runner.reply('developer', 'Built.');
-  runner.reply('code-reviewer', PASS);
-  runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
-  await c2.startDeveloper(id);
-  await until(() => thread(id).phase === 'done');
-  const dev = runner.started.find((a) => a.id === 'developer')!;
-  expect(dev).toMatchObject({ permissions: 'build', name: 'Developer' });
-  expect(runner.started.map((a) => a.id)).toEqual(expect.arrayContaining(['code-reviewer', 'security-reviewer']));
+  const noRoles = { get: (a: string) => a === 'developer' ? undefined : catalog.get(a), list: catalog.list };
+  const c2 = new Conductor({ head: () => HEAD, store, catalog: noRoles, runner, workspace: ws, worktrees, windows: () => undefined });
+  await expect(c2.startDeveloper(id)).rejects.toThrow('developer is no longer in the catalog.');
 });
 
 test('startDeveloper refuses a developer without build permissions', async () => {
   const { id } = await planned();
   const readOnly = { get: (a: string) => (a === 'developer' ? { ...catalog.get(a)!, permissions: 'read-only' as const } : catalog.get(a)), list: catalog.list };
-  const c2 = new Conductor({ store, catalog: readOnly, runner, workspace: ws, worktrees, windows: () => undefined });
-  await expect(c2.startDeveloper(id)).rejects.toThrow('The developer agent needs permissions: build');
+  const c2 = new Conductor({ head: () => HEAD, store, catalog: readOnly, runner, workspace: ws, worktrees, windows: () => undefined });
+  await expect(c2.startDeveloper(id)).rejects.toThrow('developer can no longer change files.');
   expect(thread(id).phase).toBe('planning');
 });
 
@@ -750,11 +769,11 @@ test('a phase runs develop, checks, code review, security review, then the summa
   runner.reply('developer', 'Built the app.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'All done: branch ready.');
+  runner.reply(MANAGER, 'All done: branch ready.');
   await c.startDeveloper(id);
   await allowProjectCode(id);
   await idle();
-  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'security-reviewer', 'project-manager']);
+  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'security-reviewer', MANAGER]);
   const [dev, code, sec, pm] = runner.turns.slice(from);
   expect(dev.text).toContain('[Ark] You start phase 1/1.');
   expect(dev.text).not.toContain('[User]');
@@ -778,7 +797,7 @@ test('a project without checks says so', async () => {
   runner.reply('developer', 'Built.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await idle();
   expect(notes(id)).toContain('No checks found (npm check scripts, ruff or pytest).');
@@ -791,7 +810,7 @@ test('red checks send the developer back in the same session with the failure ta
   runner.reply('developer', 'v1', 'v2');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await allowProjectCode(id);
   await idle();
@@ -810,10 +829,10 @@ test('review findings reach the developer after both reviews, in its next turn',
   runner.reply('developer', 'v1', 'v2');
   runner.reply('code-reviewer', CHANGES('Rename x to count'), PASS);
   runner.reply('security-reviewer', CHANGES('Escape the input'), PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await idle();
-  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'security-reviewer', 'developer', 'code-reviewer', 'security-reviewer', 'project-manager']);
+  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'security-reviewer', 'developer', 'code-reviewer', 'security-reviewer', MANAGER]);
   const dev = devTurns();
   expect(dev[1].chatId).toBe(dev[0].chatId);
   expect(dev[1].text).toContain('Rename x to count');
@@ -828,7 +847,7 @@ async function blocked() {
   runner.reply('developer', 'v1', 'v2', 'v3');
   runner.reply('code-reviewer', CHANGES('Add tests'), CHANGES('Add more tests'), CHANGES('Still no tests'));
   runner.reply('security-reviewer', PASS, PASS, PASS);
-  runner.reply('project-manager', ark({ ask: 'The tests are still open. Skip them?' }));
+  runner.reply(MANAGER, ark({ ask: 'The tests are still open. Skip them?' }));
   await c.startDeveloper(t.id);
   await idle();
   return t;
@@ -838,10 +857,10 @@ test('two rounds without agreement give the manager a blocked note and the threa
   const { id } = await blocked();
   expect(devTurns()).toHaveLength(3);
   const pm = runner.turns.at(-1)!;
-  expect(pm.agent).toBe('project-manager');
+  expect(pm.agent).toBe(MANAGER);
   expect(pm.text).toContain('Phase "Setup" is blocked after 2 rounds.');
   expect(pm.text).toContain('- Still no tests');
-  expect(thread(id)).toMatchObject({ status: 'waiting', waitingOn: 'project-manager', phase: 'build' });
+  expect(thread(id)).toMatchObject({ status: 'waiting', waitingOn: MANAGER, phase: 'build' });
   expect(thread(id).build!.phases[0].step).toBe('blocked');
 });
 
@@ -851,7 +870,7 @@ test('the user reply unblocks the phase', async () => {
   runner.reply('developer', 'Skipped the tests.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   c.send(id, 'Yes, skip them');
   await idle();
   const dev = devTurns().at(-1)!;
@@ -867,12 +886,12 @@ test('red checks after two rounds block on the failed scripts', async () => {
   const red = [{ script: 'lint', ok: true, tail: '' }, { script: 'test', ok: false, tail: 'boom' }];
   ws.results.push(red, red, red);
   runner.reply('developer', 'v1', 'v2', 'v3');
-  runner.reply('project-manager', ark({ ask: 'Tests keep failing. How to continue?' }));
+  runner.reply(MANAGER, ark({ ask: 'Tests keep failing. How to continue?' }));
   await c.startDeveloper(id);
   await allowProjectCode(id);
   await idle();
   expect(runner.turns.at(-1)!.text).toMatch(/blocked after 2 rounds\. Open points:\n- test\n/);
-  expect(thread(id)).toMatchObject({ status: 'waiting', waitingOn: 'project-manager' });
+  expect(thread(id)).toMatchObject({ status: 'waiting', waitingOn: MANAGER });
 });
 
 test('reviewer sessions are stopped after their reply; the developer session at phase end', async () => {
@@ -880,7 +899,7 @@ test('reviewer sessions are stopped after their reply; the developer session at 
   runner.reply('developer', 'phase 1', 'phase 2');
   runner.reply('code-reviewer', PASS, PASS);
   runner.reply('security-reviewer', PASS, PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await idle();
   const reviews = runner.turns.filter((x) => x.agent.endsWith('-reviewer')).map((x) => x.chatId);
@@ -899,7 +918,7 @@ test('only the developer starts with build permissions; reviewers in the worktre
   runner.reply('developer', 'Built.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await idle();
   const wt = join(worktrees, id.slice(0, 8));
@@ -907,9 +926,9 @@ test('only the developer starts with build permissions; reviewers in the worktre
   expect(byId('developer')).toEqual([{ id: 'developer', dir: wt, permissions: 'build' }]);
   expect(byId('code-reviewer')).toEqual([{ id: 'code-reviewer', dir: wt, permissions: 'read-only' }]);
   expect(byId('security-reviewer')).toEqual([{ id: 'security-reviewer', dir: wt, permissions: 'read-only' }]);
-  expect(byId('project-manager').every((s) => s.dir === join(root, 'app') && s.permissions === 'read-only')).toBe(true);
+  expect(byId(MANAGER).every((s) => s.dir === join(root, 'app') && s.permissions === 'read-only')).toBe(true);
   expect(byId('planner')).toEqual([{ id: 'planner', dir: join(root, 'app'), permissions: 'read-only' }]);
-  expect(runner.started.find((a) => a.id === 'developer')!.prompt).toContain('You are the developer.');
+  expect(runner.started.find((a) => a.id === 'developer')!.prompt).toContain('You are the builder of this phase.');
 });
 
 /** A build whose developer turn is pending; returns the thread id and the developer's chat. */
@@ -1020,7 +1039,7 @@ test('a message to a finished build gets a note and reaches nobody', async () =>
   runner.reply('developer', 'Built.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await idle();
   const turnsBefore = runner.turns.length;
@@ -1037,10 +1056,10 @@ test('a message during the summary turn gets the same note', async () => {
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
   await c.startDeveloper(id);
-  await until(() => runner.turns.at(-1)?.agent === 'project-manager');
+  await until(() => runner.turns.at(-1)?.agent === MANAGER);
   c.send(id, 'Too late');
   expect(notes(id).at(-1)).toBe('The build is finished; start a new thread to continue.');
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await idle();
   expect(thread(id).phase).toBe('done');
 });
@@ -1061,10 +1080,10 @@ test('pause during review then resume: the developer reads the message, then che
   runner.reply('developer', 'Switched to X.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   c.send(id, 'Use X instead');
   await idle();
-  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'developer', 'code-reviewer', 'security-reviewer', 'project-manager']);
+  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'developer', 'code-reviewer', 'security-reviewer', MANAGER]);
   expect(devTurns()[1].chatId).toBe(devChat);
   userTurn(devTurns()[1].text, 'Use X instead');
   expect(ws.calls.filter((x) => x[0] === 'runChecks')).toHaveLength(2);
@@ -1080,9 +1099,9 @@ test('a message during a review that passes reaches the developer before the pha
   runner.reply('developer', 'Added the footer.');
   runner.reply('code-reviewer', PASS, PASS);
   runner.reply('security-reviewer', PASS, PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await idle();
-  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'security-reviewer', 'developer', 'code-reviewer', 'security-reviewer', 'project-manager']);
+  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'security-reviewer', 'developer', 'code-reviewer', 'security-reviewer', MANAGER]);
   expect(devTurns()[1].chatId).toBe(devChat);
   userTurn(devTurns()[1].text, 'Also add a footer');
   expect(thread(id)).toMatchObject({ phase: 'done', build: { phases: [{ rounds: 0, step: 'done' }] } });
@@ -1094,7 +1113,7 @@ test('a message during a developer turn whose checks and reviews pass still reac
   runner.reply('developer', 'v1', 'Shortened.');
   runner.reply('code-reviewer', PASS, PASS);
   runner.reply('security-reviewer', PASS, PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await idle();
   expect(devTurns()).toHaveLength(2);
   userTurn(devTurns()[1].text, 'Keep it short');
@@ -1106,7 +1125,7 @@ test('a message sent during Start developer reaches the first developer turn, wi
   runner.reply('developer', 'Built.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   const start = c.startDeveloper(id);
   c.send(id, 'Use pnpm, not npm');
   await start;
@@ -1122,7 +1141,7 @@ test('a turn records how the windows moved', async () => {
   const resetsAt = Math.floor(Date.now() / 1000) + 3600;
   const at = (usedPct: number) => ({ fiveHour: { usedPct, resetsAt, minutes: 300 } });
   windows = () => at(41);
-  runner.reply('project-manager', TEAM);
+  runner.reply(MANAGER, TEAM);
   const origTurn = runner.turn;
   runner.turn = (...a: Parameters<typeof origTurn>) => {
     const p = origTurn(...a);
@@ -1136,14 +1155,14 @@ test('a turn records how the windows moved', async () => {
 
 test('a session records the actual engine and leaves a note before the reply', async () => {
   runner.reports = { engine: 'codex', rerouted: true };
-  runner.reply('project-manager', TEAM);
+  runner.reply(MANAGER, TEAM);
   const t = create(projectId, 'Build a landing page');
   await idle();
   const msgs = store.messages(t.id);
-  const i = msgs.findIndex((m) => m.kind === 'note' && m.text === 'Project manager runs on Codex (haiku).');
+  const i = msgs.findIndex((m) => m.kind === 'note' && m.text === 'Head of Staff runs on Codex (haiku).');
   expect(i).toBeGreaterThan(-1);
   expect(msgs[i + 1].kind).toBe('agent');
-  expect(thread(t.id).assignments?.['project-manager']).toEqual({ engine: 'codex', model: 'haiku' });
+  expect(thread(t.id).assignments?.[MANAGER]).toEqual({ engine: 'codex', model: 'haiku' });
   expect(msgs[i + 1]).toMatchObject({ engine: 'codex' });
 });
 
@@ -1152,12 +1171,12 @@ const hot = (pct: number) => ({ fiveHour: { usedPct: pct, resetsAt: Math.floor(D
 function withPlanner(patch: Partial<AgentDef>) {
   c.stopAll();
   const cat = { ...catalog, get: (id: string) => (id === 'planner' ? { ...SEED_AGENTS.find((a) => a.id === 'planner')!, ...patch } : catalog.get(id)) };
-  c = new Conductor({ store, catalog: cat, runner, workspace: ws, worktrees, windows: () => windows() });
+  c = new Conductor({ head: () => HEAD, store, catalog: cat, runner, workspace: ws, worktrees, windows: () => windows() });
 }
 const plannerStarts = () => runner.started.filter((a) => a.id === 'planner').length;
 const plannerChats = () => runner.turns.filter((x) => x.agent === 'planner').map((x) => x.chatId);
 const twoPlannerTurns = () => {
-  runner.reply('project-manager', ark({ next: 'planner' }), ark({ next: 'planner' }), ark({ ask: 'Done?' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }), ark({ next: 'planner' }), ark({ ask: 'Done?' }));
   runner.reply('planner', 'one', 'two');
 };
 
@@ -1213,7 +1232,7 @@ test.each([
 ])('a hard turn on a %s agent keeps its session', async (_n, patch) => {
   withPlanner(patch);
   await planning();
-  runner.reply('project-manager', ark({ next: 'planner' }), ark({ next: 'planner', hard: true }), ark({ ask: 'Done?' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }), ark({ next: 'planner', level: 'heavy' }), ark({ ask: 'Done?' }));
   runner.reply('planner', 'one', 'two');
   await idle();
   expect(plannerStarts()).toBe(1);
@@ -1223,14 +1242,14 @@ test('a live build session is not restarted by the 90% switch', async () => {
   const { id } = await planned();
   c.stopAll();
   const dev = { ...SEED_AGENTS.find((a) => a.id === 'developer')!, engine: { kind: 'auto' as const }, tier: 'standard' as const };
-  c = new Conductor({ store, catalog: { ...catalog, get: (a: string) => (a === 'developer' ? dev : catalog.get(a)) }, runner, workspace: ws, worktrees, windows: () => windows() });
+  c = new Conductor({ head: () => HEAD, store, catalog: { ...catalog, get: (a: string) => (a === 'developer' ? dev : catalog.get(a)) }, runner, workspace: ws, worktrees, windows: () => windows() });
   ws.checks = ['test'];
   ws.results.push([{ script: 'test', ok: false, tail: '1 failed' }]);
   windows = () => hot(95);
   runner.reply('developer', 'v1', 'v2');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await allowProjectCode(id);
   await idle();
@@ -1250,7 +1269,7 @@ test('worktreeRemoved marks the build and emits', async () => {
   runner.reply('developer', 'Built.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await idle();
   expect(thread(id).phase).toBe('done');
@@ -1275,7 +1294,7 @@ test('worktreeRemoved does nothing for a thread without a build', async () => {
 
 test('task CRUD persists and emits without starting or changing the thread', () => {
   const t = store.create(projectId, 'Board');
-  store.save({ ...t, team: ['project-manager', 'planner'] });
+  store.save({ ...t, team: [MANAGER, 'planner'] });
   const updates: Thread[] = [];
   c.onUpdate((u) => updates.push(u.thread));
   c.saveTask(t.id, null, { title: '  Draft plan  ', status: 'todo', agent: 'planner' });
@@ -1310,7 +1329,7 @@ test('task edits during a running turn survive its saves and reach the next live
   await turns(2); // manager is working on the approved team
   c.saveTask(t.id, null, { title: 'Review layout', status: 'doing', agent: 'planner' });
   const task = thread(t.id).tasks![0];
-  runner.reply('project-manager', ark({ next: 'planner' }));
+  runner.reply(MANAGER, ark({ next: 'planner' }));
   await turns(3);
   expect(thread(t.id).tasks).toEqual([task]);
   expect(runner.turns[2].text).toContain('"Review layout" | In progress | Planner (@planner)');
@@ -1361,7 +1380,7 @@ const passingBuild = (phases = 1) => {
   runner.reply('developer', ...Array.from({ length: phases }, (_, i) => `phase ${i + 1}`));
   runner.reply('code-reviewer', ...Array(phases).fill(PASS));
   runner.reply('security-reviewer', ...Array(phases).fill(PASS));
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
 };
 
 test('asks once per thread before the first developer turn when the worktree has checks', async () => {
@@ -1373,7 +1392,7 @@ test('asks once per thread before the first developer turn when the worktree has
   const card = pendingConsent(id)!;
   expect(card).toMatchObject({ kind: 'approval', agent: 'developer', tool: "this repository's code", detail: NOTES.consent(['npm run test', 'npm test']) });
   expect(card.kind === 'approval' && card.detail).toBe(
-    "Ark will run this repository's checks (npm run test, npm test) on your computer with your permissions, after each developer turn, for the rest of this thread. The developer can change what they run. Allow also lets the Claude developer run these commands without another card. Allow only if you would run this code yourself.");
+    "Ark will run this repository's checks (npm run test, npm test) on your computer with your permissions, after each builder turn, for the rest of this thread. The builder can change what they run. Allow also lets the Claude builder run these commands without another card. Allow only if you would run this code yourself.");
   expect(thread(id).approvals).toEqual([card.seq]);
   expect(devCodes()).toEqual([]); // no developer session yet
   expect(runsChecks()).toBe(false);
@@ -1410,7 +1429,7 @@ test('no checks, no card; checks added later are asked before the first check ru
   const { id } = await planned();
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
-  runner.reply('project-manager', 'Done.');
+  runner.reply(MANAGER, 'Done.');
   await c.startDeveloper(id);
   await until(() => devTurns().length === 1);
   expect(consentCards(id)).toHaveLength(0);
@@ -1541,7 +1560,7 @@ test('pause waits for the checks to stop before the thread goes idle', async () 
 });
 
 test('pause gives up waiting after checksStopMs and says so', async () => {
-  c = new Conductor({ store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
   const id = await checking('never');
   const p = c.pause(id);
   expect(thread(id).status).toBe('running');
@@ -1558,7 +1577,7 @@ test('pause with no checks running, or twice, resolves at once with no note', as
   await c.pause(id);
   expect(notes(id)).not.toContain(STILL_RUNNING);
   // Twice while the checks hang: one wait, one note.
-  c = new Conductor({ store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
   const id2 = await checking('never');
   await Promise.all([c.pause(id2), c.pause(id2)]);
   expect(thread(id2).status).toBe('idle');
@@ -1598,7 +1617,7 @@ test('Ask, then Full and back to Ask while the checks stop, ends in Ask', async 
 });
 
 test('the thread goes idle even when the late note cannot be written', async () => {
-  c = new Conductor({ store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => windows(), checksStopMs: 50 });
   const id = await checking('never');
   const append = store.append.bind(store);
   store.append = (tid, m) => {
@@ -1614,4 +1633,179 @@ test('stopAll aborts the running checks', async () => {
   c.stopAll();
   expect(ws.signal!.aborted).toBe(true);
   expect(thread(id).status).toBe('idle');
+});
+
+test('a level is ignored for an agent whose model is locked', async () => {
+  runner.reply(MANAGER, ark({ team: [{ agent: 'developer', reason: 'r' }] }));
+  const t = create(projectId, 'Build');
+  await idle();
+  c.approveTeam(t.id, ['developer']);
+  runner.reply(MANAGER, ark({ next: 'developer', level: 'light' }));
+  await turns(3);
+  const started = runner.started.at(-1)!;
+  expect([started.id, started.tier, started.engine]).toEqual(['developer', 'heavy', { kind: 'model', engine: 'claude', model: 'opus' }]);
+});
+
+const EASY = ark({ team: [{ agent: 'developer', reason: 'fixes it' }, { agent: 'code-reviewer', reason: 'reviews' }], difficulty: 'easy', builders: ['developer'], codeReview: 'code-reviewer' });
+
+test('an easy request goes straight to the builder, who plans read-only', async () => {
+  runner.reply(MANAGER, EASY);
+  const t = create(projectId, 'Fix the crash on save');
+  await idle();
+  c.approveTeam(t.id, ['developer', 'code-reviewer']);
+  await turns(2);
+  expect(runner.turns[1].agent).toBe('developer');
+  expect(runner.turns[1].text).toContain(NOTES.easyPlan);
+  expect(runner.starts.at(-1)).toMatchObject({ id: 'developer', permissions: 'read-only' });
+  expect(thread(t.id)).toMatchObject({ difficulty: 'easy', roles: { planner: 'developer', builders: ['developer'], codeReview: 'code-reviewer' } });
+});
+
+test('a builder that cannot change files is sent back once, then the thread waits', async () => {
+  const bad = ark({ team: [{ agent: 'planner', reason: 'r' }], difficulty: 'easy', builders: ['planner'] });
+  runner.reply(MANAGER, bad, bad);
+  const t = create(projectId, 'Fix it');
+  await idle();
+  expect(runner.turns[1].text).toContain('planner cannot change files, so it cannot build');
+  expect(thread(t.id)).toMatchObject({ phase: 'team', status: 'waiting', team: [] });
+});
+
+test('the coordinator sees an agent created after its first turn', async () => {
+  runner.reply(MANAGER, ark({ ask: 'Nobody can build. Create an agent that can.' }));
+  const t = create(projectId, 'Fix it');
+  await idle();
+  expect(runner.turns[0].text).toContain('- developer: Developer. Writes the code, following the plan. [can change files]');
+  agents.push({ ...agents.find((a) => a.id === 'developer')!, id: 'newbie', name: 'Newbie' });
+  c.send(t.id, 'done');
+  await turns(2);
+  expect(runner.turns[1].text).toContain('- newbie: Newbie.');
+});
+
+test('a roles block during planning is checked, applied and noted', async () => {
+  const t = await planning(); // team: planner, seo; no roles
+  runner.reply(MANAGER, ark({ roles: { builders: ['seo'] } }), ark({ ask: 'ok?' }));
+  await idle();
+  expect(runner.turns.at(-1)!.text).toContain('seo cannot change files, so it cannot build');
+  expect(thread(t.id).roles).toBeUndefined();
+});
+
+test('a valid change of roles is saved and noted', async () => {
+  runner.reply(MANAGER, ark({ team: ['planner', 'developer', 'frontend'].map((agent) => ({ agent, reason: 'r' })), difficulty: 'hard', planner: 'planner', builders: ['developer'] }));
+  const t = create(projectId, 'Build');
+  await idle();
+  c.approveTeam(t.id, ['planner', 'developer', 'frontend']);
+  runner.reply(MANAGER, ark({ roles: { builders: ['developer', 'frontend'] } }), ark({ ask: 'ok?' }));
+  await idle();
+  expect(thread(t.id).roles?.builders).toEqual(['developer', 'frontend']);
+  expect(store.messages(t.id).some((m) => m.kind === 'note' && m.text === 'Roles updated: Planner plans; Developer and Frontend build.')).toBe(true);
+});
+
+
+test('each phase is built by the builder its heading names', async () => {
+  const t = await planned('## Phase 1: API (@developer)\na\n## Phase 2: UI (@frontend)\nb'); // the helper: team approved, plan written
+  await c.startDeveloper(t.id);
+  runner.reply('developer', 'done'); runner.reply('code-reviewer', PASS); runner.reply('security-reviewer', PASS);
+  runner.reply('frontend', 'done'); runner.reply('code-reviewer', PASS); runner.reply('security-reviewer', PASS);
+  runner.reply(MANAGER, 'summary');
+  await idle();
+  const builds = runner.starts.filter((s) => s.permissions === 'build');
+  expect(builds.map((s) => s.id)).toEqual(['developer', 'frontend']);
+  expect(builds.every((s) => s.dir === thread(t.id).build!.worktree)).toBe(true);
+  expect(runner.started.find((a) => a.id === 'frontend' && a.prompt.includes('You are the builder of this phase.'))).toBeDefined();
+  expect(thread(t.id).phase).toBe('done');
+});
+
+test('a build with no reviewer asks the user first, even in Full access', async () => {
+  const t = await planned('## Phase 1: Fix\na', ark({ team: [{ agent: 'developer', reason: 'r' }], difficulty: 'easy', builders: ['developer'] }));
+  await c.setPermissionMode(t.id, 'full');
+  const starting = c.startDeveloper(t.id);
+  await tick();
+  const card = last(t.id);
+  expect(card).toMatchObject({ kind: 'approval', tool: 'a build without a code review' });
+  expect(ws.calls.some(([name]) => name === 'addWorktree')).toBe(false);
+  c.answer(t.id, card.seq, true);
+  await tick();
+  c.answer(t.id, last(t.id).seq, true); // the security card
+  await starting;
+  expect(thread(t.id).waived).toEqual(['code', 'security']);
+  expect(store.messages(t.id).some((m) => m.kind === 'note' && m.text.includes('No code review in this build. No security review in this build.'))).toBe(true);
+  runner.reply('developer', 'done'); runner.reply(MANAGER, 'summary');
+  await idle();
+  expect(runner.turns.some((x) => x.agent === 'code-reviewer')).toBe(false);
+  expect(thread(t.id).phase).toBe('done');
+});
+
+test('denying the card leaves the plan waiting and creates nothing', async () => {
+  const t = await planned('## Phase 1: Fix\na', ark({ team: [{ agent: 'developer', reason: 'r' }], difficulty: 'easy', builders: ['developer'] }));
+  const starting = c.startDeveloper(t.id);
+  await tick();
+  c.answer(t.id, last(t.id).seq, false);
+  await expect(starting).rejects.toThrow('The build did not start: there is no code review.');
+  expect(thread(t.id)).toMatchObject({ phase: 'planning' });
+  expect(thread(t.id).build).toBeUndefined();
+  expect(ws.calls.some(([name]) => name === 'addWorktree')).toBe(false);
+  const again = c.startDeveloper(t.id); // Start can be pressed again: it asks again
+  await tick();
+  expect(last(t.id)).toMatchObject({ kind: 'approval', tool: 'a build without a code review' });
+  await c.pause(t.id); // a pause drops the card
+  await expect(again).rejects.toThrow('The build did not start');
+  expect(thread(t.id).build).toBeUndefined();
+});
+
+test('a build cannot start once its builder is gone or read-only', async () => {
+  const t = await planned('## Phase 1: Fix\na');
+  agents.splice(agents.findIndex((a) => a.id === 'developer'), 1);
+  await expect(c.startDeveloper(t.id)).rejects.toThrow('developer is no longer in the catalog.');
+  expect(ws.calls.some(([name]) => name === 'addWorktree')).toBe(false);
+});
+
+test('a thread with no builder cannot start a build', async () => {
+  const t = await planned('## Phase 1: Fix\na', TEAM); // TEAM has no roles
+  await expect(c.startDeveloper(t.id)).rejects.toThrow('No agent on this thread can build.');
+});
+
+test('the second builder is not handed a user message the first one already read', async () => {
+  const t = await planned('## Phase 1: API (@developer)\na\n## Phase 2: UI (@frontend)\nb');
+  await c.startDeveloper(t.id);
+  c.send(t.id, 'use tabs');
+  runner.reply('developer', 'done'); runner.reply('code-reviewer', PASS); runner.reply('security-reviewer', PASS);
+  runner.reply('frontend', 'done');
+  await until(() => runner.turns.some((x) => x.agent === 'frontend'));
+  const second = runner.turns.find((x) => x.agent === 'frontend')!;
+  expect(second.text).not.toContain(NOTES.userFix);
+});
+
+test('build turns run at the standard level unless the model is locked', async () => {
+  agents.push({ ...agents.find((a) => a.id === 'frontend')!, id: 'big', name: 'Big', engine: { kind: 'model', engine: 'claude', model: 'opus' }, lock: false });
+  const block = ark({ team: ['developer', 'big'].map((agent) => ({ agent, reason: 'r' })), difficulty: 'easy', builders: ['developer', 'big'] });
+  const t = await planned('## Phase 1: A (@developer)\na\n## Phase 2: B (@big)\nb', block);
+  thread(t.id); store.save({ ...thread(t.id), waived: ['code', 'security'] });
+  await c.startDeveloper(t.id);
+  runner.reply('developer', 'done'); runner.reply('big', 'done'); runner.reply(MANAGER, 'summary');
+  await idle();
+  const built = (id: string) => runner.started.findLast((a) => a.id === id)!;
+  expect(built('developer').engine).toEqual({ kind: 'model', engine: 'claude', model: 'opus' }); // no lock field: locked
+  expect([built('big').tier, built('big').engine]).toEqual(['standard', { kind: 'engine', engine: 'claude' }]);
+});
+
+test('an old mid-build thread gets its roles from the Head of Staff on the next message', async () => {
+  const t = store.create(projectId, 'Old build');
+  const phase = { title: 'A', text: '## Phase 1: A', step: 'develop' as const, rounds: 0, notes: 0, open: 0, base: 'abc' };
+  store.save({ ...t, phase: 'build', status: 'idle', team: ['project-manager'], build: { worktree: join(root, 'wt', 'x'), branch: 'ark/x', plan: 'p', phases: [phase], current: 0 } });
+  runner.reply(MANAGER, ark({ roles: { builders: ['developer'], codeReview: 'code-reviewer', securityReview: 'security-reviewer' } }));
+  runner.reply('developer', 'done'); runner.reply('code-reviewer', PASS); runner.reply('security-reviewer', PASS); runner.reply(MANAGER, 'summary');
+  c.send(t.id, 'continue');
+  await idle();
+  expect(runner.turns[0].text).toContain(NOTES.assignRoles);
+  expect(thread(t.id)).toMatchObject({ phase: 'done', roles: { builders: ['developer'] } });
+  expect(thread(t.id).team).toEqual(expect.arrayContaining(['developer', 'code-reviewer', 'security-reviewer']));
+});
+
+test('when nobody can build, the old thread waits on the question and its worktree is kept', async () => {
+  const t = store.create(projectId, 'Old build');
+  store.save({ ...t, phase: 'build', status: 'idle', team: ['project-manager'], build: { worktree: 'w', branch: 'b', plan: 'p', phases: [{ title: 'A', text: 'a', step: 'develop', rounds: 0, notes: 0, open: 0 }], current: 0 } });
+  runner.reply(MANAGER, ark({ ask: 'Create an agent that can build.' }));
+  c.send(t.id, 'continue');
+  await idle();
+  expect(thread(t.id)).toMatchObject({ phase: 'build', status: 'waiting', waitingOn: MANAGER });
+  expect(thread(t.id).build!.removed).toBeUndefined();
 });

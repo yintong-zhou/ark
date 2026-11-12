@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import {
   agentId,
   isLocked,
+  modelOptions,
   formatEngineSetting,
   parseAgentFile,
   parseEngineSetting,
@@ -184,4 +185,18 @@ test('head-of-staff is a reserved username', () => {
   const error = 'username: head-of-staff is reserved';
   expect(parseAgentFile(serializeAgentFile(base), 'head-of-staff')).toEqual({ ok: false, error });
   expect(validateAgent({ ...base, id: 'head-of-staff' })).toEqual({ ok: false, error });
+});
+
+test('modelOptions lists only the engines found on this PC', () => {
+  const values = (o: { value: string }[]) => o.map((x) => x.value);
+  expect(values(modelOptions({ claude: true, codex: true }, ['gpt-x', 'gpt-x-luna'], { kind: 'auto' })))
+    .toEqual(['auto', 'claude:haiku', 'claude:sonnet', 'claude:opus', 'codex:gpt-x', 'codex:gpt-x-luna']);
+  expect(values(modelOptions({ claude: true, codex: false }, [], { kind: 'auto' }))).toEqual(['auto', 'claude:haiku', 'claude:sonnet', 'claude:opus']);
+});
+
+test('modelOptions keeps a setting it would not offer', () => {
+  const legacy = modelOptions({ claude: true, codex: false }, [], { kind: 'engine', engine: 'codex' });
+  expect(legacy.at(-1)).toEqual({ value: 'codex', label: 'Codex' });
+  const gone = modelOptions({ claude: true, codex: true }, ['gpt-x'], { kind: 'model', engine: 'codex', model: 'gpt-old' });
+  expect(gone.at(-1)).toEqual({ value: 'codex:gpt-old', label: 'Codex gpt-old' });
 });

@@ -89,6 +89,14 @@ export function formatEngineSetting(e: EngineSetting): string {
   return `Codex ${e.model}`;
 }
 
+export function modelOptions(installed: Record<EngineId, boolean>, codex: string[], current: EngineSetting): { value: string; label: string }[] {
+  const options: EngineSetting[] = [{ kind: 'auto' }];
+  if (installed.claude) for (const model of ['haiku', 'sonnet', 'opus']) options.push({ kind: 'model', engine: 'claude', model });
+  if (installed.codex) for (const model of codex) options.push({ kind: 'model', engine: 'codex', model });
+  if (!options.some((option) => engineString(option) === engineString(current))) options.push(current);
+  return options.map((option) => ({ value: engineString(option), label: formatEngineSetting(option) }));
+}
+
 /** Folder/file-safe slug: lowercase ASCII, single dashes, at most 64 characters. */
 export function agentId(name: string): string {
   const slug = name

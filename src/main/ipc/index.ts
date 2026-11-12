@@ -1,4 +1,4 @@
-import { mkdirSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { app, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
@@ -11,6 +11,7 @@ import type { ShellOption } from '@shared/terminal';
 import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
 import type { AgentRunner } from '../services/agent-runner';
+import { type Avatars, IMAGE_MAX, imageOf } from '../services/avatars';
 import { importAgent, importableAgents, type Catalog } from '../services/catalog';
 import { engineStatus, mergeEngines, readEngines, validateEngines, writeEngines } from '../services/engines/config';
 import { BrowserViews } from '../services/browser/views';
@@ -24,7 +25,7 @@ import { checkMergeable, gitRoot } from '../services/git/rules';
 import { pruneWorktrees, removeWorktree, worktreeRows, type WorktreeDeps } from '../services/git/worktrees';
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
-import { readHandoffThresholds, writeHandoffThreshold, readView, writeView } from '../services/settings';
+import { readHandoffThresholds, writeHandoffThreshold, readHead, writeHead, readView, writeView } from '../services/settings';
 import type { SkillEntry } from '../services/skills';
 import {
   connectStatusline,
@@ -43,6 +44,8 @@ type Deps = {
   statusline: Promise<StatuslinePaths>;
   userData: string;
   catalog: Catalog;
+  avatars: Avatars;
+  codexModels: () => Promise<string[]>;
   runner: AgentRunner;
   store: ThreadStore;
   conductor: Conductor;
@@ -135,7 +138,7 @@ function projectDir(v: unknown): string {
   return v;
 }
 
-export function registerIpc({ win, usage, history, statusline, userData, catalog, runner, store, conductor, skills, claudeConfigDir, tempDir }: Deps): void {
+export function registerIpc({ win, usage, history, statusline, userData, catalog, avatars, codexModels, runner, store, conductor, skills, claudeConfigDir, tempDir }: Deps): void {
   // Only Ark's own window may call in; payloads are validated per channel.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (e: IpcMainInvokeEvent, ...args: unknown[]) => {
@@ -162,15 +165,36 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
 
   handle('catalog:list', () => catalog.list());
-  handle('catalog:add-it-services', () => catalog.addItServices());
-  handle('catalog:add-thread-agents', () => catalog.addThreadAgents());
+  handle('catalog:teams', () => catalog.teams());
+  handle('catalog:add-team', (id) => { if (typeof id !== 'string') throw new Error('Unknown team'); return catalog.addTeam(id); });
+  handle('catalog:update-team', (id) => {
+    if (typeof id !== 'string') throw new Error('Unknown team');
+    const result = catalog.updateTeam(id);
+    for (const agent of result.updated) avatars.remove(agent);
+    return result;
+  });
+  handle('head:get', () => readHead(userData));
+  handle('head:save', (settings) => writeHead(userData, settings));
   handle('catalog:importable', () => importableAgents(claudeConfigDir()));
-  handle('catalog:save', (a) => {
+  handle('catalog:pick-image', async () => {
+    const picked = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    if (picked.canceled || !picked.filePaths[0]) return null;
+    if (statSync(picked.filePaths[0]).size > IMAGE_MAX) throw new Error('The image is larger than 512 KB');
+    return imageOf(readFileSync(picked.filePaths[0]));
+  });
+  handle('catalog:image', (id) => avatars.read(agentId(id)));
+  handle('catalog:save', (a, image) => {
     const r = validateAgent(a);
     if (!r.ok) throw new Error(r.error);
-    catalog.save({ ...r.agent, id: agentId(r.agent.id) });
+    const id = agentId(r.agent.id);
+    if (image === null) avatars.remove(id);
+    else if (image !== undefined) avatars.write(id, image);
+    if (r.agent.avatar === 'custom') {
+      if (!avatars.read(id)) throw new Error('Choose an image first');
+    } else avatars.remove(id);
+    catalog.save(r.agent);
   });
-  handle('catalog:remove', (id) => catalog.remove(agentId(id)));
+  handle('catalog:remove', (id) => { const safeId = agentId(id); catalog.remove(safeId); avatars.remove(safeId); });
   handle('catalog:import', (path) => {
     // Only a file Ark itself listed as importable, never an arbitrary path.
     const ok = typeof path === 'string' && importableAgents(claudeConfigDir()).some((i) => resolve(i.path) === resolve(path));
@@ -192,6 +216,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
   handle('skills:list', (): SkillInfo[] => skills().map(({ name, source, description }) => ({ name, source, description })));
   handle('engines:status', () => engineStatus(readEngines(userData)));
+  handle('engines:codex-models', () => codexModels());
   handle('engines:save', (c) => writeEngines(userData, mergeEngines(readEngines(userData), validateEngines(c))));
 
   handle('chat:pick-folder', async () => {

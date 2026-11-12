@@ -12,6 +12,7 @@ export type Screen =
   | { name: 'statusline' }
   | { name: 'agents' }
   | { name: 'agent-form'; id?: string; draft?: AgentDef }
+  | { name: 'head-form' }
   | { name: 'chat'; agentId: string }
   | { name: 'threads' };
 export type Navigate = (s: Screen) => void;
@@ -19,4 +20,4 @@ export type Navigate = (s: Screen) => void;
 /** The three places the rail leads to: the projects with their threads, the usage screens, the agent catalog. */
 export type Area = 'threads' | 'usage' | 'agents';
 export const areaOf = (s: Screen): Area =>
-  s.name === 'threads' ? 'threads' : s.name === 'agents' || s.name === 'agent-form' || s.name === 'chat' ? 'agents' : 'usage';
+  s.name === 'threads' ? 'threads' : s.name === 'agents' || s.name === 'agent-form' || s.name === 'head-form' || s.name === 'chat' ? 'agents' : 'usage';

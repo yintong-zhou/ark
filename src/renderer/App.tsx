@@ -12,6 +12,7 @@ import { useUsage } from './hooks/useUsage';
 import { Accounts } from './pages/Accounts';
 import { AgentDetail } from './pages/AgentDetail';
 import { AgentForm } from './pages/AgentForm';
+import { HeadForm } from './pages/HeadForm';
 import { Agents } from './pages/Agents';
 import { Chat } from './pages/Chat';
 import { History } from './pages/History';
@@ -112,6 +113,7 @@ export default function App() {
                   {screen.name === 'agent-form' && (
                     <AgentForm id={screen.id} draft={screen.draft} onBack={() => setScreen({ name: 'agents' })} />
                   )}
+                  {screen.name === 'head-form' && <HeadForm onBack={() => setScreen({ name: 'agents' })} />}
                   {screen.name === 'chat' && <Chat key={screen.agentId} agentId={screen.agentId} />}
                 </Main>
               </>

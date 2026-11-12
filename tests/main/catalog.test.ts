@@ -2,10 +2,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { AGENT_ID_RE, validateAgent, type AgentDef } from '@shared/agent-file';
+import { AGENT_ID_RE, serializeAgentFile, validateAgent, type AgentDef } from '@shared/agent-file';
 import { Catalog, importAgent, importableAgents } from '../../src/main/services/catalog';
 import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
-import { THREAD_AGENTS } from '../../src/main/services/thread-agents';
 
 let root: string;
 let dir: string;
@@ -67,52 +66,14 @@ test('IT Services profiles match the source directory, with the human outside th
     expect(a.prompt).toContain(`You report to @${manager}`);
     expect(a.prompt).toContain('L3: propose and wait for explicit human approval');
     expect(a.prompt).toContain('Written handoffs include objective, materials, acceptance criteria and deadline');
-    expect(a.prompt).toContain('Only Ark\'s developer implements an approved plan');
-    expect(a).toMatchObject({ engine: { kind: 'auto' }, permissions: 'read-only', skills: [] });
+    expect(a.prompt).toContain('Code is written only during the build');
+    expect(a).toMatchObject({ engine: { kind: 'auto' }, permissions: ['backend_dev', 'frontend_dev', 'mobile_dev'].includes(a.id) ? 'build' : 'read-only', skills: [] });
   }
   expect(IT_SERVICES_AGENTS.some((a) => a.id === 'head_of_engineering')).toBe(false);
 });
 
-test('adding IT Services preserves customized, unrelated and broken profiles; repeated adds are safe', () => {
-  const c = new Catalog(dir);
-  c.save(agent('product_manager', 'Custom Nova'));
-  c.save(agent('project-manager', 'Existing coordinator'));
-  writeFileSync(join(dir, 'security.md'), 'broken profile to fix manually');
-  const result = c.addItServices();
-  expect(result.added).toHaveLength(12);
-  expect(result.skipped).toEqual(['product_manager', 'security']);
-  expect(c.get('product_manager')?.name).toBe('Custom Nova');
-  expect(c.get('project-manager')?.name).toBe('Existing coordinator');
-  expect(readFileSync(join(dir, 'security.md'), 'utf8')).toBe('broken profile to fix manually');
-  expect(c.list().invalid).toEqual([{ file: 'security.md', error: expect.any(String) }]);
-  expect(c.addItServices()).toEqual({ added: [], skipped: IT_SERVICES_AGENTS.map((a) => a.id) });
-  c.remove('frontend_dev');
-  expect(c.get('frontend_dev')).toBeUndefined();
-  expect(c.addItServices().added).toEqual(['frontend_dev']); // explicit request restores it
-});
 
-test('adding thread roles preserves existing profiles and supplies valid required roles', () => {
-  const c = new Catalog(dir);
-  c.save(agent('project-manager', 'Custom coordinator'));
-  writeFileSync(join(dir, 'code-reviewer.md'), 'broken profile');
-  expect(c.addThreadAgents()).toEqual({ added: [], skipped: ['project-manager'] });
-  expect(c.get('project-manager')?.name).toBe('Custom coordinator');
-  expect(readFileSync(join(dir, 'code-reviewer.md'), 'utf8')).toBe('broken profile');
-  expect(c.get('developer')).toBeUndefined();
-  expect(c.get('security-reviewer')).toBeUndefined();
-  for (const role of THREAD_AGENTS) expect(validateAgent(role).ok).toBe(true);
-  expect(c.addThreadAgents().added).toEqual([]);
-});
 
-test('the default catalog adds only the project manager and preserves existing profiles', () => {
-  const c = new Catalog(dir);
-  expect(c.addDefaultAgent()).toEqual({ added: ['project-manager'], skipped: [] });
-  expect(c.list().agents.map((a) => a.id)).toEqual(['project-manager']);
-  expect(c.get('project-manager')?.name).toBe('Alex - Project manager');
-  c.save(agent('project-manager', 'Custom coordinator'));
-  expect(c.addDefaultAgent()).toEqual({ added: [], skipped: ['project-manager'] });
-  expect(c.get('project-manager')?.name).toBe('Custom coordinator');
-});
 
 test('refuses unsafe ids', () => {
   const c = new Catalog(dir);
@@ -161,4 +122,62 @@ test('imports a Claude agent', () => {
   });
   writeFileSync(file, 'broken');
   expect(() => importAgent(file)).toThrow(/frontmatter/);
+});
+
+test('list gives every agent a face without rewriting its file', () => {
+  const catalog = new Catalog(dir);
+  catalog.save(agent('one'));
+  catalog.save(agent('two'));
+  const before = readFileSync(join(dir, 'one.md'), 'utf8');
+  expect(catalog.list().agents.map((a) => a.avatar).sort()).toEqual(['face-01', 'face-02']);
+  expect(readFileSync(join(dir, 'one.md'), 'utf8')).toBe(before);
+});
+
+test('a file named head-of-staff.md is listed as invalid, never as an agent', () => {
+  mkdirSync(dir, { recursive: true });
+  const catalog = new Catalog(dir);
+  writeFileSync(join(dir, 'head-of-staff.md'), serializeAgentFile(agent('x')));
+  const { agents, invalid } = catalog.list();
+  expect(agents.some((a) => a.id === 'head-of-staff')).toBe(false);
+  expect(invalid).toEqual([{ file: 'head-of-staff.md', error: 'username: head-of-staff is reserved' }]);
+});
+
+test('teams lists the ready teams and how much of each is already here', () => {
+  const catalog = new Catalog(dir);
+  expect(catalog.teams()).toEqual([{ id: 'it-services', name: 'IT Services', description: expect.any(String), count: 14, present: 0 }]);
+  catalog.save(agent('security')); // the user's own agent with a team username
+  expect(catalog.teams()[0].present).toBe(1);
+});
+
+test('addTeam adds what is missing and keeps what is there, even a broken file', () => {
+  const catalog = new Catalog(dir);
+  catalog.save(agent('security', 'Mine'));
+  writeFileSync(join(dir, 'tech_lead.md'), 'not an agent file');
+  const r = catalog.addTeam('it-services');
+  expect(r.added).toHaveLength(12);
+  expect(r.skipped.sort()).toEqual(['security', 'tech_lead']);
+  expect(catalog.get('security')!.name).toBe('Mine');
+  expect(readFileSync(join(dir, 'tech_lead.md'), 'utf8')).toBe('not an agent file');
+});
+
+test('updateTeam rewrites every profile of the team and nothing else', () => {
+  const catalog = new Catalog(dir);
+  catalog.addTeam('it-services');
+  catalog.save({ ...catalog.get('backend_dev')!, permissions: 'read-only', prompt: 'edited' });
+  catalog.remove('qa_lead');
+  writeFileSync(join(dir, 'tech_lead.md'), 'not an agent file');
+  catalog.save(agent('mine'));
+  expect(catalog.updateTeam('it-services').updated).toHaveLength(14);
+  expect(catalog.get('backend_dev')).toMatchObject({ permissions: 'build', alias: 'Forge' });
+  expect(catalog.get('qa_lead')).toBeDefined();
+  expect(catalog.get('tech_lead')).toBeDefined();
+  expect(catalog.get('mine')).toMatchObject({ id: 'mine' });
+  expect(catalog.list().invalid).toEqual([]);
+});
+
+test('an unknown team is refused and nothing is written', () => {
+  const catalog = new Catalog(dir);
+  expect(() => catalog.addTeam('marketing')).toThrow('Unknown team');
+  expect(() => catalog.updateTeam('../x')).toThrow('Unknown team');
+  expect(catalog.list().agents).toEqual([]);
 });
