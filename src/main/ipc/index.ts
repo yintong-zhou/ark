@@ -187,12 +187,11 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     const r = validateAgent(a);
     if (!r.ok) throw new Error(r.error);
     const id = agentId(r.agent.id);
-    if (image === null) avatars.remove(id);
-    else if (image !== undefined) avatars.write(id, image);
-    if (r.agent.avatar === 'custom') {
-      if (!avatars.read(id)) throw new Error('Choose an image first');
-    } else avatars.remove(id);
+    // Check first, write after: a refused save must not touch the avatar on disk.
+    if (r.agent.avatar === 'custom' && !image && (image === null || !avatars.read(id))) throw new Error('Choose an image first');
     catalog.save(r.agent);
+    if (r.agent.avatar !== 'custom' || image === null) avatars.remove(id);
+    else if (image !== undefined) avatars.write(id, image);
   });
   handle('catalog:remove', (id) => { const safeId = agentId(id); catalog.remove(safeId); avatars.remove(safeId); });
   handle('catalog:import', (path) => {
