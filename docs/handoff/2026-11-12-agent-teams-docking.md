@@ -43,7 +43,7 @@ Pushato su `feat/agent-teams-grouping` (commit `ceed30a`, `3d0487c`): team degli
 - Un team per agente (non multi-membership); scartato: multi-membership, perché una sezione per team non vuole duplicati.
 - `AgentTeamsStore` creato dentro `registerIpc`, non in `index.ts` (un file in meno).
 - Migrazione IT Services quando non ci sono team; scartato: un marcatore "migrato". Limite noto (commento `ponytail:` in `ipc/index.ts`): cancellando tutti i team, IT Services ricompare.
-- Docking semplificato: dock side per pannello, non una griglia. Terminale: bottom/top/left/right dentro l'area del thread; Workspace: right/left. Scartati: Workspace in alto/basso, più pannelli sullo stesso lato (richiede un vero layout manager).
+- Docking semplificato: dock side per pannello, non una griglia. Terminale: bottom/top/left/right dentro l'area del thread; Workspace: right/left. Il drag-and-drop col mouse vale solo per il terminale, dentro l'area centrale; il Workspace (pannello laterale) si sposta solo dal menu "Move". Scartati: Workspace in alto/basso, più pannelli sullo stesso lato (richiede un vero layout manager).
 - Tag filtro dei thread (`#tag`) lasciati pillole piatte (toggle multipli che vanno a capo).
 
 ## File toccati
