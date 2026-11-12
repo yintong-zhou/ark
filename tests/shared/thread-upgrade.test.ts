@@ -11,6 +11,14 @@ test('the old coordinator id becomes the Head of Staff', () => {
   expect(upgradeThread(old)).toMatchObject({ team: [MANAGER, 'planner'], waitingOn: MANAGER });
 });
 
+test('the old coordinator keeps its cursor, handoff and engine assignment under the new id', () => {
+  const asg = { engine: 'claude', model: 'm' } as never;
+  const t = upgradeThread({ ...old, cursors: { [LEGACY_MANAGER]: 4, planner: 2 }, handoffs: { [LEGACY_MANAGER]: { seq: 3, text: 'h' } }, assignments: { [LEGACY_MANAGER]: asg } });
+  expect(t.cursors).toEqual({ [MANAGER]: 4, planner: 2 });
+  expect(t.handoffs).toEqual({ [MANAGER]: { seq: 3, text: 'h' } });
+  expect(t.assignments).toEqual({ [MANAGER]: asg });
+});
+
 test('an old build has no builders until the Head of Staff picks them', () => {
   const t = upgradeThread({ ...old, phase: 'build', build: { worktree: 'w', branch: 'b', plan: 'p', phases: [], current: 0 } });
   expect(t.roles).toEqual({ builders: [] });
