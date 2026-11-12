@@ -24,8 +24,9 @@ export function useCatalog() {
   }, []);
   const fail = useCallback((err: unknown) => setError(err instanceof Error ? err.message : String(err)), []);
   const reload = useCallback(() => fetchAll().then(apply, fail), [apply, fail]);
+  const reloadSkills = useCallback(() => window.ark.skills.list().then(setSkills, fail), [fail]);
   useEffect(() => {
     fetchAll().then(apply, fail);
   }, [apply, fail]);
-  return { catalog, skills, engines, codex, head, teams, error, reload };
+  return { catalog, skills, engines, codex, head, teams, error, reload, reloadSkills };
 }

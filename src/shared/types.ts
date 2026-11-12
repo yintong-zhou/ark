@@ -107,7 +107,13 @@ export interface ArkApi {
     draft(description: string): Promise<AgentDef>;
   };
   head: { get(): Promise<AgentDef>; save(s: HeadSettings): Promise<void> };
-  skills: { list(): Promise<SkillInfo[]> };
+  skills: {
+    list(): Promise<SkillInfo[]>;
+    /** Main opens a folder dialog. 'exists' means a skill of that name is already imported: call replace() to overwrite it. */
+    import(): Promise<{ status: 'imported' | 'exists' | 'cancelled'; name?: string }>;
+    replace(): Promise<{ name: string }>;
+    remove(name: string): Promise<void>;
+  };
   engines: { status(): Promise<EngineInfo[]>; codexModels(): Promise<string[]>; save(c: EnginesConfig): Promise<void> };
   chat: {
     pickFolder(): Promise<string | null>;

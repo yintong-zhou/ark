@@ -50,7 +50,12 @@ const api: ArkApi = {
     draft: (d) => ipcRenderer.invoke('catalog:draft', d),
   },
   head: { get: () => ipcRenderer.invoke('head:get'), save: (settings) => ipcRenderer.invoke('head:save', settings) },
-  skills: { list: () => ipcRenderer.invoke('skills:list') },
+  skills: {
+    list: () => ipcRenderer.invoke('skills:list'),
+    import: () => ipcRenderer.invoke('skills:import'),
+    replace: () => ipcRenderer.invoke('skills:replace'),
+    remove: (name) => ipcRenderer.invoke('skills:remove', name),
+  },
   engines: {
     status: () => ipcRenderer.invoke('engines:status'),
     codexModels: () => ipcRenderer.invoke('engines:codex-models'),

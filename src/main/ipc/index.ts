@@ -26,7 +26,7 @@ import { pruneWorktrees, removeWorktree, worktreeRows, type WorktreeDeps } from 
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
 import { readHandoffThresholds, writeHandoffThreshold, readHead, writeHead, readView, writeView } from '../services/settings';
-import type { SkillEntry } from '../services/skills';
+import { arkSkillDir, importSkill, type SkillEntry } from '../services/skills';
 import {
   connectStatusline,
   disconnectStatusline,
@@ -215,6 +215,27 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     return { ...r.agent, skills: r.agent.skills.filter((s) => names.includes(s)) }; // drop skills the drafter made up
   });
   handle('skills:list', (): SkillInfo[] => skills().map(({ name, source, description }) => ({ name, source, description })));
+  // The folder that came back 'exists' stays here so replace() needs no path from the renderer.
+  const arkSkills = join(userData, 'skills');
+  let keptSkill: string | null = null;
+  handle('skills:import', async () => {
+    keptSkill = null;
+    const picked = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
+    if (picked.canceled || !picked.filePaths[0]) return { status: 'cancelled' };
+    const r = importSkill(picked.filePaths[0], arkSkills);
+    if (r.status === 'exists') keptSkill = picked.filePaths[0];
+    return r;
+  });
+  handle('skills:replace', () => {
+    if (!keptSkill) throw new Error('Nothing to replace');
+    const src = keptSkill;
+    keptSkill = null;
+    return { name: importSkill(src, arkSkills, true).name };
+  });
+  handle('skills:remove', async (name) => {
+    if (typeof name !== 'string') throw new Error('Bad skill name');
+    await shell.trashItem(arkSkillDir(name, arkSkills));
+  });
   handle('engines:status', () => engineStatus(readEngines(userData)));
   handle('engines:codex-models', () => codexModels());
   handle('engines:save', (c) => writeEngines(userData, mergeEngines(readEngines(userData), validateEngines(c))));

@@ -13,16 +13,16 @@ import { useCatalog } from '../hooks/useCatalog';
 const NEW_AGENT: AgentDef = { id: '', name: '', description: '', engine: { kind: 'auto' }, tier: 'standard', skills: [], permissions: 'read-only', prompt: '' };
 
 export function AgentForm({ id, draft, onBack }: { id?: string; draft?: AgentDef; onBack: () => void }) {
-  const { catalog, skills, engines, codex, error } = useCatalog();
+  const { catalog, skills, engines, codex, error, reloadSkills } = useCatalog();
   const existing = id ? catalog?.agents.find((a) => a.id === id) : undefined;
   const installed = { claude: engines.some((e) => e.id === 'claude' && e.installed), codex: engines.some((e) => e.id === 'codex' && e.installed) };
   return <Page title={id ? 'Edit agent' : 'New agent'} meta={['Saved to the catalog only when you press Save']} narrow>
     {catalog === null ? <p className="text-muted">{error ?? 'Loading.'}</p> : id && !existing ? <p className="text-muted">This agent no longer exists.</p> :
-      <Form initial={existing ?? draft ?? NEW_AGENT} isNew={!id} taken={catalog.agents.map((a) => a.id)} face={nextFace(catalog.agents.map((a) => a.avatar))} skills={skills} installed={installed} codex={codex} onDone={onBack} />}
+      <Form initial={existing ?? draft ?? NEW_AGENT} isNew={!id} taken={catalog.agents.map((a) => a.id)} face={nextFace(catalog.agents.map((a) => a.avatar))} skills={skills} reloadSkills={reloadSkills} installed={installed} codex={codex} onDone={onBack} />}
   </Page>;
 }
 
-function Form({ initial, isNew, taken, face, skills, installed, codex, onDone }: { initial: AgentDef; isNew: boolean; taken: string[]; face: string; skills: SkillInfo[]; installed: Record<EngineId, boolean>; codex: string[]; onDone: () => void }) {
+function Form({ initial, isNew, taken, face, skills, reloadSkills, installed, codex, onDone }: { initial: AgentDef; isNew: boolean; taken: string[]; face: string; skills: SkillInfo[]; reloadSkills: () => Promise<void>; installed: Record<EngineId, boolean>; codex: string[]; onDone: () => void }) {
   const [alias, setAlias] = useState(initial.alias ?? initial.name);
   const [role, setRole] = useState(initial.role ?? '');
   const [username, setUsername] = useState(isNew ? agentId(initial.role || initial.alias || initial.name) : initial.id);
@@ -66,7 +66,7 @@ function Form({ initial, isNew, taken, face, skills, installed, codex, onDone }:
     <Field label="Task" hint="One sentence. The Head of Staff reads it to decide who to involve."><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={FIELD} /></Field>
     <ModelField engine={engine} lock={lock} installed={installed} codex={codex} onChange={(e, l) => { setEngine(e); setLock(l); }} />
     <Field label="Can change files"><select value={permissions} onChange={(e) => setPermissions(e.target.value as Permissions)} className={INPUT}><option value="read-only">No - advisor only</option><option value="build">Yes - can write code in the thread worktree</option></select></Field>
-    <SkillsField skills={skills} picked={picked} onChange={setPicked} />
+    <SkillsField skills={skills} picked={picked} onChange={setPicked} onReload={reloadSkills} />
     <Field label="System prompt"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={10} className={`${FIELD} font-mono`} /></Field>
     {(problem ?? saveError) && <p role="alert" className="text-muted">{problem ?? saveError}</p>}
     <div className="flex gap-1"><button type="submit" disabled={!!problem} className={CTA}>Save</button><button type="button" onClick={onDone} className={BUTTON}>Cancel</button>{!isNew && <button type="button" onClick={() => confirmDelete ? void run(() => window.ark.catalog.remove(initial.id)) : setConfirmDelete(true)} className={`${BUTTON} ml-auto`}>{confirmDelete ? 'Confirm delete' : 'Delete'}</button>}</div>

@@ -59,6 +59,7 @@ editor and keep it in Git. It has a role prompt, an engine (Claude Code or Codex
 - **Import**: copy agents from `~/.claude/agents` and from Claude Code plugins into the catalog.
 - **New agent**: choose a profile image, alias, role and unique username, then set its task, model, file permissions, skills and system prompt. Lock a model when it must always be used.
 - **Draft with AI**: describe an agent in one sentence and a light-tier agent writes a draft for you to approve.
+- **Import skill**: in the Skills field of an agent (or of the Head of Staff), choose a folder with a `SKILL.md` and Ark copies it to `%APPDATA%\ark\skills` (up to 200 files and 5 MB, no links followed). It shows as `Ark`, wins over an installed skill of the same name, and `Remove` sends the copy to the Recycle Bin. Your own Claude skills stay out of reach of the agents.
 - **Chat**: pick an agent and a project folder and talk to it, on Claude Code or Codex.
 
 Each agent sees only its own skills. The project's own `CLAUDE.md` or `AGENTS.md` is kept, so the agent follows the

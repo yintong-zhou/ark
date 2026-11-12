@@ -40,6 +40,6 @@ behavior in `README.md`.
   relative path, and main checks every path (`services/files/guard.ts`). Deletes go to the Recycle Bin.
 - The terminal is the user's own shell, not an agent: it gets the user's env minus `ELECTRON_*` (not `cleanEnv`) and is
   not isolated. All PTYs die on reload and quit. node-pty stays out of the asar (`electron-builder.yml`); never rebuild it.
-- User data lives in `%APPDATA%\ark` (`agents`, `avatars`, `threads`, `worktrees`, `backups`).
+- User data lives in `%APPDATA%\ark` (`agents`, `avatars`, `skills`, `threads`, `worktrees`, `backups`).
 - Codex skills are passed as a list in the instructions, not via native skill roots (codex-cli 0.132.0 lacks them).
 - UI text is English. Colors and fonts come from `brand-guidelines.md`.
