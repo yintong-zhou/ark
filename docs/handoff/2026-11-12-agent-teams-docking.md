@@ -4,7 +4,7 @@ date: 2026-11-12
 status: in corso
 seq: 1
 prev: nessuno
-tags: [ark, agents, ui, docking]
+tags: [ark, agents, ui, docking, sospeso]
 ---
 
 ## Obiettivo
@@ -21,7 +21,7 @@ Pushato su `feat/agent-teams-grouping` (commit `ceed30a`, `3d0487c`): team degli
 - `Menu.tsx`: gap tra le voci
 - nuovo `Select` (menu Ark al posto dei `<select>` nativi) applicato ovunque
 - dimensioni ricordate: sidebar, altezza terminale (localStorage), finestra (`window-state.json`)
-- docking: menu "Move" e drag-and-drop (maniglia ⠿) per terminale (4 lati) e Workspace (destra/sinistra)
+- docking dei pannelli (menu "Move", drag-and-drop): **rimosso** su richiesta dell'utente, lavoro sospeso (storia git: commit `d945237`, `feat/dock-center-only`)
 
 **Mai provato nell'app reale** (nessun `npm run dev` lanciato in questa sessione): tutto il comportamento visivo, il drag-and-drop, il ripristino della finestra.
 
@@ -43,7 +43,7 @@ Pushato su `feat/agent-teams-grouping` (commit `ceed30a`, `3d0487c`): team degli
 - Un team per agente (non multi-membership); scartato: multi-membership, perché una sezione per team non vuole duplicati.
 - `AgentTeamsStore` creato dentro `registerIpc`, non in `index.ts` (un file in meno).
 - Migrazione IT Services quando non ci sono team; scartato: un marcatore "migrato". Limite noto (commento `ponytail:` in `ipc/index.ts`): cancellando tutti i team, IT Services ricompare.
-- Docking semplificato: dock side per pannello, non una griglia. Terminale: bottom/top/left/right dentro l'area del thread; Workspace: right/left. Il drag-and-drop col mouse vale solo per il terminale, dentro l'area centrale; il Workspace (pannello laterale) si sposta solo dal menu "Move". Scartati: Workspace in alto/basso, più pannelli sullo stesso lato (richiede un vero layout manager).
+- Docking dei pannelli sospeso e rimosso: il terminale resta in basso, il Workspace a destra. Se si riprende: drag-and-drop solo per il terminale dentro l'area centrale, mai per i pannelli laterali.
 - Tag filtro dei thread (`#tag`) lasciati pillole piatte (toggle multipli che vanno a capo).
 
 ## File toccati
@@ -54,15 +54,15 @@ Pushato su `feat/agent-teams-grouping` (commit `ceed30a`, `3d0487c`): team degli
 - `src/main/index.ts`: stato della finestra (`window-state.json`).
 - `src/renderer/pages/Agents.tsx`, `components/AgentTeamSection.tsx`, `hooks/useCatalog.ts`: pagina raggruppata.
 - `src/renderer/components/Select.tsx` (nuovo), `Menu.tsx`, `AgentFields.tsx`, `Cards.tsx`, `TaskBoard.tsx`, `pages/AgentForm.tsx`: drop-down Ark.
-- `src/renderer/components/DockMenu.tsx` (nuovo, esporta `DockControls`), `TerminalPanel.tsx`, `terminal/terms-store.ts`, `Shell.tsx` (props `widthKey`, `order`), `pages/Threads.tsx`: docking.
-- `src/renderer/saved.ts` (nuovo): `loadSize/saveSize/loadChoice/saveChoice` su localStorage.
+- `terminal/terms-store.ts`, `Shell.tsx` (prop `widthKey`): dimensioni ricordate.
+- `src/renderer/saved.ts` (nuovo): `loadSize/saveSize` su localStorage.
 - `src/renderer/App.tsx`, `components/Rail.tsx`, `components/Icons.tsx`: cronologia Indietro/Avanti.
 - `src/renderer/components/ThreadView.tsx`: reazioni con pista incassata.
 - `README.md`, `CLAUDE.md`: docs dei team.
 
 ## Dove vogliamo andare
 
-1. Lanciare `npm run dev` e provare a mano: team (crea, sposta, ricarica, elimina), migrazione IT Services, drop-down Ark, drag-and-drop dei pannelli, chiusura e riapertura con finestra ridimensionata (anche sul secondo monitor).
+1. Lanciare `npm run dev` e provare a mano: team (crea, sposta, ricarica, elimina), migrazione IT Services, drop-down Ark, chiusura e riapertura con finestra ridimensionata (anche sul secondo monitor).
 2. Se la finestra non torna alla dimensione: chiedere su quale monitor e con che scala, e leggere `%APPDATA%\ark\window-state.json` dopo la chiusura.
 3. Committare in un colpo solo il lavoro non committato e fare push (la PR non è ancora aperta).
 4. Poi, se serve: Workspace in alto/basso, spaziature di altre sezioni (l'utente deve mandare screenshot), tag filtro nello stile segmentato.
