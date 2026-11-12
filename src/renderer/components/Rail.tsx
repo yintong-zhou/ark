@@ -2,7 +2,8 @@ import type { Project } from '@shared/thread';
 import logo from '../assets/logo.png';
 import type { Area } from '../agents';
 import { initials } from './Avatar';
-import { AgentsIcon, PlusIcon, UsageIcon } from './Icons';
+import { ICON_BUTTON } from './ui';
+import { AgentsIcon, ArrowIcon, PlusIcon, SettingsIcon, UsageIcon } from './Icons';
 
 type Props = {
   projects: Project[];
@@ -12,16 +13,22 @@ type Props = {
   onProject: (p: Project) => void;
   onAddProject: () => void;
   onArea: (a: Exclude<Area, 'threads'>) => void;
+  onBack?: () => void; // undefined: nowhere to go
+  onForward?: () => void;
 };
 
 const TILE = 'relative flex size-5 items-center justify-center rounded-md';
 const tone = (on: boolean) => (on ? 'control-raised bg-raised text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary');
 
 /** The far-left column: the logo once, the projects, and the places that belong to no project. */
-export function Rail({ projects, waiting, area, projectId, onProject, onAddProject, onArea }: Props) {
+export function Rail({ projects, waiting, area, projectId, onProject, onAddProject, onArea, onBack, onForward }: Props) {
   return (
     <nav aria-label="Projects" className="flex w-8 shrink-0 flex-col items-center bg-primary">
-      <div className="drag flex h-10 w-full shrink-0 items-start justify-center pt-4">
+      <div className="drag flex h-10 w-full shrink-0 flex-col items-center">
+        <div className="flex h-4 items-center">
+          <button type="button" onClick={onBack} disabled={!onBack} aria-label="Back" title="Back" className={`${ICON_BUTTON} no-drag !size-3`}><ArrowIcon dir="back" /></button>
+          <button type="button" onClick={onForward} disabled={!onForward} aria-label="Forward" title="Forward" className={`${ICON_BUTTON} no-drag !size-3`}><ArrowIcon dir="forward" /></button>
+        </div>
         <img src={logo} alt="Ark" draggable={false} className="size-5" />
       </div>
 
@@ -57,6 +64,9 @@ export function Rail({ projects, waiting, area, projectId, onProject, onAddProje
         </button>
         <button onClick={() => onArea('agents')} title="Agents" aria-label="Agents" aria-current={area === 'agents' ? 'page' : undefined} className={`${TILE} ${tone(area === 'agents')}`}>
           <AgentsIcon />
+        </button>
+        <button onClick={() => onArea('settings')} title="Settings" aria-label="Settings" aria-current={area === 'settings' ? 'page' : undefined} className={`${TILE} ${tone(area === 'settings')}`}>
+          <SettingsIcon />
         </button>
       </div>
     </nav>

@@ -11,6 +11,13 @@ const base = {
   'aria-hidden': true,
 } as const;
 
+/** Back and forward in the page history. */
+export const ArrowIcon = ({ dir }: { dir: 'back' | 'forward' }) => (
+  <svg {...base}>
+    <path d={dir === 'back' ? 'M16 10H4m5-5-5 5 5 5' : 'M4 10h12m-5-5 5 5-5 5'} />
+  </svg>
+);
+
 /** Three usage bars: the track, the fill and a different reading on each. */
 export const UsageIcon = () => (
   <svg {...base}>
@@ -77,6 +84,15 @@ export const AgentsIcon = () => (
     <circle cx="10" cy="4.5" r="2" />
     <circle cx="4.5" cy="15" r="2" />
     <circle cx="15.5" cy="15" r="2" />
+  </svg>
+);
+
+/** Sliders: the settings. */
+export const SettingsIcon = () => (
+  <svg {...base}>
+    <path d="M3 6h14M3 14h14" opacity="0.35" />
+    <circle cx="7" cy="6" r="2" />
+    <circle cx="13" cy="14" r="2" />
   </svg>
 );
 

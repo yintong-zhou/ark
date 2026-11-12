@@ -12,6 +12,8 @@ import type { Reaction } from '@shared/thread';
 import type { SkillInfo } from '@shared/types';
 import type { AgentRunner } from '../services/agent-runner';
 import { type Avatars, IMAGE_MAX, imageOf } from '../services/avatars';
+import { adoptReadyTeam, assignAgent } from '@shared/agent-teams';
+import { AgentTeamsStore } from '../services/agent-teams';
 import { importAgent, importableAgents, type Catalog } from '../services/catalog';
 import { engineStatus, mergeEngines, readEngines, validateEngines, writeEngines } from '../services/engines/config';
 import { BrowserViews } from '../services/browser/views';
@@ -22,10 +24,10 @@ import { RootWatcher } from '../services/files/watch';
 import { markIgnored } from '../services/files/ignored';
 import * as git from '../services/git/repo';
 import { checkMergeable, gitRoot } from '../services/git/rules';
-import { pruneWorktrees, removeWorktree, worktreeRows, type WorktreeDeps } from '../services/git/worktrees';
+import { discardThreadWorktree, pruneWorktrees, removeWorktree, worktreeRows, type WorktreeDeps } from '../services/git/worktrees';
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
-import { readHandoffThresholds, writeHandoffThreshold, readHead, writeHead, readView, writeView } from '../services/settings';
+import { readHandoffThresholds, writeHandoffThreshold, readHead, writeHead, readView, writeView, readTheme, writeTheme } from '../services/settings';
 import { arkSkillDir, importSkill, type SkillEntry } from '../services/skills';
 import {
   connectStatusline,
@@ -139,6 +141,7 @@ function projectDir(v: unknown): string {
 }
 
 export function registerIpc({ win, usage, history, statusline, userData, catalog, avatars, codexModels, runner, store, conductor, skills, claudeConfigDir, tempDir }: Deps): void {
+  const agentTeams = new AgentTeamsStore(join(userData, 'agent-teams.json'));
   // Only Ark's own window may call in; payloads are validated per channel.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (e: IpcMainInvokeEvent, ...args: unknown[]) => {
@@ -152,6 +155,15 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('statusline:status', async () => statuslineStatus(await statusline));
   handle('statusline:connect', async () => connectStatusline(await statusline));
   handle('statusline:disconnect', async () => disconnectStatusline(await statusline));
+  handle('settings:get-theme', () => readTheme(userData));
+  handle('settings:set-theme', (t) => {
+    if (t !== 'system' && t !== 'light' && t !== 'dark') throw new Error('invalid theme');
+    writeTheme(userData, t);
+  });
+  // the window buttons are drawn by Windows over the title bar: they follow the theme the renderer resolved
+  handle('settings:title-bar', (light) => {
+    win.setTitleBarOverlay(light === true ? { color: '#E9EBEE', symbolColor: '#2C2F36' } : { color: '#0E1013', symbolColor: '#DEE1E6' });
+  });
   handle('settings:get-view', () => readView(userData));
   handle('settings:set-view', (v) => {
     if (v !== 'compact' && v !== 'detailed') throw new Error('invalid view');
@@ -166,7 +178,28 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
 
   handle('catalog:list', () => catalog.list());
   handle('catalog:teams', () => catalog.teams());
-  handle('catalog:add-team', (id) => { if (typeof id !== 'string') throw new Error('Unknown team'); return catalog.addTeam(id); });
+  handle('catalog:add-team', (id) => {
+    if (typeof id !== 'string') throw new Error('Unknown team');
+    const result = catalog.addTeam(id);
+    const ready = catalog.teams().find((t) => t.id === id);
+    if (ready) agentTeams.write(adoptReadyTeam(agentTeams.read(), { id, name: ready.name }, catalog.presentIds(id)));
+    return result;
+  });
+  handle('catalog:agent-teams', () => {
+    // No teams yet (no file, or an empty one): agents already in the catalog from a ready team get that team.
+    // ponytail: deleting every team brings the ready team back on the next load; add a marker if that bites.
+    const current = agentTeams.read();
+    if (current.teams.length === 0) {
+      let t = current;
+      for (const ready of catalog.teams()) {
+        const ids = catalog.presentIds(ready.id);
+        if (ids.length) t = adoptReadyTeam(t, ready, ids);
+      }
+      return agentTeams.write(t);
+    }
+    return agentTeams.read();
+  });
+  handle('catalog:save-agent-teams', (t) => agentTeams.write(t));
   handle('catalog:update-team', (id) => {
     if (typeof id !== 'string') throw new Error('Unknown team');
     const result = catalog.updateTeam(id);
@@ -193,7 +226,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     if (r.agent.avatar !== 'custom' || image === null) avatars.remove(id);
     else if (image !== undefined) avatars.write(id, image);
   });
-  handle('catalog:remove', (id) => { const safeId = agentId(id); catalog.remove(safeId); avatars.remove(safeId); });
+  handle('catalog:remove', (id) => { const safeId = agentId(id); catalog.remove(safeId); avatars.remove(safeId); agentTeams.write(assignAgent(agentTeams.read(), safeId, null)); });
   handle('catalog:import', (path) => {
     // Only a file Ark itself listed as importable, never an arbitrary path.
     const ok = typeof path === 'string' && importableAgents(claudeConfigDir()).some((i) => resolve(i.path) === resolve(path));
@@ -285,7 +318,11 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   });
 
   handle('threads:list', () => store.threads());
-  handle('threads:remove', (id) => conductor.remove(uuid(id, 'thread'), (path) => shell.trashItem(path)));
+  handle('threads:remove', async (id) => {
+    const t = threadOf(id);
+    await discardThreadWorktree(projectFolder(t.projectId), t, wtDeps); // commits and pushes pending work, then removes it
+    await conductor.remove(t.id, (path) => shell.trashItem(path));
+  });
   handle('threads:open', (id) => {
     const tid = uuid(id, 'thread');
     const thread = store.get(tid);

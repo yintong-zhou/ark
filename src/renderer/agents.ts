@@ -9,7 +9,7 @@ export type Screen =
   | { name: 'agent'; id: AgentId }
   | { name: 'history' }
   | { name: 'accounts' }
-  | { name: 'statusline' }
+  | { name: 'settings' }
   | { name: 'agents' }
   | { name: 'agent-form'; id?: string; draft?: AgentDef }
   | { name: 'head-form' }
@@ -18,6 +18,6 @@ export type Screen =
 export type Navigate = (s: Screen) => void;
 
 /** The three places the rail leads to: the projects with their threads, the usage screens, the agent catalog. */
-export type Area = 'threads' | 'usage' | 'agents';
+export type Area = 'threads' | 'usage' | 'agents' | 'settings';
 export const areaOf = (s: Screen): Area =>
-  s.name === 'threads' ? 'threads' : s.name === 'agents' || s.name === 'agent-form' || s.name === 'head-form' || s.name === 'chat' ? 'agents' : 'usage';
+  s.name === 'threads' ? 'threads' : s.name === 'settings' ? 'settings' : s.name === 'agents' || s.name === 'agent-form' || s.name === 'head-form' || s.name === 'chat' ? 'agents' : 'usage';

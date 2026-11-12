@@ -5,7 +5,8 @@ import { parsePhases } from '@shared/plan';
 import { roleLabels } from '@shared/roles';
 import { AgentAvatar } from './Avatar';
 import { Markdown } from './Markdown';
-import { BUTTON_INSET, CTA, FIELD_INSET } from './ui';
+import { Select } from './Select';
+import { BUTTON_INSET, CTA } from './ui';
 
 /**
  * A card inside a message: a softly raised surface, 640px at most. A thin elbow joins it to the message
@@ -72,17 +73,7 @@ function TeamCard({ control, name, agents, active, pending, approve }: {
       {control.leftOut && <p className="mt-1 whitespace-pre-wrap text-muted" title="Left out"><span aria-hidden>🚫 </span>{control.leftOut}</p>}
       {active && (
         <div className="mt-2 flex flex-wrap items-center gap-1">
-          <select
-            aria-label="Add an agent from the catalog"
-            value=""
-            onChange={(e) => setAdded([...added, e.target.value])}
-            className={FIELD_INSET}
-          >
-            <option value="" disabled>Add from catalog</option>
-            {options.map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
-          </select>
+          <Select inset label="Add an agent from the catalog" value="" placeholder="Add from catalog" onChange={(v) => setAdded([...added, v])} options={options.map((a) => ({ value: a.id, label: a.name }))} />
           {/* the manager leads every thread; main puts it first and drops a repeat */}
           <button onClick={() => approve([...picked, ...added])} disabled={pending} className={`${CTA} ml-auto`}>✅ Approve team</button>
         </div>

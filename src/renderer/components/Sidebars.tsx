@@ -9,13 +9,12 @@ import { Sidebar, SideLabel, SideRow } from './Shell';
 
 /** The usage screens, and each agent's own page. */
 export function UsageNav({ screen, state, onNavigate }: { screen: Screen; state: UsageState | null; onNavigate: Navigate }) {
-  const go = (name: 'usage' | 'history' | 'accounts' | 'statusline') => () => onNavigate({ name });
+  const go = (name: 'usage' | 'history' | 'accounts') => () => onNavigate({ name });
   return (
     <Sidebar title="Usage" label="Usage">
       <SideRow lead={<UsageIcon />} selected={screen.name === 'usage'} onClick={go('usage')}>Overview</SideRow>
       <SideRow lead={<NavIcon kind="history" />} selected={screen.name === 'history'} onClick={go('history')}>History</SideRow>
       <SideRow lead={<NavIcon kind="accounts" />} selected={screen.name === 'accounts'} onClick={go('accounts')}>Accounts</SideRow>
-      <SideRow lead={<NavIcon kind="status" />} selected={screen.name === 'statusline'} onClick={go('statusline')}>Status line</SideRow>
       <SideLabel>Agents</SideLabel>
       {(state?.agents ?? []).map((a) => (
         <SideRow

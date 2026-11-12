@@ -20,17 +20,12 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
   const [statusline, setStatusline] = useState<StatuslineStatus>('connected');
   const [refreshing, setRefreshing] = useState(false);
   const [thresholds, setThresholds] = useState<Record<EngineId, number>>({ claude: 40, codex: 40 });
-  const [thresholdError, setThresholdError] = useState('');
   useEffect(() => {
     window.ark.settings.getView().then(setView);
-    window.ark.settings.getHandoffThresholds().then(setThresholds).catch(() => setThresholdError('Could not load handoff settings.'));
+    window.ark.settings.getHandoffThresholds().then(setThresholds).catch(() => {});
     window.ark.statusline.status().then(setStatusline);
   }, []);
 
-  const changeView = (v: ViewMode) => {
-    setView(v);
-    window.ark.settings.setView(v);
-  };
   const onRefresh = async () => {
     setRefreshing(true);
     await refresh().finally(() => setRefreshing(false));
@@ -50,47 +45,16 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
       meta={['Context and limits of the agents on this machine']}
       actions={
         <>
-          <div role="group" aria-label="View" className="control-inset flex h-4 items-center rounded-sm bg-primary p-[2px]">
-            {(['compact', 'detailed'] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => changeView(v)}
-                aria-pressed={view === v}
-                className={`h-full rounded-xs px-1 text-meta capitalize ${view === v ? 'control-raised bg-raised text-secondary' : 'text-muted hover:text-secondary'}`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
           <button onClick={onRefresh} disabled={refreshing} aria-label={refreshing ? 'Refreshing' : 'Refresh'} title="Refresh" className={ICON_BUTTON}>
             <RefreshIcon />
           </button>
         </>
       }
     >
-      <section className="flex flex-col gap-1 border-b border-divider pb-2">
-        <h2 className="text-body">Handoff settings</h2>
-        <p className="text-muted">Context used at the end of a thread turn. Applies to Claude and Codex planning sessions.</p>
-        <div className="flex gap-3">
-          {(['claude', 'codex'] as const).map((engine) => (
-            <label key={engine} className="flex items-center gap-1">
-              {AGENT_NAME[engine]}
-              <input aria-label={AGENT_NAME[engine] + ' handoff threshold'} type="number" min={1} max={100} step={1}
-                defaultValue={thresholds[engine]} key={engine + ':' + thresholds[engine]} className="w-6 rounded-sm bg-raised px-1 text-secondary"
-                onBlur={(e) => {
-                  const percent = Number(e.currentTarget.value);
-                  if (!Number.isInteger(percent) || percent < 1 || percent > 100) { e.currentTarget.value = String(thresholds[engine]); setThresholdError('Enter a whole number from 1 to 100.'); return; }
-                  void window.ark.settings.setHandoffThreshold(engine, percent).then(() => { setThresholds((old) => ({ ...old, [engine]: percent })); setThresholdError(''); }).catch(() => setThresholdError('Could not save handoff settings.'));
-                }} />%
-            </label>
-          ))}
-        </div>
-        {thresholdError && <p role="alert">{thresholdError}</p>}
-      </section>
       {claudeInstalled && statusline !== 'connected' && (
         <div className="flex items-center justify-between gap-2 rounded-sm bg-raised p-2">
           <span>Claude Code sessions aren&apos;t reported yet.</span>
-          <button onClick={() => onNavigate({ name: 'statusline' })} className={CTA}>Connect status line</button>
+          <button onClick={() => onNavigate({ name: 'settings' })} className={CTA}>Open settings</button>
         </div>
       )}
 

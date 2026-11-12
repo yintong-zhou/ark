@@ -1,14 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { engineString, modelOptions, parseEngineSetting, type EngineId, type EngineSetting } from '@shared/agent-file';
 import type { SkillInfo } from '@shared/types';
+import { Select } from './Select';
 import { INPUT } from './ui';
 
 export function ModelField({ engine, lock, installed, codex, onChange }: { engine: EngineSetting; lock: boolean; installed: Record<EngineId, boolean>; codex: string[]; onChange: (engine: EngineSetting, lock: boolean) => void }) {
   return <div className="flex flex-col gap-1">
     <label className="flex flex-col gap-[4px]"><span className="text-meta text-muted">Model</span>
-      <select value={engineString(engine)} onChange={(e) => { const next = parseEngineSetting(e.target.value); if (next) onChange(next, next.kind === 'model' ? lock : false); }} className={INPUT}>
-        {modelOptions(installed, codex, engine).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
+      <Select label="Model" value={engineString(engine)} onChange={(v) => { const next = parseEngineSetting(v); if (next) onChange(next, next.kind === 'model' ? lock : false); }} options={modelOptions(installed, codex, engine)} className="w-full" />
     </label>
     {engine.kind === 'model' && <label className="flex items-center gap-1"><input type="checkbox" checked={lock} onChange={(e) => onChange(engine, e.target.checked)} className="accent-neutral-light" />Lock this model</label>}
     <p className="text-meta text-muted">Unlocked: the Head of Staff may go up or down with the difficulty of the task.</p>

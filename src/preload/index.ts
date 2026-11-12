@@ -31,6 +31,9 @@ const api: ArkApi = {
     disconnect: () => ipcRenderer.invoke('statusline:disconnect'),
   },
   settings: {
+    getTheme: () => ipcRenderer.invoke('settings:get-theme'),
+    setTheme: (t) => ipcRenderer.invoke('settings:set-theme', t),
+    titleBar: (light) => ipcRenderer.invoke('settings:title-bar', light),
     getView: () => ipcRenderer.invoke('settings:get-view'),
     setView: (v) => ipcRenderer.invoke('settings:set-view', v),
     getHandoffThresholds: () => ipcRenderer.invoke('settings:get-handoff-thresholds'),
@@ -40,6 +43,8 @@ const api: ArkApi = {
     list: () => ipcRenderer.invoke('catalog:list'),
     teams: () => ipcRenderer.invoke('catalog:teams'),
     addTeam: (id) => ipcRenderer.invoke('catalog:add-team', id),
+    agentTeams: () => ipcRenderer.invoke('catalog:agent-teams'),
+    saveAgentTeams: (t) => ipcRenderer.invoke('catalog:save-agent-teams', t),
     updateTeam: (id) => ipcRenderer.invoke('catalog:update-team', id),
     save: (a, image) => ipcRenderer.invoke('catalog:save', a, image),
     pickImage: () => ipcRenderer.invoke('catalog:pick-image'),

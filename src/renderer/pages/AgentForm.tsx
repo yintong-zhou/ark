@@ -6,6 +6,7 @@ import type { SkillInfo } from '@shared/types';
 import { AgentAvatar, forgetImage } from '../components/Avatar';
 import { ModelField, SkillsField } from '../components/AgentFields';
 import { Page } from '../components/Page';
+import { Select } from '../components/Select';
 import { BUTTON, CTA, FIELD, INPUT } from '../components/ui';
 import { readable } from '../errors';
 import { useCatalog } from '../hooks/useCatalog';
@@ -65,7 +66,7 @@ function Form({ initial, isNew, taken, face, skills, reloadSkills, installed, co
     <Field label="Username" hint="How you call it in a thread. Cannot change after creation."><div className="flex items-center gap-1"><span>@</span><input value={username} readOnly={!isNew} onChange={(e) => { setUsernameEdited(true); setUsername(e.target.value); }} className={INPUT} /></div></Field>
     <Field label="Task" hint="One sentence. The Head of Staff reads it to decide who to involve."><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={FIELD} /></Field>
     <ModelField engine={engine} lock={lock} installed={installed} codex={codex} onChange={(e, l) => { setEngine(e); setLock(l); }} />
-    <Field label="Can change files"><select value={permissions} onChange={(e) => setPermissions(e.target.value as Permissions)} className={INPUT}><option value="read-only">No - advisor only</option><option value="build">Yes - can write code in the thread worktree</option></select></Field>
+    <Field label="Can change files"><Select label="Can change files" value={permissions} onChange={(v) => setPermissions(v as Permissions)} options={[{ value: 'read-only', label: 'No - advisor only' }, { value: 'build', label: 'Yes - can write code in the thread worktree' }]} className="w-full" /></Field>
     <SkillsField skills={skills} picked={picked} onChange={setPicked} onReload={reloadSkills} />
     <Field label="System prompt"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={10} className={`${FIELD} font-mono`} /></Field>
     {(problem ?? saveError) && <p role="alert" className="text-muted">{problem ?? saveError}</p>}

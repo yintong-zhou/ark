@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Project } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
 import { areaOf, type Screen } from './agents';
@@ -16,7 +16,7 @@ import { HeadForm } from './pages/HeadForm';
 import { Agents } from './pages/Agents';
 import { Chat } from './pages/Chat';
 import { History } from './pages/History';
-import { StatuslineConnect } from './pages/StatuslineConnect';
+import { Settings } from './pages/Settings';
 import { Threads } from './pages/Threads';
 import { Usage } from './pages/Usage';
 
@@ -74,6 +74,29 @@ export default function App() {
   };
   const area = areaOf(screen);
 
+  // Page history: every (screen, project) pair visited, with back and forward over it.
+  type Stop = { screen: Screen; projectId?: string };
+  const [hist, setHist] = useState<{ trail: Stop[]; at: number }>({ trail: [], at: -1 });
+  const replaying = useRef(false); // a back/forward jump must not be recorded as a new visit
+  useEffect(() => {
+    if (replaying.current) { replaying.current = false; return; }
+    const cur = { screen, projectId: project?.id };
+    setHist((h) => {
+      if (JSON.stringify(h.trail[h.at]) === JSON.stringify(cur)) return h;
+      const trail = [...h.trail.slice(0, h.at + 1), cur].slice(-50);
+      return { trail, at: trail.length - 1 };
+    });
+  }, [screen, project?.id]);
+  const go = (step: number) => {
+    const to = hist.trail[hist.at + step];
+    if (!to) return;
+    replaying.current = true;
+    setHist({ ...hist, at: hist.at + step });
+    setScreen(to.screen);
+    setProjectId(to.projectId);
+    setDraft(false);
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
@@ -84,7 +107,9 @@ export default function App() {
           projectId={project?.id}
           onProject={openProject}
           onAddProject={addProject}
-          onArea={(a) => setScreen(a === 'usage' ? { name: 'usage' } : { name: 'agents' })}
+          onBack={hist.at > 0 ? () => go(-1) : undefined}
+          onForward={hist.at < hist.trail.length - 1 ? () => go(1) : undefined}
+          onArea={(a) => setScreen({ name: a } as Screen)}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           {/* the window's own title bar: Windows draws only its buttons over this strip */}
@@ -101,10 +126,10 @@ export default function App() {
                   {screen.name === 'agent' && <AgentDetail id={screen.id} state={state} now={now} />}
                   {screen.name === 'history' && <History />}
                   {screen.name === 'accounts' && <Accounts state={state} />}
-                  {screen.name === 'statusline' && <StatuslineConnect />}
                 </Main>
               </>
             )}
+            {area === 'settings' && <Main><Settings /></Main>}
             {area === 'agents' && (
               <>
                 <AgentsNav screen={screen} onNavigate={setScreen} />

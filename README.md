@@ -82,7 +82,7 @@ Atlas lead product, development, QA and DevOps, with Pixel, Sage, Orion, Forge, 
 as specialists. Profiles carry their role, reporting line, handoff rules and L1/L2/L3 decision boundaries. You are
 `@head_of_engineering`; this human role is never an AI agent.
 
-Under **Agents > Ready teams**, add IT Services to copy missing profiles into your catalog without replacing existing files. **Update team** asks before replacing its profiles and restores deleted members; edits to those profiles are lost. Its developers build, its tech lead reviews code and its security agent reviews security. Agents use usernames such as `@frontend_dev` for mentions and task assignments. The Head of Staff chooses the team and its roles for each thread.
+Under **Agents > Ready teams**, add IT Services to copy missing profiles into your catalog without replacing existing files. **Update team** asks before replacing its profiles and restores deleted members; edits to those profiles are lost. Its developers build, its tech lead reviews code and its security agent reviews security. Agents use usernames such as `@frontend_dev` for mentions and task assignments. The Head of Staff chooses the team and its roles for each thread. Use **New team** on the Agents page to group catalog agents (one team per agent, collapsible, stored in `agent-teams.json`); teams only organize the list and have no effect on how the Head of Staff builds a thread.
 
 Agents are read-only in Chat and planning. During a build, the thread's selected builders work in its worktree and its reviewers review each phase. The hierarchy in the IT Services profiles is prompt guidance, not a separate scheduler. OpenCode execution and configuration remain on hold.
 
@@ -165,8 +165,8 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   Installing is one approval card per thread outside Full access; Ark never installs anything by itself.
 
 If Ark is closed during a turn, the thread notes it and continues when you send a message. A long agent session is
-handed off to a fresh one at 40% of its context by default (change it per engine under **Handoff settings** on the
-usage page), so a thread can run for a long time.
+handed off to a fresh one at 40% of its context by default (change it per engine under **Settings > Handoff**; the theme, usage view
+and status line live there too), so a thread can run for a long time.
 
 `npm run test:live` also starts a real thread on the light tier and checks that the Head of Staff answers with a team
 proposal or a question, and runs the approval round trip (deny and allow) with a Claude build agent, and a deny with a

@@ -27,7 +27,7 @@ export function Editor({ projectId, doc }: { projectId: string; doc: Doc }) {
     void loadMonaco().then((monaco) => {
       if (disposed || !host.current) return;
       made = monaco.editor.create(host.current, {
-        theme: 'ark-dark',
+        theme: 'ark',
         automaticLayout: true,
         ...FONT,
         minimap: { enabled: true },

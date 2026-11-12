@@ -79,7 +79,7 @@ export function Menu({ items, at, onClose, searchPlaceholder, label, width = sea
           />
         </div>
       )}
-      <ul role="menu" aria-label={label} className="min-h-0 overflow-y-auto p-0.5">
+      <ul role="menu" aria-label={label} className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-1">
         {shown.map((i, index) => (
           <li key={i.label} role="none" className={i.separator && index > 0 ? 'mt-[4px] border-t border-divider pt-[4px]' : undefined}>
             <button

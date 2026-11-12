@@ -41,7 +41,7 @@ export function DiffView({ projectId, doc, onOpenFile }: Props) {
     void loadMonaco().then((monaco) => {
       if (disposed || !host.current) return;
       const diff = monaco.editor.createDiffEditor(host.current, {
-        theme: 'ark-dark',
+        theme: 'ark',
         automaticLayout: true,
         ...FONT,
         readOnly: true,

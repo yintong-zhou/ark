@@ -6,6 +6,9 @@ import { needsYou } from '@shared/thread-view';
 import { toUploads } from '../components/Attachments';
 import { BrowserPane } from '../components/BrowserPane';
 import { Composer } from '../components/Composer';
+import { DockControls } from '../components/DockMenu';
+import { Select } from '../components/Select';
+import { loadChoice, saveChoice } from '../saved';
 import { confirmAction } from '../components/Confirm';
 import { DiffView } from '../components/DiffView';
 import { Editor } from '../components/Editor';
@@ -24,7 +27,7 @@ import type { PermissionMode } from '@shared/permissions';
 import { onBrowserKey, startSelect, useBrowser } from '../browser/browser-store';
 import { activate, BROWSER_TAB, open as openTab, openDiff, useTabs } from '../editor/tabs-store';
 import type { useThreads } from '../hooks/useThreads';
-import { panelHeight, setPanelHeight, toggle as toggleTerminal, useTerms } from '../terminal/terms-store';
+import { panelDock, panelHeight, setPanelHeight, toggle as toggleTerminal, useTerms } from '../terminal/terms-store';
 
 type Props = {
   ws: ReturnType<typeof useThreads>;
@@ -40,6 +43,15 @@ type Props = {
 type View = 'team' | 'files' | 'git';
 let lastView: View = 'team';
 const keepView = (v: View) => (lastView = v);
+/** Direction of the area a terminal docks into, and the look of its drag handle, per side. */
+const WORK_DIR = { bottom: 'flex-col', top: 'flex-col-reverse', right: 'flex-row', left: 'flex-row-reverse' } as const;
+const SEPARATOR = {
+  bottom: 'h-[4px] cursor-row-resize border-t border-divider',
+  top: 'h-[4px] cursor-row-resize border-b border-divider',
+  right: 'w-[4px] cursor-col-resize border-l border-divider',
+  left: 'w-[4px] cursor-col-resize border-r border-divider',
+} as const;
+const WS_SIDES = ['right', 'left'] as const;
 const VIEW_LABEL: Record<View, string> = { team: 'Team', files: 'Files', git: 'Git' };
 const VIEW_ICON = { team: AgentsIcon, files: ExplorerIcon, git: GitBranchIcon };
 
@@ -95,6 +107,8 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   };
   const initGit = project && <button onClick={() => void attempt(() => ws.gitInit(project.id))} className={BUTTON}>Initialize Git</button>;
   const terms = useTerms(project?.id);
+  const dock = panelDock();
+  const [wsSide, setWsSide] = useState(() => loadChoice('ark-workspace-dock', WS_SIDES, 'right'));
   // Ctrl+` toggles the terminal from anywhere in the area, Monaco and xterm included (capture runs first). It is the
   // physical key left of 1, whatever the layout prints on it.
   const bv = useBrowser(project?.id);
@@ -187,7 +201,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 trail={trail(t)}
                 title={t.title}
                 onRemove={async () => {
-                  if (await confirmAction(`Delete thread "${t.title}"? Its conversation and attachments will be moved to the Recycle Bin.`)) void attempt(() => ws.removeThread(t.id));
+                  if (await confirmAction(`Delete thread "${t.title}"? Its conversation and attachments will be moved to the Recycle Bin, and its worktree removed (unsaved work is committed and pushed first).`)) void attempt(() => ws.removeThread(t.id));
                 }}
                 onClick={() => {
                   onDraft(false);
@@ -217,7 +231,8 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
             terminal={{ open: terms.open, onToggle: () => toggleTerminal(project.id, root) }}
           />
         )}
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div data-dock-area className={`flex min-h-0 flex-1 ${WORK_DIR[dock]}`}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {project && tabs.active === BROWSER_TAB ? (
             <BrowserPane key={project.id} projectId={project.id} thread={thread ? { id: thread.id, title: thread.title } : undefined} />
           ) : project && fileDoc?.diff ? (
@@ -271,24 +286,31 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
             </>
           )}
         </div>
+        </div>
         {project && terms.open && (
-          <>
+          <div style={{ [dock === 'top' || dock === 'bottom' ? 'height' : 'width']: `${panelHeight() * 100}%` }} className={`flex shrink-0 ${WORK_DIR[dock]}`}>
             <div
               role="separator"
-              aria-orientation="horizontal"
+              aria-orientation={dock === 'top' || dock === 'bottom' ? 'horizontal' : 'vertical'}
               aria-label="Resize terminal"
               onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
               onPointerMove={(e) => {
-                // the panel's height is a share of <Main>, so the drag measures against <Main> too
-                const box = e.currentTarget.parentElement?.getBoundingClientRect();
-                if (box && e.currentTarget.hasPointerCapture(e.pointerId)) setPanelHeight((box.bottom - e.clientY) / box.height);
+                // the panel's size is a share of the area it docks into, so the drag measures against that area
+                const box = e.currentTarget.parentElement?.parentElement?.getBoundingClientRect();
+                if (!box || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                setPanelHeight({
+                  bottom: (box.bottom - e.clientY) / box.height,
+                  top: (e.clientY - box.top) / box.height,
+                  right: (box.right - e.clientX) / box.width,
+                  left: (e.clientX - box.left) / box.width,
+                }[dock]);
               }}
-              className="h-[4px] shrink-0 cursor-row-resize border-t border-divider hover:bg-divider"
+              className={`shrink-0 hover:bg-divider ${SEPARATOR[dock]}`}
             />
-            <div style={{ height: `${panelHeight() * 100}%` }} className="flex shrink-0 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <TerminalPanel projectId={project.id} root={root} />
             </div>
-          </>
+          </div>
         )}
       </Main>
 
@@ -296,7 +318,9 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         <Sidebar
           title="Workspace"
           label="Workspace"
-          side="right"
+          side={wsSide}
+          widthKey="right"
+          order={wsSide === 'left' ? -1 : undefined}
           header={
             <div role="tablist" aria-label="Workspace view" className="control-inset no-drag flex min-w-0 gap-0.5 overflow-x-auto rounded-md bg-primary p-0.5">
               {(['team', 'files', 'git'] as const).filter((v) => v !== 'team' || thread).map((v) => {
@@ -315,6 +339,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                   </button>
                 );
               })}
+              <DockControls label="workspace panel" value={wsSide} sides={WS_SIDES} onChange={(s) => { setWsSide(s); saveChoice('ark-workspace-dock', s); }} area={(g) => g.closest('nav')?.parentElement} />
             </div>
           }
         >
@@ -323,15 +348,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
           ) : (
             <div className="p-1">
               {worktree && (
-                <select
-                  aria-label="Folder"
-                  value={rootSel}
-                  onChange={(e) => setRootSel(e.target.value as 'project' | 'worktree')}
-                  className="mb-1 h-3 w-full rounded-xs bg-raised px-[4px] text-meta text-secondary"
-                >
-                  <option value="project">Project</option>
-                  <option value="worktree">Worktree · #{thread?.title}</option>
-                </select>
+                <Select label="Folder" value={rootSel} onChange={(v) => setRootSel(v as 'project' | 'worktree')} options={[{ value: 'project', label: 'Project' }, { value: 'worktree', label: `Worktree · #${thread?.title}` }]} className="mb-1 w-full" />
               )}
               {view === 'files' ? (
                 <FileTree

@@ -4,6 +4,7 @@ import { TASK_LABELS } from '@shared/tasks';
 import type { TaskInput, TaskStatus, Thread, ThreadTask } from '@shared/thread';
 import { readable } from '../errors';
 import { EditIcon, TrashIcon } from './Icons';
+import { Select } from './Select';
 import { BUTTON, BUTTON_INSET, CTA, ICON_BUTTON, INPUT } from './ui';
 
 /** The user's board: editing a card never starts or interrupts a turn. */
@@ -58,17 +59,11 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
         </label>
         <label className="flex flex-col gap-[4px] text-meta text-muted">
           Assigned agent
-          <select value={agent} onChange={(e) => setAgent(e.target.value)} disabled={busy} className={INPUT}>
-            <option value="">Unassigned</option>
-            {agent && !team.some((a) => a.id === agent) && <option value={agent} disabled>{name(agent)} (unavailable)</option>}
-            {team.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+          <Select label="Assigned agent" value={agent} onChange={setAgent} disabled={busy} className="w-full" options={[{ value: '', label: 'Unassigned' }, ...(agent && !team.some((a) => a.id === agent) ? [{ value: agent, label: `${name(agent)} (unavailable)`, disabled: true }] : []), ...team.map((a) => ({ value: a.id, label: a.name }))]} />
         </label>
         <label className="flex flex-col gap-[4px] text-meta text-muted">
           Task status
-          <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)} disabled={busy} className={INPUT}>
-            {Object.entries(TASK_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-          </select>
+          <Select label="Task status" value={status} onChange={(v) => setStatus(v as TaskStatus)} disabled={busy} className="w-full" options={Object.entries(TASK_LABELS).map(([value, label]) => ({ value, label }))} />
         </label>
         <button type="submit" disabled={busy || !title.trim()} className={CTA}>{editing ? 'Save task' : 'Add task'}</button>
         {editing && <button type="button" onClick={clear} disabled={busy} className={BUTTON}>Cancel edit</button>}
@@ -86,15 +81,7 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
                   <li key={task.id} className="surface-card rounded-md bg-sidebar p-1.5">
                     <p className="whitespace-pre-wrap break-words text-secondary">{task.title}</p>
                     <p className="my-1 text-meta text-muted">{task.agent ? name(task.agent) : 'Unassigned'}</p>
-                    <select
-                      aria-label={`Status of ${task.title}`}
-                      value={task.status}
-                      disabled={busy || editing?.id === task.id}
-                      onChange={(e) => void save(task, { title: task.title, agent: task.agent, status: e.target.value as TaskStatus })}
-                      className={`${INPUT} mb-1 w-full bg-primary`}
-                    >
-                      {Object.entries(TASK_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-                    </select>
+                    <Select label={`Status of ${task.title}`} value={task.status} disabled={busy || editing?.id === task.id} onChange={(v) => void save(task, { title: task.title, agent: task.agent, status: v as TaskStatus })} className="mb-1 w-full" options={Object.entries(TASK_LABELS).map(([value, label]) => ({ value, label }))} />
                     <div className="flex flex-wrap gap-1">
                       {removing === task.id ? (
                         <>
