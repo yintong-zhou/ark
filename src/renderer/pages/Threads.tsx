@@ -6,9 +6,7 @@ import { needsYou } from '@shared/thread-view';
 import { toUploads } from '../components/Attachments';
 import { BrowserPane } from '../components/BrowserPane';
 import { Composer } from '../components/Composer';
-import { DockControls } from '../components/DockMenu';
 import { Select } from '../components/Select';
-import { loadChoice, saveChoice } from '../saved';
 import { confirmAction } from '../components/Confirm';
 import { DiffView } from '../components/DiffView';
 import { Editor } from '../components/Editor';
@@ -51,7 +49,6 @@ const SEPARATOR = {
   right: 'w-[4px] cursor-col-resize border-l border-divider',
   left: 'w-[4px] cursor-col-resize border-r border-divider',
 } as const;
-const WS_SIDES = ['right', 'left'] as const;
 const VIEW_LABEL: Record<View, string> = { team: 'Team', files: 'Files', git: 'Git' };
 const VIEW_ICON = { team: AgentsIcon, files: ExplorerIcon, git: GitBranchIcon };
 
@@ -108,7 +105,6 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const initGit = project && <button onClick={() => void attempt(() => ws.gitInit(project.id))} className={BUTTON}>Initialize Git</button>;
   const terms = useTerms(project?.id);
   const dock = panelDock();
-  const [wsSide, setWsSide] = useState(() => loadChoice('ark-workspace-dock', WS_SIDES, 'right'));
   // Ctrl+` toggles the terminal from anywhere in the area, Monaco and xterm included (capture runs first). It is the
   // physical key left of 1, whatever the layout prints on it.
   const bv = useBrowser(project?.id);
@@ -318,9 +314,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         <Sidebar
           title="Workspace"
           label="Workspace"
-          side={wsSide}
-          widthKey="right"
-          order={wsSide === 'left' ? -1 : undefined}
+          side="right"
           header={
             <div role="tablist" aria-label="Workspace view" className="control-inset no-drag flex min-w-0 gap-0.5 overflow-x-auto rounded-md bg-primary p-0.5">
               {(['team', 'files', 'git'] as const).filter((v) => v !== 'team' || thread).map((v) => {
@@ -339,7 +333,6 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                   </button>
                 );
               })}
-              <DockControls label="workspace panel" value={wsSide} sides={WS_SIDES} onChange={(s) => { setWsSide(s); saveChoice('ark-workspace-dock', s); }} />
             </div>
           }
         >
