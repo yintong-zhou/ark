@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import {
   agentId,
+  isLocked,
   formatEngineSetting,
   parseAgentFile,
   parseEngineSetting,
@@ -150,4 +151,37 @@ test('agentId slugs', () => {
   expect(agentId('***')).toBe('agent');
   expect(agentId('a'.repeat(100))).toHaveLength(64);
   expect(agentId('a'.repeat(63) + ' b')).toBe('a'.repeat(63));
+});
+
+
+const base: AgentDef = { id: 'backend_dev', name: 'Forge - Backend dev', description: 'd', engine: { kind: 'model', engine: 'claude', model: 'sonnet' }, tier: 'standard', skills: [], permissions: 'build', prompt: 'p' };
+
+test('the profile fields round-trip through the file', () => {
+  const a = { ...base, alias: 'Forge', role: 'Backend dev', avatar: 'face-03', lock: false };
+  expect(parseAgentFile(serializeAgentFile(a), a.id)).toEqual({ ok: true, agent: a });
+});
+
+test('a file without the profile fields loads unchanged and an exact model counts as locked', () => {
+  const r = parseAgentFile(serializeAgentFile(base), base.id);
+  expect(r).toEqual({ ok: true, agent: base });
+  expect(serializeAgentFile(base)).not.toMatch(/alias|role|avatar|lock/);
+  expect(isLocked(base)).toBe(true);
+  expect(isLocked({ ...base, lock: false })).toBe(false);
+  expect(isLocked({ engine: { kind: 'auto' }, lock: true })).toBe(false); // nothing to lock
+});
+
+test.each([
+  [{ avatar: 'face-25' }, 'avatar: must be a gallery face or custom'],
+  [{ avatar: '../x' }, 'avatar: must be a gallery face or custom'],
+  [{ alias: 'x'.repeat(41) }, 'alias: must be text of at most 40 characters'],
+  [{ role: 'x'.repeat(61) }, 'role: must be text of at most 60 characters'],
+  [{ lock: 'yes' }, 'lock: must be true or false'],
+])('rejects %j', (extra, error) => {
+  expect(validateAgent({ ...base, ...extra })).toEqual({ ok: false, error });
+});
+
+test('head-of-staff is a reserved username', () => {
+  const error = 'username: head-of-staff is reserved';
+  expect(parseAgentFile(serializeAgentFile(base), 'head-of-staff')).toEqual({ ok: false, error });
+  expect(validateAgent({ ...base, id: 'head-of-staff' })).toEqual({ ok: false, error });
 });

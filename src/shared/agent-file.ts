@@ -18,6 +18,10 @@ export type AgentDef = {
   skills: string[];
   permissions: Permissions;
   prompt: string;
+  alias?: string;
+  role?: string;
+  avatar?: string;
+  lock?: boolean;
 };
 export type ParseResult = { ok: true; agent: AgentDef } | { ok: false; error: string };
 
@@ -25,6 +29,11 @@ const TIERS: readonly Tier[] = ['light', 'standard', 'heavy'];
 const PERMISSIONS: readonly Permissions[] = ['read-only', 'build'];
 /** Folder-safe agent id: what the catalog accepts on disk and IPC accepts from the renderer. */
 export const AGENT_ID_RE = /^[a-z0-9_-]{1,64}$/;
+export const RESERVED_IDS: readonly string[] = ['head-of-staff'];
+export const AVATAR_RE = /^(face-(0[1-9]|1\d|2[0-4])|custom)$/;
+export function isLocked(a: Pick<AgentDef, 'engine' | 'lock'>): boolean {
+  return a.engine.kind === 'model' && a.lock !== false;
+}
 const SKILL_RE = /^[A-Za-z0-9][\w.-]*(:[A-Za-z0-9][\w.-]*)?$/;
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 const MAX_NAME = 80;
@@ -68,7 +77,7 @@ export function parseEngineSetting(s: string): EngineSetting | undefined {
 }
 
 /** Machine form, the inverse of parseEngineSetting (what goes in the file). */
-function engineString(e: EngineSetting): string {
+export function engineString(e: EngineSetting): string {
   return e.kind === 'auto' ? 'auto' : e.kind === 'engine' ? e.engine : `${e.engine}:${e.model}`;
 }
 
@@ -95,9 +104,16 @@ export function agentId(name: string): string {
 const fail = (error: string): ParseResult => ({ ok: false, error });
 
 export function parseAgentFile(text: string, id: string): ParseResult {
+  if (RESERVED_IDS.includes(id)) return fail(`username: ${id} is reserved`);
   const fm = readFrontmatter(text);
   if ('error' in fm) return fail(fm.error);
   const { data, body } = fm;
+
+  const { alias, role, avatar, lock } = data;
+  if (alias !== undefined && (typeof alias !== 'string' || alias.length > 40)) return fail('alias: must be text of at most 40 characters');
+  if (role !== undefined && (typeof role !== 'string' || role.length > 60)) return fail('role: must be text of at most 60 characters');
+  if (avatar !== undefined && (typeof avatar !== 'string' || !AVATAR_RE.test(avatar))) return fail('avatar: must be a gallery face or custom');
+  if (lock !== undefined && typeof lock !== 'boolean') return fail('lock: must be true or false');
 
   const name = data.name;
   if (typeof name !== 'string' || name.length < 1 || name.length > MAX_NAME) {
@@ -136,7 +152,8 @@ export function parseAgentFile(text: string, id: string): ParseResult {
 
   return {
     ok: true,
-    agent: { id, name, description, engine, tier: tier as Tier, skills: skills as string[], permissions: permissions as Permissions, prompt },
+    agent: { id, name, description, engine, tier: tier as Tier, skills: skills as string[], permissions: permissions as Permissions, prompt,
+      ...(alias !== undefined && { alias }), ...(role !== undefined && { role }), ...(avatar !== undefined && { avatar }), ...(lock !== undefined && { lock }) },
   };
 }
 
@@ -149,6 +166,10 @@ export function serializeAgentFile(a: AgentDef): string {
       tier: a.tier,
       skills: a.skills,
       permissions: a.permissions,
+      ...(a.alias !== undefined && { alias: a.alias }),
+      ...(a.role !== undefined && { role: a.role }),
+      ...(a.avatar !== undefined && { avatar: a.avatar }),
+      ...(a.lock !== undefined && { lock: a.lock }),
     },
     { lineWidth: 0 },
   );
@@ -158,7 +179,7 @@ export function serializeAgentFile(a: AgentDef): string {
 /** IPC guard: checks the types serialize needs, then serializes and parses again so one rule set decides. */
 export function validateAgent(a: unknown): ParseResult {
   if (!isObject(a)) return fail('agent: must be an object');
-  const { id, name, description, engine, tier, skills, permissions, prompt } = a;
+  const { id, name, description, engine, tier, skills, permissions, prompt, alias, role, avatar, lock } = a;
   if (typeof id !== 'string') return fail('id: must be text');
   if (typeof name !== 'string') return fail('name: must be text');
   if (typeof description !== 'string') return fail('description: must be text');
@@ -169,7 +190,7 @@ export function validateAgent(a: unknown): ParseResult {
   if (!setting) return fail('engine: invalid engine setting');
   try {
     return parseAgentFile(
-      serializeAgentFile({ id, name, description, engine: setting, tier, skills, permissions, prompt } as AgentDef),
+      serializeAgentFile({ id, name, description, engine: setting, tier, skills, permissions, prompt, alias, role, avatar, lock } as AgentDef),
       id,
     );
   } catch {
