@@ -766,6 +766,17 @@ test('a thread of another project sharing the repo still has to be done before i
   expect(log.dropped).toEqual([]);
 });
 
+test('deleting a thread commits its pending work on the branch, then removes the worktree, whatever the phase', async () => {
+  const dir = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(dir, 'wt');
+  put(wt, 'new.txt', 'x\n');
+  const { d, log } = wtDeps([owner(wt, { phase: 'build' })]);
+  await wts.discardThreadWorktree(dir, d.threads()[0], d);
+  expect(log.removed).toEqual(['T1']);
+  expect(existsSync(wt)).toBe(false);
+  expect(sh(dir, 'show', 'wt:new.txt').trim()).toBe('x'); // the work lives on the branch
+});
+
 test('a worktree git refuses to remove keeps its thread and its watch', async () => {
   const dir = committed({ 'a.txt': 'a\n' });
   const wt = addWorktree(dir, 'wt');

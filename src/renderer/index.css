@@ -47,6 +47,24 @@
   --depth-floating: inset 0 1px 0 rgb(250 250 249 / 0.06), 0 12px 32px rgb(0 0 0 / 0.40), 0 2px 6px rgb(0 0 0 / 0.24);
 }
 
+/* Light theme: the same roles, inverted along the same neutral ramp (no new hues). Set by data-theme on <html>. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-primary: #E9EBEE;       /* rail, title bar, status bar */
+  --color-secondary: #0E1013;     /* names, titles, selected items */
+  --color-accent: #007F72;        /* darker teal: keeps contrast on light surfaces */
+  --color-raised: #FFFFFF;        /* cards, selected and hovered rows, menus */
+  --color-neutral-light: #2C2F36; /* message body */
+  --color-sidebar: #F1F2F4;
+  --color-content: #FAFAF9;
+  --color-divider: rgb(14 16 19 / 0.12);
+  --color-muted: rgb(44 47 54 / 0.62);
+  --edge-light: rgb(14 16 19 / 0.10);
+  --depth-control: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 1px 2px rgb(14 16 19 / 0.12);
+  --depth-card: 0 2px 8px rgb(14 16 19 / 0.08);
+  --depth-floating: 0 12px 32px rgb(14 16 19 / 0.18), 0 2px 6px rgb(14 16 19 / 0.10);
+}
+
 /* In the base layer, so a utility on an element can still override these */
 @layer base {
   html, body, #root {
@@ -98,7 +116,7 @@
 }
 
 @utility composer-surface {
-  box-shadow: inset 0 1px 0 rgb(250 250 249 / 0.04), 0 4px 16px rgb(0 0 0 / 0.20);
+  box-shadow: var(--depth-card);
 }
 
 /* A name or title: Outfit 600 in Secondary */

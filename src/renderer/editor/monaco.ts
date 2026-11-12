@@ -2,6 +2,8 @@
  * Monaco, loaded on first use only: the startup bundle never carries it (spec §2, anti-goal). Workers are bundled
  * by Vite (`?worker`), so nothing is fetched from a CDN.
  */
+import { onThemeApplied } from '../theme';
+
 export type Monaco = typeof import('monaco-editor');
 
 let loading: Promise<Monaco> | undefined;
@@ -24,17 +26,22 @@ export function loadMonaco(): Promise<Monaco> {
     };
     self.MonacoEnvironment = { getWorker: (_id, label) => new (workers[label] ?? editor.default)() };
     defineTheme(monaco);
+    onThemeApplied(() => {
+      defineTheme(monaco);
+      monaco.editor.setTheme('ark');
+    });
     return monaco;
   })();
   return loading;
 }
 
-/** `ark-dark`: the brand tokens from index.css, read at runtime so the editor never drifts from the app. */
+/** `ark` (dark or light, as the app is): the brand tokens from index.css, read at runtime so the editor never drifts from the app. */
 function defineTheme(monaco: Monaco) {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => toHex(css.getPropertyValue(`--color-${name}`).trim());
-  monaco.editor.defineTheme('ark-dark', {
-    base: 'vs-dark',
+  const light = document.documentElement.dataset.theme === 'light';
+  monaco.editor.defineTheme('ark', {
+    base: light ? 'vs' : 'vs-dark',
     inherit: true,
     rules: [],
     colors: {
@@ -42,7 +49,7 @@ function defineTheme(monaco: Monaco) {
       'editor.lineHighlightBackground': v('sidebar'),
       'editor.selectionBackground': v('raised'),
       'editorCursor.foreground': v('secondary'),
-      'editorLineNumber.foreground': '#DEE1E68C', // Light neutral at 55%: muted
+      'editorLineNumber.foreground': light ? '#2C2F368C' : '#DEE1E68C', // body colour at 55%: muted
       'editorLineNumber.activeForeground': v('neutral-light'),
       'editorWidget.background': v('sidebar'),
       'minimap.background': v('content'),

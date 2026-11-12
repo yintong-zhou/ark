@@ -1,4 +1,5 @@
 import type { AgentDef, EngineId, EngineSetting, Tier } from './agent-file';
+import type { AgentTeams } from './agent-teams';
 import type { ImageInput, Upload } from './attachments';
 import type { BrowserCapture, BrowserKey, BrowserState, Picked, Rect } from './browser';
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
@@ -66,6 +67,7 @@ export type EnginesConfig = { claude?: { path?: string }; codex?: { path?: strin
 export type ChatStarted = { chatId: string; engine: EngineId; model: string; rerouted?: true };
 
 export type ViewMode = 'compact' | 'detailed';
+export type ThemeMode = 'system' | 'light' | 'dark';
 
 export type HistoryDay = {
   day: string;
@@ -92,12 +94,14 @@ export interface ArkApi {
     connect(): Promise<StatuslineStatus>;
     disconnect(): Promise<StatuslineStatus>;
   };
-  settings: { getView(): Promise<ViewMode>; setView(v: ViewMode): Promise<void>; getHandoffThresholds(): Promise<Record<EngineId, number>>; setHandoffThreshold(engine: EngineId, percent: number): Promise<void> };
+  settings: { getTheme(): Promise<ThemeMode>; setTheme(t: ThemeMode): Promise<void>; titleBar(light: boolean): Promise<void>; getView(): Promise<ViewMode>; setView(v: ViewMode): Promise<void>; getHandoffThresholds(): Promise<Record<EngineId, number>>; setHandoffThreshold(engine: EngineId, percent: number): Promise<void> };
   catalog: {
     list(): Promise<CatalogList>;
     teams(): Promise<TeamInfo[]>;
     addTeam(id: string): Promise<{ added: string[]; skipped: string[] }>;
     updateTeam(id: string): Promise<{ updated: string[] }>;
+    agentTeams(): Promise<AgentTeams>;
+    saveAgentTeams(t: AgentTeams): Promise<AgentTeams>;
     save(a: AgentDef, image?: ImageInput | null): Promise<void>;
     pickImage(): Promise<ImageInput | null>;
     image(id: string): Promise<ImageInput | null>;

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { rootKey } from '@shared/files';
 import type { GitWorktree, WorktreeRow } from '@shared/git';
 import type { Thread } from '@shared/thread';
@@ -43,9 +44,9 @@ function reconcile(gone: string[], after: GitWorktree[], d: WorktreeDeps): void 
  * Removes a linked worktree of `dir`'s repository. Git can fail half way (a process holding the folder as its cwd):
  * the files and git's entry are gone, the folder stays. The list read after the attempt decides, not git's exit code.
  */
-export async function removeWorktree(dir: string, path: string, d: WorktreeDeps): Promise<WorktreeRow[]> {
+export async function removeWorktree(dir: string, path: string, d: WorktreeDeps, deleting = false): Promise<WorktreeRow[]> {
   const t = worktreeThread(d.threads(), path);
-  checkRemovable(t);
+  if (!deleting) checkRemovable(t); // deleting the thread removes its worktree whatever the phase
   const wt = t?.build?.worktree ?? path; // the folder's queue key, spelled as its status and show spell it
   const op = async () => {
     const before = await git.worktrees(dir);
@@ -71,6 +72,26 @@ export async function removeWorktree(dir: string, path: string, d: WorktreeDeps)
   // The worktree's queue, then the project's (inside the git calls), so a status or show on the worktree never runs
   // during the removal. Nothing takes them the other way round. Not when they are one folder: it would wait for itself.
   return samePath(wt, dir) ? op() : queued(wt, op);
+}
+
+/**
+ * Deleting a thread takes its worktree with it. Work still in the worktree (uncommitted changes, or commits not yet on
+ * the upstream) is committed and pushed first; a clean worktree just goes. The branch stays either way.
+ */
+export async function discardThreadWorktree(dir: string, t: Thread, d: WorktreeDeps): Promise<void> {
+  const b = t.build;
+  if (!b || b.removed) return;
+  if (t.status === 'running') throw new Error('Pause the thread before deleting it');
+  if (!existsSync(b.worktree)) {
+    await pruneWorktrees(dir, d); // the folder was deleted by hand: only git's entry is left
+    return;
+  }
+  const s = await git.status(b.worktree);
+  const dirty = s.entries.length > 0;
+  if (dirty) await git.commit(b.worktree, 'Ark: work saved before deleting the thread', true);
+  // ponytail: a failed push (no origin, offline) does not block the delete: the commits stay on the local branch.
+  if (dirty || (s.upstream && s.ahead > 0)) await git.push(b.worktree).catch(() => undefined);
+  await removeWorktree(dir, b.worktree, d, true);
 }
 
 /** Forgets worktrees whose folders are gone, and marks their threads removed. */

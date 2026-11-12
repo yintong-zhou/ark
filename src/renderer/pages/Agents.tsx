@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { formatEngineSetting, type AgentDef, type EngineId } from '@shared/agent-file';
 import { agentProblems } from '@shared/agent-problems';
+import { assignAgent, createTeam, deleteTeam, groupAgents, renameTeam, type AgentTeams } from '@shared/agent-teams';
 import type { EngineInfo, ImportableAgent, TeamInfo, UsageState } from '@shared/types';
 import { AGENT_NAME, type Navigate } from '../agents';
 import { AgentTag } from '../components/AgentTag';
+import { AgentTeamSection } from '../components/AgentTeamSection';
+import { confirmAction } from '../components/Confirm';
 import { AgentAvatar, forgetImage } from '../components/Avatar';
 import { EngineLogo } from '../components/Logos';
 import { Page } from '../components/Page';
@@ -11,15 +14,57 @@ import { BUTTON, CTA, INPUT } from '../components/ui';
 import { readable } from '../errors';
 import { useCatalog } from '../hooks/useCatalog';
 
+const OPEN_KEY = 'ark-agent-teams-open';
+const readOpen = (): Record<string, boolean> => {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(OPEN_KEY) ?? '{}');
+    return typeof v === 'object' && v !== null ? (v as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+};
+
 /** The agent catalog: engines found on this machine, import, and one row per agent. */
 export function Agents({ state, onNavigate }: { state: UsageState | null; onNavigate: Navigate }) {
-  const { catalog, skills, engines, head, teams, error, reload } = useCatalog();
+  const { catalog, skills, engines, head, teams, agentTeams, saveAgentTeams, error, reload } = useCatalog();
   const [importing, setImporting] = useState<ImportableAgent[] | null>(null);
   const [problem, setProblem] = useState<string>();
   const [addingTeam, setAddingTeam] = useState(false);
   const [teamResult, setTeamResult] = useState<string>();
   const [confirmTeam, setConfirmTeam] = useState<string>();
   const skillNames = new Set(skills.map((s) => s.name));
+  const [newTeam, setNewTeam] = useState<string | null>(null);
+  const [teamProblem, setTeamProblem] = useState<string>();
+  const [openState, setOpenState] = useState<Record<string, boolean>>(readOpen);
+  const isOpen = (key: string) => openState[key] !== false;
+  const toggle = (key: string) => {
+    const next = { ...openState, [key]: !isOpen(key) };
+    setOpenState(next);
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(next)); } catch { /* remembered only when storage works */ }
+  };
+  // Saves an edited document; on failure shows the error and reloads the saved one.
+  const edit = async (change: (t: AgentTeams) => AgentTeams) => {
+    try {
+      setProblem(undefined);
+      await saveAgentTeams(change(agentTeams));
+    } catch (e) {
+      setProblem(readable(e));
+      await reload();
+    }
+  };
+  const submitNewTeam = async () => {
+    try {
+      await saveAgentTeams(createTeam(agentTeams, newTeam ?? '', crypto.randomUUID()));
+      setNewTeam(null);
+      setTeamProblem(undefined);
+    } catch (e) {
+      setTeamProblem(readable(e));
+    }
+  };
+  const removeTeam = async (id: string, name: string, count: number) => {
+    if (count > 0 && !(await confirmAction(`Delete team ${name}? Its ${count} agents move to Ungrouped. The agents themselves are kept.`))) return;
+    await edit((t) => deleteTeam(t, id));
+  };
 
   useEffect(() => {
     if (!confirmTeam) return;
@@ -74,12 +119,17 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
   };
 
 
+  const renderRow = (a: AgentDef, move?: ReactNode) => (
+    <Row key={a.id} a={a} move={move} problems={agentProblems(a, skillNames, engines)} onNavigate={onNavigate} />
+  );
+
   return (
     <Page
       title="Agents"
       meta={['The agents the Head of Staff picks each team from']}
       actions={
         <>
+          <button onClick={() => { setNewTeam(newTeam === null ? '' : null); setTeamProblem(undefined); }} aria-expanded={newTeam !== null} className={BUTTON}>New team</button>
           <button onClick={openImport} aria-expanded={importing !== null} className={BUTTON}>Import</button>
           <button onClick={() => onNavigate({ name: 'agent-form' })} className={CTA}>New agent</button>
         </>
@@ -113,6 +163,24 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
         </ul>
       )}
 
+      {newTeam !== null && (
+        <div className="flex flex-col gap-1">
+          <input
+            autoFocus
+            aria-label="New team name"
+            placeholder="Team name"
+            value={newTeam}
+            onChange={(e) => setNewTeam(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submitNewTeam();
+              if (e.key === 'Escape') { setNewTeam(null); setTeamProblem(undefined); }
+            }}
+            className={`${INPUT} max-w-60`}
+          />
+          {teamProblem && <p role="alert" className="text-muted">{teamProblem}</p>}
+        </div>
+      )}
+
       {(problem ?? error) && <p role="alert" className="text-muted">{problem ?? error}</p>}
       {catalog === null && !error && <p className="text-muted">Loading agents.</p>}
 
@@ -123,9 +191,23 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
           <button onClick={() => onNavigate({ name: 'head-form' })} className={BUTTON}>Edit</button>
         </li>}
         {catalog && catalog.agents.length === 0 && <li className="border-t border-divider py-2 text-muted">No agents yet. Create one with New agent, or add a ready team above.</li>}
-        {catalog?.agents.map((a) => (
-          <Row key={a.id} a={a} problems={agentProblems(a, skillNames, engines)} onNavigate={onNavigate} />
-        ))}
+        {catalog && agentTeams.teams.length === 0 && catalog.agents.map(renderRow)}
+        {catalog && agentTeams.teams.length > 0 && groupAgents(catalog.agents, agentTeams).map((group) => {
+          const key = group.team?.id ?? 'ungrouped';
+          return (
+            <AgentTeamSection
+              key={key}
+              group={group}
+              teams={agentTeams.teams}
+              open={isOpen(key)}
+              onToggle={() => toggle(key)}
+              onRename={async (name) => { await saveAgentTeams(renameTeam(agentTeams, key, name)); }}
+              onDelete={() => void removeTeam(key, group.team?.name ?? '', group.agents.length)}
+              onMove={(id, teamId) => void edit((t) => assignAgent(t, id, teamId))}
+              renderRow={renderRow}
+            />
+          );
+        })}
       </ul>
 
       {catalog && catalog.invalid.length > 0 && (
@@ -145,7 +227,7 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
   );
 }
 
-function Row({ a, problems, onNavigate }: { a: AgentDef; problems: string[]; onNavigate: Navigate }) {
+function Row({ a, problems, move, onNavigate }: { a: AgentDef; problems: string[]; move?: ReactNode; onNavigate: Navigate }) {
   return (
     <li className="flex gap-2 border-t border-divider py-2">
       <AgentAvatar agent={a} name={a.name} />
@@ -171,6 +253,7 @@ function Row({ a, problems, onNavigate }: { a: AgentDef; problems: string[]; onN
         ))}
       </div>
       <div className="flex shrink-0 items-start gap-1">
+        {move}
         <button onClick={() => onNavigate({ name: 'chat', agentId: a.id })} className={BUTTON}>Chat</button>
         <button onClick={() => onNavigate({ name: 'agent-form', id: a.id })} className={BUTTON}>Edit</button>
       </div>

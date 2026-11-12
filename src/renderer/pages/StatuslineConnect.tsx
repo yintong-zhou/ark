@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import type { StatuslineStatus } from '@shared/types';
-import { Page } from '../components/Page';
 import { BUTTON, CTA } from '../components/ui';
 import { readable } from '../errors';
 
@@ -10,7 +9,7 @@ const LABEL: Record<StatuslineStatus, string> = {
   bypassed: 'Disconnected: your status line was changed after Ark connected. Connect again to include it.',
 };
 
-export function StatuslineConnect() {
+export function StatuslineSection() {
   const [status, setStatus] = useState<StatuslineStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -26,7 +25,7 @@ export function StatuslineConnect() {
     }
   };
   return (
-    <Page title="Status line" meta={['Connect Claude Code so its sessions report to Ark']} narrow>
+    <>
       <div className="flex flex-col gap-2">
         <p>
           Claude Code shares context and usage limits through its status line. To read them, Ark changes the statusLine
@@ -48,6 +47,6 @@ export function StatuslineConnect() {
           <button onClick={() => act(window.ark.statusline.disconnect)} className={BUTTON}>Disconnect</button>
         )}
       </div>
-    </Page>
+    </>
   );
 }

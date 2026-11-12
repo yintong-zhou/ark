@@ -16,7 +16,7 @@ import { HeadForm } from './pages/HeadForm';
 import { Agents } from './pages/Agents';
 import { Chat } from './pages/Chat';
 import { History } from './pages/History';
-import { StatuslineConnect } from './pages/StatuslineConnect';
+import { Settings } from './pages/Settings';
 import { Threads } from './pages/Threads';
 import { Usage } from './pages/Usage';
 
@@ -84,7 +84,7 @@ export default function App() {
           projectId={project?.id}
           onProject={openProject}
           onAddProject={addProject}
-          onArea={(a) => setScreen(a === 'usage' ? { name: 'usage' } : { name: 'agents' })}
+          onArea={(a) => setScreen({ name: a } as Screen)}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           {/* the window's own title bar: Windows draws only its buttons over this strip */}
@@ -101,10 +101,10 @@ export default function App() {
                   {screen.name === 'agent' && <AgentDetail id={screen.id} state={state} now={now} />}
                   {screen.name === 'history' && <History />}
                   {screen.name === 'accounts' && <Accounts state={state} />}
-                  {screen.name === 'statusline' && <StatuslineConnect />}
                 </Main>
               </>
             )}
+            {area === 'settings' && <Main><Settings /></Main>}
             {area === 'agents' && (
               <>
                 <AgentsNav screen={screen} onNavigate={setScreen} />

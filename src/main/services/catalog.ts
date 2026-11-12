@@ -77,6 +77,11 @@ export class Catalog {
     return READY_TEAMS.map(({ id, name, description, agents }) => ({ id, name, description, count: agents.length, present: agents.filter((agent) => existsSync(this.file(agent.id))).length }));
   }
 
+  /** The ready team's agent ids whose file exists in the catalog. */
+  presentIds(id: string): string[] {
+    return this.team(id).agents.filter((agent) => existsSync(this.file(agent.id))).map((agent) => agent.id);
+  }
+
   addTeam(id: string): { added: string[]; skipped: string[] } {
     return this.addMissing(this.team(id).agents);
   }

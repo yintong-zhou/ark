@@ -187,7 +187,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 trail={trail(t)}
                 title={t.title}
                 onRemove={async () => {
-                  if (await confirmAction(`Delete thread "${t.title}"? Its conversation and attachments will be moved to the Recycle Bin.`)) void attempt(() => ws.removeThread(t.id));
+                  if (await confirmAction(`Delete thread "${t.title}"? Its conversation and attachments will be moved to the Recycle Bin, and its worktree removed (unsaved work is committed and pushed first).`)) void attempt(() => ws.removeThread(t.id));
                 }}
                 onClick={() => {
                   onDraft(false);

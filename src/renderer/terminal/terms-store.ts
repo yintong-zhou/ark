@@ -4,6 +4,7 @@ import type { Terminal } from '@xterm/xterm';
 import type { RootRef } from '@shared/files';
 import type { ShellId, ShellOption } from '@shared/terminal';
 import { readable } from '../errors';
+import { onThemeApplied } from '../theme';
 import { loadXterm } from './xterm';
 
 /**
@@ -76,6 +77,7 @@ function theme() {
   const v = (name: string) => css.getPropertyValue(`--color-${name}`).trim();
   return { background: v('primary'), foreground: v('neutral-light'), cursor: v('secondary') };
 }
+onThemeApplied(() => terms.forEach((t) => (t.xterm.options.theme = theme())));
 
 /** Ctrl+C copies a selection (else it is ^C for the shell); Ctrl+V and Ctrl+` belong to the page. */
 const keys = (x: Terminal) => (e: KeyboardEvent) => {

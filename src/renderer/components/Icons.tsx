@@ -80,6 +80,15 @@ export const AgentsIcon = () => (
   </svg>
 );
 
+/** Sliders: the settings. */
+export const SettingsIcon = () => (
+  <svg {...base}>
+    <path d="M3 6h14M3 14h14" opacity="0.35" />
+    <circle cx="7" cy="6" r="2" />
+    <circle cx="13" cy="14" r="2" />
+  </svg>
+);
+
 export const PlusIcon = () => (
   <svg {...base}>
     <path d="M10 4v12M4 10h12" />

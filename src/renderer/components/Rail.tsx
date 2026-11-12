@@ -2,7 +2,7 @@ import type { Project } from '@shared/thread';
 import logo from '../assets/logo.png';
 import type { Area } from '../agents';
 import { initials } from './Avatar';
-import { AgentsIcon, PlusIcon, UsageIcon } from './Icons';
+import { AgentsIcon, PlusIcon, SettingsIcon, UsageIcon } from './Icons';
 
 type Props = {
   projects: Project[];
@@ -57,6 +57,9 @@ export function Rail({ projects, waiting, area, projectId, onProject, onAddProje
         </button>
         <button onClick={() => onArea('agents')} title="Agents" aria-label="Agents" aria-current={area === 'agents' ? 'page' : undefined} className={`${TILE} ${tone(area === 'agents')}`}>
           <AgentsIcon />
+        </button>
+        <button onClick={() => onArea('settings')} title="Settings" aria-label="Settings" aria-current={area === 'settings' ? 'page' : undefined} className={`${TILE} ${tone(area === 'settings')}`}>
+          <SettingsIcon />
         </button>
       </div>
     </nav>

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EngineId } from '@shared/agent-file';
-import type { ViewMode } from '@shared/types';
+import type { ThemeMode, ViewMode } from '@shared/types';
 import { checkHeadSettings, headWith } from './head-of-staff';
 
 const file = (userData: string) => join(userData, 'settings.json');
@@ -36,4 +36,11 @@ export function readHandoffThresholds(userData: string): Record<EngineId, number
 export function writeHandoffThreshold(userData: string, engine: EngineId, percent: number): void {
   if ((engine !== 'claude' && engine !== 'codex') || !Number.isInteger(percent) || percent < 1 || percent > 100) throw new Error('invalid handoff threshold');
   write(userData, { ...read(userData), handoffThresholds: { ...readHandoffThresholds(userData), [engine]: percent } });
+}
+export function readTheme(userData: string): ThemeMode {
+  const t = read(userData).theme;
+  return t === 'light' || t === 'dark' ? t : 'system';
+}
+export function writeTheme(userData: string, t: ThemeMode): void {
+  write(userData, { ...read(userData), theme: t });
 }
