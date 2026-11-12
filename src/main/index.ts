@@ -18,7 +18,7 @@ import { visibleModels } from './services/engines/models';
 import { cleanEnv } from './services/engines/isolation';
 import { readHead } from './services/settings';
 import { HistoryStore } from './services/history';
-import { indexSkills } from './services/skills';
+import { indexSkills, personalSkills } from './services/skills';
 import { readHandoffThresholds } from './services/settings';
 import type { StatuslinePaths } from './services/statusline';
 import { Conductor } from './services/threads/conductor';
@@ -93,7 +93,8 @@ app.whenReady().then(() => {
     if (a?.configDir) claudeConfigDir = a.configDir;
   });
   const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex');
-  const skills = () => indexSkills({ claudeConfigDir, home: homedir(), codexHome, ark: join(userData, 'skills') });
+  const skillRoots = { claudeConfigDir, home: homedir(), codexHome, ark: join(userData, 'skills') };
+  const skills = () => indexSkills(skillRoots);
   // A crash can leave session folders behind; no chat has started yet, so none of them is live.
   try {
     rmSync(join(app.getPath('temp'), 'ark', 'sessions'), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -103,6 +104,7 @@ app.whenReady().then(() => {
   const runner = new AgentRunner({
     catalog,
     skills,
+    personalSkills: () => personalSkills(skillRoots),
     engines: () => engineStatus(readEngines(userData)),
     config: () => readEngines(userData),
     tempDir: app.getPath('temp'),

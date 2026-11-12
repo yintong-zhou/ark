@@ -12,7 +12,7 @@ import { startClaudeSession } from '../../src/main/services/engines/claude-sessi
 import { codexModels, startCodexSession } from '../../src/main/services/engines/codex-session';
 import { engineStatus } from '../../src/main/services/engines/config';
 import { cleanEnv } from '../../src/main/services/engines/isolation';
-import { indexSkills } from '../../src/main/services/skills';
+import { indexSkills, personalSkills } from '../../src/main/services/skills';
 import { HEAD } from '../../src/main/services/head-of-staff';
 import { Conductor } from '../../src/main/services/threads/conductor';
 import { ThreadStore } from '../../src/main/services/threads/store';
@@ -30,6 +30,7 @@ const catalog = new Catalog(join(tmp, 'agents'));
 const runner = new AgentRunner({
   catalog,
   skills: () => indexSkills({ claudeConfigDir, home: homedir(), codexHome, ark: join(tmp, 'skills') }),
+  personalSkills: () => personalSkills({ claudeConfigDir, home: homedir(), codexHome, ark: join(tmp, 'skills') }),
   engines: () => engineStatus({}),
   config: () => ({}),
   tempDir: tmp,
