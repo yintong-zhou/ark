@@ -26,12 +26,12 @@ function DropOverlay({ rect, side }: { rect: DOMRect; side: string | null }) {
 }
 
 /**
- * Grab it and drop on the side of `area` where the panel should dock; or open the menu for the same choice.
- * Escape, or releasing outside the area, cancels.
+ * Grab the grip and drop on the side of `area` where the panel should dock; or open the menu for the same choice.
+ * Escape, or releasing outside the area, cancels. Without `area` there is no grip, only the menu.
  */
 export function DockControls<T extends string>({ label, value, sides, onChange, area }: {
   label: string; value: T; sides: readonly T[]; onChange: (side: T) => void;
-  area: (grip: HTMLElement) => Element | null | undefined; // the region the panel docks into
+  area?: (grip: HTMLElement) => Element | null | undefined; // the region the panel docks into
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number }>();
   const [drag, setDrag] = useState<{ rect: DOMRect; side: T | null }>();
@@ -42,7 +42,7 @@ export function DockControls<T extends string>({ label, value, sides, onChange, 
     return () => document.removeEventListener('keydown', esc);
   }, [drag]);
   const down = (e: PointerEvent<HTMLButtonElement>) => {
-    const box = e.button === 0 ? area(e.currentTarget) : null;
+    const box = e.button === 0 ? area?.(e.currentTarget) : null;
     if (!box) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag({ rect: box.getBoundingClientRect(), side: null });
@@ -53,7 +53,7 @@ export function DockControls<T extends string>({ label, value, sides, onChange, 
   };
   return (
     <span className="ml-auto flex shrink-0">
-      <button
+      {area && <button
         type="button"
         aria-label={`Drag ${label} to a side`}
         title={`Drag ${label} to a side`}
@@ -64,7 +64,7 @@ export function DockControls<T extends string>({ label, value, sides, onChange, 
         onPointerCancel={() => finish(true)}
       >
         <span aria-hidden>⠿</span>
-      </button>
+      </button>}
       <button
         type="button"
         aria-label={`Move ${label}`}

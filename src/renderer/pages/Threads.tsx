@@ -339,7 +339,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                   </button>
                 );
               })}
-              <DockControls label="workspace panel" value={wsSide} sides={WS_SIDES} onChange={(s) => { setWsSide(s); saveChoice('ark-workspace-dock', s); }} area={(g) => g.closest('nav')?.parentElement} />
+              <DockControls label="workspace panel" value={wsSide} sides={WS_SIDES} onChange={(s) => { setWsSide(s); saveChoice('ark-workspace-dock', s); }} />
             </div>
           }
         >
