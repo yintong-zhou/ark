@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Project } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
 import { areaOf, type Screen } from './agents';
-import { ArrowIcon } from './components/Icons';
 import { Main } from './components/Shell';
-import { ICON_BUTTON } from './components/ui';
 import { Rail } from './components/Rail';
 import { AgentsNav, UsageNav } from './components/Sidebars';
 import { StatusBar } from './components/StatusBar';
@@ -109,14 +107,13 @@ export default function App() {
           projectId={project?.id}
           onProject={openProject}
           onAddProject={addProject}
+          onBack={hist.at > 0 ? () => go(-1) : undefined}
+          onForward={hist.at < hist.trail.length - 1 ? () => go(1) : undefined}
           onArea={(a) => setScreen({ name: a } as Screen)}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           {/* the window's own title bar: Windows draws only its buttons over this strip */}
-          <div className="drag flex h-4 shrink-0 items-center gap-1 bg-primary px-1">
-            <button type="button" onClick={() => go(-1)} disabled={hist.at < 1} aria-label="Back" title="Back" className={`${ICON_BUTTON} no-drag`}><ArrowIcon dir="back" /></button>
-            <button type="button" onClick={() => go(1)} disabled={hist.at >= hist.trail.length - 1} aria-label="Forward" title="Forward" className={`${ICON_BUTTON} no-drag`}><ArrowIcon dir="forward" /></button>
-          </div>
+          <div className="drag h-4 shrink-0 bg-primary" />
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-tl-lg border-l border-t border-divider">
             {area === 'threads' && (
               <Threads ws={ws} project={project} draft={draft} onDraft={setDraft} problem={problem} attempt={attempt} onAddProject={addProject} />

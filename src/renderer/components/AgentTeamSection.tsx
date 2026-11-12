@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { AgentDef } from '@shared/agent-file';
 import type { AgentTeam, TeamGroup } from '@shared/agent-teams';
 import { readable } from '../errors';
+import { Select } from './Select';
 import { BUTTON, INPUT, LINK } from './ui';
 
 type Props = {
@@ -68,19 +69,10 @@ export function AgentTeamSection({ group, teams, open, onToggle, onRename, onDel
       {open && (
         <ul className="flex flex-col">
           {agents.length === 0 && <li className="border-t border-divider py-1 text-muted">No agents yet. Move agents here from their Team menu.</li>}
-          {agents.map((a) => renderRow(a, (
-            <select
-              aria-label={`Team of ${a.name}`}
-              value={team?.id ?? ''}
-              onChange={(e) => onMove(a.id, e.target.value || null)}
-              className={INPUT}
-            >
-              <option value="">Ungrouped</option>
-              {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          )))}
+          {agents.map((a) => renderRow(a, <Select label={`Team of ${a.name}`} value={team?.id ?? ''} onChange={(v) => onMove(a.id, v || null)} options={[{ value: '', label: 'Ungrouped' }, ...teams.map((t) => ({ value: t.id, label: t.name }))]} />))}
         </ul>
       )}
     </li>
   );
 }
+

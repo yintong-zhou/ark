@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { RootRef } from '@shared/files';
 import type { ShellOption } from '@shared/terminal';
-import { activateTerm, attach, closeTerm, create, fitTerm, shells, useTerms } from '../terminal/terms-store';
+import { DOCKS, activateTerm, attach, closeTerm, create, fitTerm, panelDock, setPanelDock, shells, useTerms } from '../terminal/terms-store';
+import { DockControls } from './DockMenu';
 import { CloseIcon, PlusIcon } from './Icons';
 import { Menu } from './Menu';
 
 const TAB = 'group flex h-full max-w-[180px] shrink-0 items-center gap-[4px] border-r border-divider px-1 text-meta';
 
-/** The bottom panel: the project's terminals as small tabs, the active one below (spec §5.4). */
+/** The terminal panel (docked on any side): the project's terminals as small tabs, the active one below (spec §5.4). */
 export function TerminalPanel({ projectId, root }: { projectId: string; root: RootRef }) {
   const view = useTerms(projectId);
   const body = useRef<HTMLDivElement>(null);
@@ -68,6 +69,7 @@ export function TerminalPanel({ projectId, root }: { projectId: string; root: Ro
         <button aria-label="New terminal" title="New terminal" onClick={(e) => void pick(e)} className="flex w-3 shrink-0 items-center justify-center text-muted hover:text-secondary [&_svg]:size-[14px]">
           <PlusIcon />
         </button>
+        <DockControls label="terminal" value={panelDock()} sides={DOCKS} onChange={setPanelDock} area={(g) => g.closest('[data-dock-area]')} />
       </div>
       {view.starting && !term && <p className="shrink-0 px-2 py-[4px] text-meta text-muted">Starting the terminal…</p>}
       {view.error && <p role="alert" className="shrink-0 px-2 py-[4px] text-meta text-muted">Couldn't start the terminal: {view.error}</p>}

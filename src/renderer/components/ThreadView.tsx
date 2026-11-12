@@ -248,14 +248,14 @@ function Body({ text, agents, onTag }: { text: string; agents: AgentDef[]; onTag
 /** The two reactions, shown over the message on hover or focus. */
 function Mood({ current, react }: { current: Reaction | undefined; react: (e: Reaction) => void }) {
   return (
-    <div className="absolute -top-1 right-3 flex rounded-sm bg-raised p-[2px] opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+    <div className="control-inset absolute -top-1 right-3 flex rounded-sm bg-primary p-[2px] opacity-0 focus-within:opacity-100 group-hover:opacity-100">
       {(['👍', '👎'] as const).map((e) => (
         <button
           key={e}
           onClick={() => current !== e && react(e)}
           aria-pressed={current === e}
           aria-label={e === '👍' ? 'Good answer' : 'Bad answer'}
-          className={`size-3 rounded-xs hover:bg-primary ${current === e ? 'bg-primary' : ''}`}
+          className={`size-3 rounded-xs ${current === e ? 'control-raised bg-raised' : 'hover:bg-raised/50'}`}
         >
           {e}
         </button>

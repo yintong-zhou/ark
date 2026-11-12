@@ -1,4 +1,5 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { loadSize, saveSize } from '../saved';
 import { CloseIcon } from './Icons';
 
 /** The pane that holds the work. Panes manage their own scrolling. */
@@ -6,19 +7,23 @@ export function Main({ children }: { children: ReactNode }) {
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-content">{children}</main>;
 }
 
-const sidebarWidths = { left: 240, right: 240 };
+const sidebarWidths: Record<string, number> = {};
+const widthOf = (key: string) => (sidebarWidths[key] ??= loadSize(`ark-width-${key}`, 240));
 const resizeSidebar = (width: number) => Math.max(180, Math.min(600, window.innerWidth - 320, width));
 
 /** A resizable column with a 48px heading or tab bar, scrolling content and an optional footer. */
-export function Sidebar({ title, label, children, footer, side = 'left', header }: {
+export function Sidebar({ title, label, children, footer, side = 'left', header, widthKey = side, order }: {
   title: string; label: string; children: ReactNode; footer?: ReactNode; side?: 'left' | 'right'; header?: ReactNode;
+  widthKey?: string; // which saved width this column uses (default: its side)
+  order?: number; // CSS order among its siblings
 }) {
-  const [width, setWidth] = useState(sidebarWidths[side]);
+  const [width, setWidth] = useState(widthOf(widthKey));
   const drag = useRef({ x: 0, width: 0 });
-  const resize = (next: number) => setWidth(sidebarWidths[side] = resizeSidebar(next));
+  const resize = (next: number) => setWidth(sidebarWidths[widthKey] = resizeSidebar(next));
+  useEffect(() => saveSize(`ark-width-${widthKey}`, width), [widthKey, width]);
   const direction = side === 'left' ? 1 : -1;
   return (
-    <nav aria-label={label} style={{ width }} className={`relative flex shrink-0 flex-col border-divider bg-sidebar ${side === 'left' ? 'border-r' : 'border-l'}`}>
+    <nav aria-label={label} style={{ width, order }} className={`relative flex shrink-0 flex-col border-divider bg-sidebar ${side === 'left' ? 'border-r' : 'border-l'}`}>
       <header className={`drag flex h-6 shrink-0 items-center border-b border-divider ${header ? 'px-1' : 'px-2'}`}>
         {header ?? <h2 className="truncate text-body">{title}</h2>}
       </header>

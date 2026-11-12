@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { EMPTY_TEAMS, validateAgentTeams, type AgentTeams } from '@shared/agent-teams';
 import { writeAtomic } from './files';
@@ -6,10 +6,6 @@ import { writeAtomic } from './files';
 /** `agent-teams.json`: which user-made team each catalog agent belongs to. */
 export class AgentTeamsStore {
   constructor(private readonly file: string) {}
-
-  exists(): boolean {
-    return existsSync(this.file);
-  }
 
   /** A missing or corrupt file is an empty document. */
   read(): AgentTeams {

@@ -186,10 +186,11 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     return result;
   });
   handle('catalog:agent-teams', () => {
-    // First run with no file: agents already in the catalog from a ready team get that team, once.
-    // (Later, an agent the user moved to Ungrouped stays there.)
-    if (!agentTeams.exists()) {
-      let t = agentTeams.read();
+    // No teams yet (no file, or an empty one): agents already in the catalog from a ready team get that team.
+    // ponytail: deleting every team brings the ready team back on the next load; add a marker if that bites.
+    const current = agentTeams.read();
+    if (current.teams.length === 0) {
+      let t = current;
       for (const ready of catalog.teams()) {
         const ids = catalog.presentIds(ready.id);
         if (ids.length) t = adoptReadyTeam(t, ready, ids);

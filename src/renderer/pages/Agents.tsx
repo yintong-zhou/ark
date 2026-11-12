@@ -10,6 +10,7 @@ import { confirmAction } from '../components/Confirm';
 import { AgentAvatar, forgetImage } from '../components/Avatar';
 import { EngineLogo } from '../components/Logos';
 import { Page } from '../components/Page';
+import { Select } from '../components/Select';
 import { BUTTON, CTA, INPUT } from '../components/ui';
 import { readable } from '../errors';
 import { useCatalog } from '../hooks/useCatalog';
@@ -311,10 +312,7 @@ function EngineRow({ engines, state, reload }: { engines: EngineInfo[]; state: U
       </ul>
       {adding && (
         <div className="flex flex-wrap items-center gap-1">
-          <select aria-label="Engine" value={engine} onChange={(e) => setEngine(e.target.value as EngineId)} className={INPUT}>
-            <option value="claude">Claude Code</option>
-            <option value="codex">Codex</option>
-          </select>
+          <Select label="Engine" value={engine} onChange={(v) => setEngine(v as EngineId)} options={[{ value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }]} />
           <input
             aria-label="Path"
             value={path}

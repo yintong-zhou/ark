@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
-import { rmSync } from 'node:fs';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { registerIpc } from './ipc';
@@ -26,10 +26,27 @@ import { ThreadStore } from './services/threads/store';
 import { workspace } from './services/threads/workspace';
 import { UsageService } from './services/usage';
 
-function createWindow(): BrowserWindow {
+type WinState = { x: number; y: number; width: number; height: number; maximized: boolean };
+
+/** The window as the user left it; null when there is none, it is malformed, or its screen is gone. */
+function readWinState(file: string): WinState | null {
+  try {
+    const s = JSON.parse(readFileSync(file, 'utf8')) as WinState;
+    if (![s.x, s.y, s.width, s.height].every(Number.isFinite) || s.width < 960 || s.height < 600) return null;
+    const onScreen = screen.getAllDisplays().some((d) => s.x < d.bounds.x + d.bounds.width - 40 && s.x + s.width > d.bounds.x + 40 && s.y >= d.bounds.y - 10 && s.y < d.bounds.y + d.bounds.height - 40);
+    return onScreen ? { ...s, maximized: s.maximized === true } : null;
+  } catch {
+    return null;
+  }
+}
+
+function createWindow(userData: string): BrowserWindow {
+  const file = join(userData, 'window-state.json');
+  const saved = readWinState(file);
   const win = new BrowserWindow({
     width: 1200,
     height: 760,
+    ...(saved ? { x: saved.x, y: saved.y, width: saved.width, height: saved.height } : {}),
     minWidth: 960,
     minHeight: 600,
     backgroundColor: '#0E1013',
@@ -47,7 +64,22 @@ function createWindow(): BrowserWindow {
       sandbox: true,
     },
   });
+  // On a screen with a different scale than the primary one, the constructor mis-sizes the window: set the bounds again.
+  if (saved) win.setBounds({ x: saved.x, y: saved.y, width: saved.width, height: saved.height });
+  if (saved?.maximized) win.maximize();
   win.once('ready-to-show', () => win.show());
+  // Saved when a move or resize ends, not only on close, so a killed process still leaves the last size.
+  const remember = () => {
+    if (win.isDestroyed() || win.isMinimized()) return;
+    try {
+      writeFileSync(file, JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized() }));
+    } catch { /* the size is just not remembered */ }
+  };
+  win.on('resized', remember);
+  win.on('moved', remember);
+  win.on('maximize', remember);
+  win.on('unmaximize', remember);
+  win.on('close', remember);
   // Local content only: no popups, no navigation away from the app.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -121,7 +153,7 @@ app.whenReady().then(() => {
   const store = new ThreadStore(userData);
   store.recover();
   const conductor = new Conductor({ store, catalog, head: () => readHead(userData), runner, workspace, handoffThreshold: (engine) => readHandoffThresholds(userData)[engine], worktrees: join(userData, 'worktrees'), windows: (e) => usage.get().agents.find((a) => a.id === e) });
-  const win = createWindow();
+  const win = createWindow(userData);
   conductor.onUpdate((u) => {
     if (!win.isDestroyed()) win.webContents.send('threads:update', u);
   });
