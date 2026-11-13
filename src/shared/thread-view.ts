@@ -1,16 +1,28 @@
-import type { Reaction, Thread, ThreadMessage, ThreadWindows } from './thread';
+import type { Build, BuildPhase, Reaction, Thread, ThreadMessage, ThreadWindows } from './thread';
 import type { TokenCount } from './types';
 
 type AgentMessage = Extract<ThreadMessage, { kind: 'agent' }>;
 const lastAgentMessage = (messages: ThreadMessage[]) =>
   messages.findLast((m): m is AgentMessage => m.kind === 'agent');
 
+/** The phases of build cycle `cycle` (absent = 1), current or earlier; undefined when the build has no such cycle. */
+export function cyclePhases(b: Build | undefined, cycle = 1): BuildPhase[] | undefined {
+  if (!b) return undefined;
+  return cycle === (b.cycle ?? 1) ? b.phases : b.previous?.[cycle - 1]?.phases;
+}
+
+/** Missing legacy review context is unknown, never inferred from another cycle. */
+export function cycleReviews(b: Build | undefined, cycle = 1): { code: boolean | undefined; security: boolean | undefined } {
+  const context = cycle === (b?.cycle ?? 1) ? b?.reviewContext : b?.previous?.[cycle - 1]?.reviewContext;
+  return { code: context ? !!context.roles.codeReview : undefined, security: context ? !!context.roles.securityReview : undefined };
+}
+
 /** The card the user can act on: the last agent message, while the thread waits for the user. */
-export function actionable(t: Thread, messages: ThreadMessage[]): { kind: 'team' | 'ask' | 'plan'; seq: number } | undefined {
+export function actionable(t: Thread, messages: ThreadMessage[]): { kind: 'team' | 'ask' | 'plan' | 'git'; seq: number } | undefined {
   if (t.status !== 'waiting') return undefined;
   const m = lastAgentMessage(messages);
   const kind = m?.control?.kind;
-  if (!m || !(kind === 'team' || kind === 'ask' || (kind === 'plan' && t.phase === 'planning'))) return undefined;
+  if (!m || !(kind === 'team' || kind === 'ask' || (kind === 'plan' && t.phase === 'planning') || (kind === 'git' && t.phase === 'done' && m.agent === 'head-of-staff'))) return undefined;
   return { kind, seq: m.seq };
 }
 

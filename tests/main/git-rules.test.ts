@@ -4,7 +4,7 @@ import { join, sep } from 'node:path';
 import { expect, test } from 'vitest';
 import { GIT_BUSY } from '@shared/git';
 import type { Project, Thread } from '@shared/thread';
-import { checkMergeable, checkRemovable, gitRoot, samePath, worktreeThread } from '../../src/main/services/git/rules';
+import { checkFinalAction, checkMergeable, checkRemovable, gitRoot, samePath, worktreeThread } from '../../src/main/services/git/rules';
 
 const ID = '0b5d6a3e-1f2a-4c3b-9d8e-7f6a5b4c3d2e';
 const ID2 = '1c6e7b4f-2a3b-4d4c-8e9f-8a7b6c5d4e3f';
@@ -34,6 +34,16 @@ test('worktreeThread matches across slash and case, and skips removed worktrees'
   expect(worktreeThread([withBuild({}, { worktree: 'C:\\Work\\Tree', removed: true })], 'c:/work/tree')).toBeUndefined();
 });
 
+test('a final Git action needs a finished, quiet thread whose worktree is still there', () => {
+  expect(checkFinalAction(withBuild({ phase: 'done', status: 'waiting' }))).toEqual({ worktree: process.cwd(), branch: 'ark/t-1' });
+  expect(() => checkFinalAction(withBuild({ phase: 'done', status: 'running' }))).toThrow(GIT_BUSY);
+  const cycle = 'A new build cycle is in progress on this branch. Commit, merge and push wait for it to finish.';
+  expect(() => checkFinalAction(withBuild({ phase: 'planning', status: 'waiting' }))).toThrow(cycle);
+  expect(() => checkFinalAction(withBuild({ phase: 'build', status: 'idle' }))).toThrow(cycle);
+  expect(() => checkFinalAction(withBuild({ phase: 'done' }, { removed: true }))).toThrow("This thread's worktree was removed.");
+  expect(() => checkFinalAction(thread({ phase: 'done' }))).toThrow('This thread has no build.');
+});
+
 test('checkRemovable allows only done, idle threads', () => {
   expect(() => checkRemovable(undefined)).not.toThrow(); // a worktree no thread owns
   expect(() => checkRemovable(withBuild({ phase: 'done', status: 'idle' }))).not.toThrow();
@@ -41,6 +51,9 @@ test('checkRemovable allows only done, idle threads', () => {
   expect(() => checkRemovable(withBuild({ phase: 'build', status: 'idle' }))).toThrow(msg);
   expect(() => checkRemovable(withBuild({ phase: 'done', status: 'running' }))).toThrow(msg);
   expect(() => checkRemovable(withBuild({ phase: 'planning', status: 'waiting' }))).toThrow(msg);
+  // a follow-up plan after a finished build: the next cycle needs the worktree
+  const done = [{ title: 'A', text: 'a', step: 'done', rounds: 0, notes: 0, open: 0 }];
+  expect(() => checkRemovable(withBuild({ phase: 'planning', status: 'idle' }, { phases: done }))).toThrow(msg);
 });
 
 test('checkMergeable refuses a running thread', () => {

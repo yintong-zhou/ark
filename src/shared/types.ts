@@ -3,7 +3,7 @@ import type { AgentTeams } from './agent-teams';
 import type { ImageInput, Upload } from './attachments';
 import type { BrowserCapture, BrowserKey, BrowserState, Picked, Rect } from './browser';
 import type { DirListing, ReadResult, RootRef, WriteResult } from './files';
-import type { GitBranches, GitStatus, ShowResult, ThreadBranch, WorktreeRow } from './git';
+import type { GitBranches, GitStatus, ShowResult, ThreadGit, WorktreeRow } from './git';
 import type { ShellId, ShellOption } from './terminal';
 import type { Project, Reaction, TaskInput, Thread, ThreadMessage, ThreadUpdate } from './thread';
 import type { PermissionMode } from './permissions';
@@ -64,7 +64,7 @@ export type HeadSettings = { skills: string[]; engine: EngineSetting; lock: bool
 export type EngineInfo = { id: EngineId; installed: boolean; path?: string; version?: string; manual: boolean };
 export type EnginesConfig = { claude?: { path?: string }; codex?: { path?: string; tiers?: Partial<Record<Tier, string>> } };
 
-export type ChatStarted = { chatId: string; engine: EngineId; model: string; rerouted?: true };
+export type ChatStarted = { chatId: string; engine: EngineId; model: string; rerouted?: true; skillWarnings?: string[] };
 
 export type ViewMode = 'compact' | 'detailed';
 export type ThemeMode = 'system' | 'light' | 'dark';
@@ -197,10 +197,17 @@ export interface ArkApi {
     /** `path` is one of `worktrees()`; a thread's worktree goes only once the thread is done. The branch stays. */
     removeWorktree(projectId: string, path: string): Promise<WorktreeRow[]>;
     pruneWorktrees(projectId: string): Promise<WorktreeRow[]>;
-    /** Null for a thread that has no build. */
-    threadBranch(threadId: string): Promise<ThreadBranch | null>;
-    /** Merges the thread's branch into the branch the project is on; `merged: false` leaves a conflict in the project. */
-    mergeThread(threadId: string): Promise<{ merged: boolean; status: GitStatus }>;
+    /** The thread branch's state: what is left to commit, merge and push. Null without a build or once its worktree is removed. */
+    threadState(threadId: string): Promise<ThreadGit | null>;
+    /**
+     * The final actions, each on the user's request and only on a finished thread. `stamp` is the ThreadGit the user saw:
+     * main refuses when the state changed since. Commit and push return the new state.
+     */
+    commitThread(threadId: string, stamp: string, message: string): Promise<ThreadGit>;
+    /** Merges into `into`, which must be the branch the project has checked out; `merged: false` leaves a conflict in the project. */
+    mergeThread(threadId: string, into: string, stamp: string): Promise<{ merged: boolean; status: GitStatus }>;
+    /** Pushes to the upstream, or to origin the first time; never forced. */
+    pushThread(threadId: string, stamp: string): Promise<ThreadGit>;
   };
   /** The user's shells in the bottom panel; output and exits arrive by terminal id. */
   terminal: {

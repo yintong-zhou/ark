@@ -56,6 +56,13 @@ test('addWorktree creates the branch in a new folder and leaves the repo on its 
   expect(git(wt, 'branch', '--show-current')).toBe('ark/demo-1234abcd');
 });
 
+test('branch reports the checked-out worktree branch and detects a detached HEAD', async () => {
+  await workspace.addWorktree(repo, wt, 'ark/demo-1234abcd');
+  expect(await workspace.branch(wt)).toBe('ark/demo-1234abcd');
+  git(wt, 'switch', '--detach');
+  expect(await workspace.branch(wt)).toBeUndefined();
+});
+
 test('addWorktree throws git stderr when the branch exists', async () => {
   await workspace.addWorktree(repo, wt, 'ark/demo-1234abcd');
   await expect(workspace.addWorktree(repo, join(root, 'wt2'), 'ark/demo-1234abcd')).rejects.toThrow(/already exists/);
@@ -69,6 +76,16 @@ test('commitAll commits new and changed files, and returns undefined when clean'
   expect(await workspace.commitAll(wt, 'again')).toBeUndefined();
   expect(await workspace.diff(wt, base)).toContain('+x');
   expect(await workspace.log(wt, base)).toContain('ark: phase 1 - demo');
+});
+
+test('commitPlan commits only the plan even when another file is already staged', async () => {
+  await workspace.addWorktree(repo, wt, 'ark/demo-1234abcd');
+  writeFileSync(join(wt, 'other.txt'), 'user work');
+  git(wt, 'add', 'other.txt');
+  writeFileSync(join(wt, 'plan.md'), 'plan');
+  await workspace.commitPlan(wt, 'plan.md', 'plan');
+  expect(git(wt, 'show', '--format=', '--name-only', 'HEAD')).toBe('plan.md');
+  expect(git(wt, 'diff', '--cached', '--name-only')).toBe('other.txt');
 });
 
 test("Ark's own git runs none of the project's hooks", async () => {
@@ -210,4 +227,12 @@ test('runChecks stops the running check on abort and skips the rest', async () =
 test('branchName slugs the title and keeps the id prefix', () => {
   expect(branchName('Add login page!', '1234abcd-0000-0000-0000-000000000000')).toBe('ark/add-login-page-1234abcd');
   expect(branchName('x'.repeat(39) + ' yyy', '1234abcd-0')).toBe(`ark/${'x'.repeat(39)}-1234abcd`);
+});
+
+test('changes lists uncommitted paths, tracked and untracked, with plain slashes', async () => {
+  expect(await workspace.changes(repo)).toEqual([]);
+  writeFileSync(join(repo, 'README.md'), 'changed');
+  mkdirSync(join(repo, 'docs', 'plans'), { recursive: true });
+  writeFileSync(join(repo, 'docs', 'plans', 'a plan.md'), 'x');
+  expect((await workspace.changes(repo)).sort()).toEqual(['README.md', 'docs/plans/a plan.md']);
 });

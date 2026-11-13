@@ -209,3 +209,52 @@ test('no protocol text names the removed built-ins', () => {
   expect(HEAD_PROTOCOL).toContain('"difficulty":"easy"|"hard"');
   expect(HEAD_PROTOCOL).toContain('a project manager agent');
 });
+
+test('every role is told to write plainly, name blockers with evidence and escalate to the right person', () => {
+  for (const text of [HEAD_PROTOCOL, MEMBER_PROTOCOL, BUILDER_PROTOCOL, REVIEWER_PROTOCOL]) {
+    expect(text).toContain('## How to write');
+    expect(text).toMatch(/blocker/i);
+    expect(text).toMatch(/evidence/i);
+    expect(text).toContain('Never say you ran, checked or applied something you did not.');
+  }
+  expect(MEMBER_PROTOCOL).toContain('read the project but cannot change files or run commands'); // planning stays read-only
+  expect(MEMBER_PROTOCOL).toMatch(/Head of Staff/);
+  expect(REVIEWER_PROTOCOL).toContain('End your reply with exactly one Ark block');
+});
+
+test('a session handoff and a floor handoff are actionable', () => {
+  expect(NOTES.handoff).toMatch(/decided.*why/i);
+  expect(NOTES.handoff).toMatch(/blockers.*evidence/i);
+  expect(NOTES.handoff).toMatch(/next step/i);
+  expect(NOTES.handedOff('planner')).toBe('planner gave you the floor: answer what they asked above. Say what you found, with evidence, and any blocker plainly.');
+  expect(NOTES.relayLimit).toContain('Head of Staff');
+});
+
+test('NOTES.review gives a fresh reviewer the user requirements and the builder report, bounded', () => {
+  const n = NOTES.review({ kind: 'code', phase: 'P', diff: 'D', worktree: 'W', requests: ['Build a page', 'Use blue'], outcome: 'Built it; tests pass.' });
+  expect(n).toContain("The user's requests, oldest first:\n- Build a page\n- Use blue");
+  expect(n).toContain("The builder's report:\nBuilt it; tests pass.");
+  expect(n.indexOf('Build a page')).toBeLessThan(n.indexOf('Diff:'));
+  const long = NOTES.review({ kind: 'code', phase: 'P', diff: 'D', worktree: 'W', requests: ['r'.repeat(5000)], outcome: 'o'.repeat(9000) });
+  expect(long).toContain('r'.repeat(2000) + ' [cut]');
+  expect(long).not.toContain('r'.repeat(2001));
+  expect(long).toContain('o'.repeat(4000) + ' [cut]');
+  expect(long).not.toContain('o'.repeat(4001));
+  expect(NOTES.review({ kind: 'code', phase: 'P', diff: 'D', worktree: 'W' })).not.toContain("The user's requests");
+});
+
+test('a finished build cannot be built on again while its worktree has unrelated changes', () => {
+  const n = NOTES.worktreeDirty(['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts']);
+  expect(n).toBe("The worktree has changes that are not part of this build (a.ts, b.ts, c.ts, d.ts, e.ts and 1 more). Commit or discard them in Git first, so Ark's automatic commits hold only the build's work.");
+});
+
+test('thread roles are runtime context and are not serialized', () => {
+  const a = withProtocol(agent('developer'), 'builder');
+  expect(a.threadRole).toBe('builder');
+  expect(withProtocol(agent('planner')).threadRole).toBe('member');
+});
+
+test('git proposal accepts only fixed actions', () => {
+  expect(parseReply(block({ git: 'merge' })).control).toEqual({ kind: 'git', action: 'merge' });
+  expect(parseReply(block({ git: 'push; rm' })).error).toBeTruthy();
+});

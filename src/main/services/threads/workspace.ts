@@ -187,12 +187,36 @@ export const workspace = {
     await gitOk(repo, ['worktree', 'add', '-b', branch, path, 'HEAD']);
   },
 
+  /** The checked-out local branch, or undefined for a detached HEAD. */
+  async branch(dir: string): Promise<string | undefined> {
+    const r = await git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    return r.ok ? r.stdout.trim() || undefined : undefined;
+  },
+
   /** Commits everything; the new sha, or undefined when there was nothing to commit. */
   async commitAll(dir: string, message: string): Promise<string | undefined> {
     await gitOk(dir, ['add', '-A']);
     if (!(await gitOk(dir, ['status', '--porcelain'])).trim()) return undefined;
     await gitOk(dir, ['commit', '-m', message]);
     return (await gitOk(dir, ['rev-parse', 'HEAD'])).trim();
+  },
+
+  /** Commit only this plan, leaving concurrently staged changes outside the commit. */
+  async commitPlan(dir: string, path: string, message: string): Promise<string> {
+    await gitOk(dir, ['--literal-pathspecs', 'add', '--', path]);
+    await gitOk(dir, ['--literal-pathspecs', 'commit', '--only', '-m', message, '--', path]);
+    return (await gitOk(dir, ['rev-parse', 'HEAD'])).trim();
+  },
+
+  /** Uncommitted paths (staged, unstaged, untracked), relative with `/`. A rename lists its new path. */
+  async changes(dir: string): Promise<string[]> {
+    const parts = (await gitOk(dir, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])).split('\0').filter(Boolean);
+    const paths: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      paths.push(parts[i].slice(3));
+      if (parts[i][0] === 'R' || parts[i][0] === 'C') i++; // -z puts the source path in the next field
+    }
+    return paths;
   },
 
   diff: (dir: string, base: string) => gitOk(dir, ['diff', base, 'HEAD']),

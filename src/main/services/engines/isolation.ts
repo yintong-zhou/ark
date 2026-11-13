@@ -242,8 +242,9 @@ export function codexSkillsSection(privateRoot: string, folders: string[]): stri
   for (const f of folders) {
     const file = join(resolve(privateRoot), f, 'SKILL.md');
     try {
-      const d = splitFrontmatter(readFileSync(file, 'utf8'))?.data.description;
-      lines.push(`- ${f}: ${typeof d === 'string' ? d.trim().replace(/\s+/g, ' ') : ''} (file: ${file})`);
+      const data = splitFrontmatter(readFileSync(file, 'utf8'))?.data;
+      const d = data?.description;
+      lines.push(`- ${f}: ${typeof d === 'string' ? d.trim().replace(/\s+/g, ' ') : ''} (file: ${file})${data?.['disable-model-invocation'] === true ? ' - use only when the user explicitly invokes this skill' : ''}`);
     } catch {
       missing.push(`skill not loaded: ${f}`);
     }
@@ -252,7 +253,7 @@ export function codexSkillsSection(privateRoot: string, folders: string[]): stri
   return [
     '# Skills',
     '',
-    'These are your skills. When a task matches one, read its SKILL.md first and follow it; resolve relative paths from the folder holding that file. You have no other skills.',
+    'These are your skills. When a task matches one, read its SKILL.md first and follow it unless it requires explicit user invocation; resolve relative paths from the folder holding that file. You have no other skills.',
     '',
     ...lines,
   ].join('\n');

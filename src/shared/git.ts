@@ -172,3 +172,68 @@ export function changedDirs(entries: GitEntry[]): Set<string> {
   }
   return dirs;
 }
+
+/**
+ * A finished thread's branch as its conversation shows it: what is left to commit, merge and push. `stamp` sums up
+ * what the user saw; main refuses an action when the state behind it has changed since.
+ */
+export type ThreadGit = {
+  branch: string;
+  source: string;            // the branch tip
+  uncommitted: string[];     // changed paths in the worktree, the first 200
+  changes: number;           // how many there are
+  into: string | null;       // the branch the project has checked out: the merge target (null: detached)
+  target: string | null;     // its tip
+  ahead: number;             // commits on the branch not in `into`
+  projectChanges: number;    // tracked changes in the project folder: a merge waits for them
+  merging: boolean;          // the project is in the middle of a merge
+  remote: string | null;     // where a push goes: the upstream, or origin for a first push; null without either
+  upstream: boolean;
+  unpushed: number;          // commits not on the upstream (on no remote, before a first push)
+  behind: number;            // upstream commits the branch lacks
+  stamp: string;
+};
+
+export type ThreadGitAction = { kind: 'commit' | 'merge' | 'push'; label: string; blocked?: string };
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** Why a merge of the thread's branch cannot run now, as main also says it; undefined when it can. */
+export function mergeBlock(s: ThreadGit): string | undefined {
+  if (!s.into) return 'The project has no branch checked out: check out the target branch first.';
+  if (s.merging) return 'Finish or abort the merge in progress in the project first.';
+  if (s.projectChanges) return `${s.into} has uncommitted changes in the project: commit or discard them first.`;
+  if (s.changes) return 'Commit or discard the worktree changes first.';
+  return undefined;
+}
+
+/** Why a push cannot run now; undefined when it can. Ark never force-pushes. */
+export function pushBlock(s: ThreadGit): string | undefined {
+  if (!s.remote) return 'No remote named origin. Add one from the terminal to push.';
+  if (s.behind) return `${s.remote} has ${plural(s.behind, 'commit')} this branch lacks: pull or merge ${s.behind === 1 ? 'it' : 'them'} first. Ark never force-pushes.`;
+  return undefined;
+}
+
+/** The final actions worth offering, each naming its source and target; none while a new build cycle runs. */
+export function threadGitActions(s: ThreadGit, phase: string): ThreadGitAction[] {
+  const cycle = phase !== 'done' ? 'A new build cycle is in progress on this branch.' : undefined;
+  const out: ThreadGitAction[] = [];
+  const add = (kind: ThreadGitAction['kind'], label: string, blocked?: string) => out.push({ kind, label, ...((cycle ?? blocked) && { blocked: cycle ?? blocked }) });
+  if (s.changes) add('commit', `Commit ${plural(s.changes, 'file')} on ${s.branch}`);
+  if (s.ahead) add('merge', s.into ? `Merge ${s.branch} into ${s.into}` : `Merge ${s.branch}`, mergeBlock(s));
+  if (s.remote && s.unpushed) add('push', `Push ${s.branch} to ${s.remote}`, pushBlock(s));
+  return out;
+}
+
+/** The state in plain lines, for the summary and the card: uncommitted files apart from commits not merged or pushed. */
+export function threadGitLines(s: ThreadGit): string[] {
+  return [
+    `Branch ${s.branch}.`,
+    s.changes ? `Uncommitted files in the worktree: ${s.changes}.` : 'No uncommitted files in the worktree.',
+    !s.into ? 'The project has no branch checked out to merge into.' : s.ahead ? `Commits not yet in ${s.into}: ${s.ahead}.` : `Nothing to merge into ${s.into}.`,
+    !s.remote ? 'No remote: push is not available.'
+      : !s.unpushed ? 'Nothing to push.'
+      : s.upstream ? `Commits not pushed to ${s.remote}: ${s.unpushed}.` : `Commits not pushed: ${s.unpushed} (never pushed; a push would go to ${s.remote}).`,
+    ...(s.remote && s.behind ? [`${s.remote} has ${plural(s.behind, 'commit')} this branch lacks.`] : []),
+  ];
+}

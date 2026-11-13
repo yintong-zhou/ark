@@ -146,8 +146,10 @@ const api: ArkApi = {
     worktrees: (projectId) => ipcRenderer.invoke('git:worktrees', projectId),
     removeWorktree: (projectId, path) => ipcRenderer.invoke('git:remove-worktree', projectId, path),
     pruneWorktrees: (projectId) => ipcRenderer.invoke('git:prune-worktrees', projectId),
-    threadBranch: (threadId) => ipcRenderer.invoke('git:thread-branch', threadId),
-    mergeThread: (threadId) => ipcRenderer.invoke('git:merge-thread', threadId),
+    threadState: (threadId) => ipcRenderer.invoke('git:thread-state', threadId),
+    commitThread: (threadId, stamp, message) => ipcRenderer.invoke('git:commit-thread', threadId, stamp, message),
+    mergeThread: (threadId, into, stamp) => ipcRenderer.invoke('git:merge-thread', threadId, into, stamp),
+    pushThread: (threadId, stamp) => ipcRenderer.invoke('git:push-thread', threadId, stamp),
   },
   terminal: {
     shells: () => ipcRenderer.invoke('terminal:shells'),

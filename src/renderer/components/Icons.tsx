@@ -214,3 +214,29 @@ export const PushIcon = () => (
     <path d="M10 12.5v-9M6 7.5l4-4 4 4M4.5 16.5h11" />
   </svg>
 );
+
+/** Token kinds, drawn small next to their counts: in to the model, read back from its cache, out of the model. */
+export const TokenIcon = ({ kind }: { kind: 'input' | 'cached' | 'output' }) => (
+  <svg {...base} width={12} height={12} strokeWidth={1.75}>
+    {kind === 'input' && <><path d="M10 3v9m-3.5-3.5L10 12l3.5-3.5" /><path d="M4 13v3h12v-3" /></>}
+    {kind === 'cached' && <><ellipse cx="10" cy="5" rx="6" ry="2.5" /><path d="M4 5v10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5M4 10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5" /></>}
+    {kind === 'output' && <><path d="M10 12V3M6.5 6.5 10 3l3.5 3.5" /><path d="M4 13v3h12v-3" /></>}
+  </svg>
+);
+
+/** The access mode: a shield that waits (ask), that checks for you (auto), or that lets everything through (full). */
+export const AccessIcon = ({ mode }: { mode: 'ask' | 'auto' | 'full' }) => (
+  <svg {...base}>
+    <path d={mode === 'full' ? 'M10 3 4.5 5v4.5c0 3.2 2.3 5.8 5.5 7.5 3.2-1.7 5.5-4.3 5.5-7.5V5' : 'M10 3 4.5 5v4.5c0 3.2 2.3 5.8 5.5 7.5 3.2-1.7 5.5-4.3 5.5-7.5V5z'} />
+    {mode === 'ask' && <path d="M10 7.5v3M10 13h.01" />}
+    {mode === 'auto' && <path d="m7.5 10 1.8 1.8 3.2-3.3" />}
+    {mode === 'full' && <path d="M10 6.5v6" opacity="0.55" />}
+  </svg>
+);
+
+/** A small caret for a control that opens a menu. */
+export const ChevronIcon = () => (
+  <svg {...base} width={12} height={12} strokeWidth={1.75}>
+    <path d="m5 8 5 5 5-5" />
+  </svg>
+);

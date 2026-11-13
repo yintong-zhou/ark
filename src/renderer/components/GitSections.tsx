@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { rootKey, type RootRef } from '@shared/files';
-import type { GitBranches, GitStatus, ThreadBranch, WorktreeRow } from '@shared/git';
+import type { GitBranches, GitStatus, ThreadGit, WorktreeRow } from '@shared/git';
 import type { Thread } from '@shared/thread';
 import { useOverlay } from '../browser/overlay';
 import { confirmAction } from './Confirm';
 import { act } from '../git/status-store';
 import { BUTTON_INSET, FIELD_INSET } from './ui';
+import { GitDivergence } from './GitDivergence';
 
 type Props = {
   root: RootRef;
@@ -147,7 +148,7 @@ export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props
                   <span aria-hidden className="w-2 shrink-0 text-muted">{b.name === current ? '✓' : ''}</span>
                   <span className="min-w-0 flex-1 truncate">{b.name}</span>
                   {b.worktree && !b.current && <span className="shrink-0 text-meta text-muted">In worktree</span>}
-                  {b.upstream && <span className="shrink-0 text-meta text-muted">↑{b.ahead} ↓{b.behind}</span>}
+                  {b.upstream && <GitDivergence ahead={b.ahead} behind={b.behind} />}
                 </button>
               ))}
               {data.remote.length > 0 && <p className="section flex h-3 items-center px-2">Remote</p>}
@@ -241,7 +242,7 @@ export function WorktreesSection({ projectId, attempt, onShowThread }: SectionPr
 
 /** The open thread's branch: what it holds, merging it into the project's branch, and removing its worktree. */
 export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProps & { thread: Thread; onConflict: () => void }) {
-  const [info, setInfo] = useState<ThreadBranch | null>();
+  const [info, setInfo] = useState<ThreadGit | null>();
   const [merged, setMerged] = useState(false);
   const [busy, setBusy] = useState(false);
   const git = window.ark.git;
@@ -251,7 +252,7 @@ export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProp
   useEffect(() => {
     let alive = true;
     void attempt(async () => {
-      const b = await git.threadBranch(thread.id);
+      const b = await git.threadState(thread.id);
       if (alive) setInfo(b);
     });
     return () => {
@@ -270,13 +271,13 @@ export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProp
     void attempt(async () => {
       // the merge lands in the project's folder: its view takes the returned status, conflicts included
       await act({ kind: 'project', id: thread.projectId }, async () => {
-        const r = await git.mergeThread(thread.id);
+        const r = await git.mergeThread(thread.id, into, info.stamp); // refused if anything moved since this was read
         result.merged = r.merged;
         return r.status;
       });
       if (!result.merged) return onConflict();
       setMerged(true);
-      setInfo(await git.threadBranch(thread.id));
+      setInfo(await git.threadState(thread.id));
     }).finally(() => setBusy(false));
   };
   const remove = async () => {
@@ -299,7 +300,7 @@ export function ThreadBranchSection({ thread, attempt, onConflict }: SectionProp
       <div className="flex flex-wrap gap-1 px-[4px]">
         <button
           title={into ? `Merge into ${into}` : undefined}
-          disabled={busy || running || !into || info.ahead === 0}
+          disabled={busy || running || thread.phase !== 'done' || !into || info.ahead === 0}
           onClick={merge}
           className={`${BUTTON_INSET} max-w-full`}
         >

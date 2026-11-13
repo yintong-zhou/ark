@@ -14,7 +14,7 @@ type Option = { key: string; insert: string; lead: ReactNode; label: string; hin
  * Shift+Enter breaks the line. Typing @ offers the agents, typing # offers the tags (and a new one).
  * Files come from the paperclip, a drop or a paste, and wait here until the message goes.
  */
-export function Composer({ label, placeholder, value, onChange, onSubmit, disabled = false, submitLabel = 'Send', attach = false, mentions = [], tags, extra, problem }: {
+export function Composer({ label, placeholder, value, onChange, onSubmit, disabled = false, submitLabel = 'Send', attach = false, mentions = [], tags, tools, extra, problem }: {
   label: string; placeholder: string; value: string; onChange: (v: string) => void;
   /** Sends the text and the waiting files. Resolves true when it went through, so the files can be cleared. */
   onSubmit: (files: File[]) => Promise<boolean>;
@@ -22,6 +22,8 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
   mentions?: { id: string; name: string; avatar?: string }[];
   /** Tags already on the project's threads; leave undefined where # means nothing. */
   tags?: string[];
+  /** Controls after attach and emoji, such as the access mode. */
+  tools?: ReactNode;
   extra?: ReactNode; problem?: string;
 }) {
   const [files, setFiles] = useState<File[]>([]);
@@ -111,10 +113,11 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
           setOver(false);
           add([...e.dataTransfer.files]);
         }}
-        className={`composer-surface flex flex-col rounded-lg border bg-sidebar ${over ? 'border-muted' : 'border-neutral-light/15 focus-within:border-neutral-light/40'}`}
+        className={`composer-surface @container flex flex-col rounded-lg border bg-sidebar ${over ? 'border-muted' : 'border-neutral-light/15 focus-within:border-neutral-light/40'}`}
       >
         {files.length > 0 && <Staged files={files} onRemove={(f) => setFiles(files.filter((x) => x !== f))} />}
-        <div className="flex items-end gap-0.5 p-1">
+        {/* a narrow composer gives the text its own line above the tools */}
+        <div className="flex items-end gap-0.5 p-1 @max-sm:flex-wrap">
           {attach && (
             <>
               <button type="button" onClick={() => picker.current?.click()} aria-label="Attach files or images" title="Attach files or images" className={ICON_BUTTON}>
@@ -139,6 +142,7 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
               insertAt(el?.selectionStart ?? value.length, el?.selectionEnd ?? value.length, emoji);
             }}
           />
+          {tools}
           <textarea
             ref={area}
             aria-label={label}
@@ -182,7 +186,7 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
                 void submit();
               }
             }}
-            className="min-h-4 min-w-0 flex-1 resize-none bg-transparent px-1 py-[5px] text-body text-neutral-light placeholder:text-muted focus-visible:outline-hidden"
+            className="min-h-4 min-w-0 flex-1 resize-none @max-sm:order-first @max-sm:basis-full bg-transparent px-1 py-[5px] text-body text-neutral-light placeholder:text-muted focus-visible:outline-hidden"
           />
           {extra}
           <button onClick={() => void submit()} disabled={!canSend} aria-label={submitLabel} title={submitLabel} className={submitLabel === 'Send' ? CTA_ICON : CTA}>

@@ -159,3 +159,27 @@ test('an old mid-build thread gets one note and is saved upgraded', () => {
   expect(store.messages(t.id).filter((m) => m.kind === 'note')).toHaveLength(1);
   expect(store.get(t.id)).toMatchObject({ team: ['head-of-staff', 'developer'], roles: { builders: [] } });
 });
+
+test('a finished thread interrupted during a follow-up keeps the message, its build history and its phase', () => {
+  const store = new ThreadStore(root);
+  const t = store.create(store.addProject(dir('app')).id, 'T');
+  const phase = { title: 'A', text: 'a', step: 'done' as const, rounds: 0, notes: 0, open: 0 };
+  const build = { worktree: 'w', branch: 'b', plan: 'p2', phases: [phase], current: 0, cycle: 2, previous: [{ plan: 'p1', phases: [phase] }] };
+  store.save({ ...t, phase: 'done', status: 'running', speaking: 'head-of-staff', team: ['head-of-staff'], roles: { builders: [] }, build });
+  store.append(t.id, { kind: 'phase', index: 0, cycle: 2 });
+  const asked = store.append(t.id, { kind: 'user', text: 'Also a footer?' });
+  store.recover();
+  const again = new ThreadStore(root);
+  expect(again.get(t.id)).toMatchObject({ phase: 'done', status: 'idle', build });
+  expect(again.messages(t.id)).toContainEqual(asked);
+  expect(again.messages(t.id)).toContainEqual(expect.objectContaining({ kind: 'phase', index: 0, cycle: 2 }));
+});
+
+test('a legacy finished thread is upgraded without a note and stays finished', () => {
+  const store = new ThreadStore(root);
+  const t = store.create(store.addProject(dir('app')).id, 'T');
+  store.save({ ...t, phase: 'done', status: 'idle', team: ['project-manager', 'developer'], cursors: { 'project-manager': 4 }, build: { worktree: 'w', branch: 'b', plan: 'p', phases: [], current: 0, removed: true } });
+  store.recover();
+  expect(store.messages(t.id)).toEqual([]);
+  expect(store.get(t.id)).toMatchObject({ phase: 'done', team: ['head-of-staff', 'developer'], cursors: { 'head-of-staff': 4 }, build: { removed: true } });
+});

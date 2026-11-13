@@ -112,15 +112,15 @@ const STATE: Record<PhaseStep, string> = { develop: 'In progress', review: 'In r
 const ORDER: PhaseStep[] = ['develop', 'review', 'security', 'done'];
 
 /** One build phase: where it stands, and what each step of it has done. Reads the live phase, so it updates in place. */
-export function PhaseCard({ phase, index, total, builder, reviews }: { phase: BuildPhase; index: number; total: number; builder?: string; reviews: { code: boolean; security: boolean } }) {
+export function PhaseCard({ phase, index, total, builder, reviews }: { phase: BuildPhase; index: number; total: number; builder?: string; reviews: { code: boolean | undefined; security: boolean | undefined } }) {
   // a blocked phase stopped in the step it was sent back from; show it as the current development one
   const at = phase.step === 'blocked' ? 0 : ORDER.indexOf(phase.step);
   const mark = (i: number) => (i < at || phase.step === 'done' ? '✓' : i === at ? '…' : '·');
   const checks = phase.checks === undefined ? '' : phase.checks.length === 0 ? 'no checks' : `checks: ${phase.checks.join(', ')}`;
   const lines = [
     [`development${builder ? ` - ${builder}` : ''}`, mark(0)],
-    [reviews.code ? `review (${phase.notes} notes)` : 'review - skipped', reviews.code ? mark(1) : '·'],
-    [reviews.security ? 'security' : 'security - skipped', reviews.security ? mark(2) : '·'],
+    [reviews.code === undefined ? 'review - unknown' : reviews.code ? `review (${phase.notes} notes)` : 'review - skipped', reviews.code ? mark(1) : '·'],
+    [reviews.security === undefined ? 'security - unknown' : reviews.security ? 'security' : 'security - skipped', reviews.security ? mark(2) : '·'],
     [checks || 'checks', phase.checks !== undefined ? '✓' : at === 0 ? '…' : '·'],
   ];
   return (

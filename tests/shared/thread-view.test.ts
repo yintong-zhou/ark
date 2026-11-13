@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { Reaction, Thread, ThreadMessage } from '@shared/thread';
-import { actionable, decisionsOf, needsYou, GROUP_WINDOW_MS, lastModel, mergeMessages, reactionsOf, startsGroup, tokensBy, tokensByAgent, windowLines } from '@shared/thread-view';
+import { actionable, cyclePhases, cycleReviews, decisionsOf, needsYou, GROUP_WINDOW_MS, lastModel, mergeMessages, reactionsOf, startsGroup, tokensBy, tokensByAgent, windowLines } from '@shared/thread-view';
 
 const thread = (over: Partial<Thread> = {}): Thread => ({
   id: 't', projectId: 'p', title: 'T', createdAt: 0, phase: 'team', status: 'waiting', team: [],
@@ -108,4 +108,31 @@ test('windowLines', () => {
   expect(windowLines({ codex: { weekly: { from: 10, to: 12, resetsAt: 1 } }, claude: { fiveHour: { from: 41, to: 44, resetsAt: 1 } } }))
     .toEqual(['Claude 5h 41% → 44%', 'Codex weekly 10% → 12%']);
   expect(windowLines(undefined)).toEqual([]);
+});
+
+test('a phase card shows the phases of its own build cycle', () => {
+  const phase = (title: string) => ({ title, text: '', step: 'done' as const, rounds: 0, notes: 0, open: 0 });
+  const build = { worktree: 'w', branch: 'b', plan: 'p2', phases: [phase('New')], current: 0, cycle: 2, previous: [{ plan: 'p1', phases: [phase('Old'), phase('Old 2')] }] };
+  expect(cyclePhases(build, undefined)?.map((p) => p.title)).toEqual(['Old', 'Old 2']); // cards written before cycles existed
+  expect(cyclePhases(build, 2)?.map((p) => p.title)).toEqual(['New']);
+  expect(cyclePhases({ ...build, cycle: undefined, previous: undefined }, undefined)?.map((p) => p.title)).toEqual(['New']);
+  expect(cyclePhases(build, 3)).toBeUndefined();
+  expect(cyclePhases(undefined, 1)).toBeUndefined();
+});
+
+test('review history uses the roles and waivers saved with each cycle', () => {
+  const p = { title: 'A', text: '', step: 'done' as const, rounds: 0, notes: 0, open: 0 };
+  const b = { worktree: 'w', branch: 'b', plan: 'p2', phases: [p], current: 0, cycle: 2,
+    reviewContext: { roles: { builders: ['b'] }, waived: ['code' as const, 'security' as const] },
+    previous: [{ plan: 'p1', phases: [p], reviewContext: { roles: { builders: ['b'], codeReview: 'r' }, waived: ['security' as const] } }] };
+  expect(cycleReviews(b, 1)).toEqual({ code: true, security: false });
+  expect(cycleReviews(b, 2)).toEqual({ code: false, security: false });
+  expect(cycleReviews({ ...b, previous: [{ plan: 'p1', phases: [p] }] }, 1)).toEqual({ code: undefined, security: undefined });
+});
+
+test('only the latest Head Git proposal is actionable while waiting in done', () => {
+  const control = { kind: 'git' as const, action: 'push' as const };
+  expect(actionable(thread({ phase: 'done' }), [say(1, 'head-of-staff', { control })])).toEqual({ kind: 'git', seq: 1 });
+  expect(actionable(thread({ phase: 'done' }), [say(1, 'planner', { control })])).toBeUndefined();
+  expect(actionable(thread({ phase: 'planning' }), [say(1, 'head-of-staff', { control })])).toBeUndefined();
 });

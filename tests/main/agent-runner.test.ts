@@ -439,3 +439,36 @@ test('a personal skill hidden by an imported one of the same name is still forbi
   expect(t.claudeCalls[0].expectedFolders).toEqual(['handoff']); // Ark's copy, loaded as ark-agent:handoff
   expect((t.claudeCalls[0].forbidden as Set<string>).has('handoff')).toBe(true); // the user's own, loaded bare, is a violation
 });
+
+test.each(['claude', 'codex'] as const)('thread style instructions reach %s without changing selected skills', async (engine) => {
+  const t = setup({ agent: agent({ threadRole: 'head' }) });
+  const started = await t.runner.startAgent(t.agent, project, 'read-only', 'ask', engine);
+  const dir = join(sessionsDir(), started.chatId);
+  const instructions = engine === 'claude' ? readFileSync(join(dir, 'role.md'), 'utf8') : String(t.codexCalls[0].instructions);
+  expect(instructions).toContain('Humanizer');
+  expect(instructions).toContain('specific');
+  expect(engine === 'claude' ? t.claudeCalls[0].expectedFolders : t.codexCalls[0].expectedFolders).toEqual(['alpha']);
+});
+
+test.each(['claude', 'codex'] as const)('technical thread roles receive usable Ponytail guidance on %s', async (engine) => {
+  const t = setup({ agent: agent({ threadRole: 'builder' }), skills: [skill('alpha'), skill('ponytail')] });
+  writeFileSync(join(root, 'src-skills', 'ponytail', 'SKILL.md'), '---\nname: ponytail\ndescription: coding\n---\nUse the smallest complete change and verify it.');
+  const started = await t.runner.startAgent(t.agent, project, 'build', 'ask', engine);
+  const instructions = engine === 'claude' ? readFileSync(join(sessionsDir(), started.chatId, 'role.md'), 'utf8') : String(t.codexCalls[0].instructions);
+  expect(instructions).toContain('smallest complete change and verify it');
+});
+
+test.each(['claude', 'codex'] as const)('reports unavailable technical styles and never injects installed skill content in %s', async (engine) => {
+  const p = skill('ponytail');
+  writeFileSync(join(p.dir, 'SKILL.md'), '---\nname: ponytail\nallowed-tools: [Bash]\n---\nSECRET_SENTINEL');
+  const t = setup({ agent: agent({ threadRole: 'builder' }), skills: [skill('alpha'), p] });
+  const started = await t.runner.startAgent(t.agent, project, 'build', 'ask', engine);
+  const instructions = engine === 'claude' ? readFileSync(join(sessionsDir(), started.chatId, 'role.md'), 'utf8') : String(t.codexCalls[0].instructions);
+  expect(instructions).not.toContain('SECRET_SENTINEL');
+  expect(instructions).toContain('Ponytail');
+  expect(started.skillWarnings).toEqual(expect.arrayContaining([expect.stringContaining('i-have-adhd')]));
+  expect(engine === 'claude' ? t.claudeCalls[0].expectedFolders : t.codexCalls[0].expectedFolders).toEqual(['alpha']);
+  const privateRoot = engine === 'claude' ? join(sessionsDir(), started.chatId, 'plugin', 'skills') : join(sessionsDir(), started.chatId, 'skills');
+  expect(readdirSync(privateRoot)).toEqual(['alpha']);
+  if (engine === 'claude') expect((t.claudeCalls[0].args as string[]).join(' ')).not.toContain('SECRET_SENTINEL');
+});

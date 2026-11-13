@@ -1,4 +1,6 @@
-import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   groups,
@@ -9,8 +11,11 @@ import {
   type GitBranches,
   type GitStatus,
   type GitWorktree,
+  mergeBlock,
+  pushBlock,
   type ShowResult,
   type ThreadBranch,
+  type ThreadGit,
 } from '@shared/git';
 import { resolveInside } from '../files/guard';
 import { gitNow, gitNowBuffer, queued } from './run';
@@ -117,16 +122,17 @@ export const discard = (dir: string, rels: string[], trash: (abs: string) => Pro
  * Commits the index (`all`: after `add -A`, refused while a conflict is open: it would stage the markers). An empty
  * message is only allowed while merging: Git's own is used.
  */
-export const commit = (dir: string, message: string, all: boolean): Promise<void> =>
-  inRepo(dir, async () => {
-    const text = message.trim();
-    if (!text && !(await isMerging(dir))) throw new Error('Write a commit message');
-    if (all) {
-      if ((await gitNow(dir, ['ls-files', '-u'])).trim()) throw new Error('Resolve the conflicts first'); // unmerged index entries
-      await gitNow(dir, ['add', '-A']);
-    }
-    await (text ? gitNow(dir, ['commit', '-F', '-'], { input: text }) : gitNow(dir, ['commit', '--no-edit']));
-  });
+export const commit = (dir: string, message: string, all: boolean): Promise<void> => inRepo(dir, () => commitNow(dir, message, all));
+
+async function commitNow(dir: string, message: string, all: boolean): Promise<void> {
+  const text = message.trim();
+  if (!text && !(await isMerging(dir))) throw new Error('Write a commit message');
+  if (all) {
+    if ((await gitNow(dir, ['ls-files', '-u'])).trim()) throw new Error('Resolve the conflicts first'); // unmerged index entries
+    await gitNow(dir, ['add', '-A']);
+  }
+  await (text ? gitNow(dir, ['commit', '-F', '-'], { input: text }) : gitNow(dir, ['commit', '--no-edit']));
+}
 
 export const mergeAbort = (dir: string): Promise<void> =>
   inRepo(dir, async () => {
@@ -193,18 +199,21 @@ export const pull = (dir: string): Promise<void> =>
     }
   });
 
-/** Plain `push` when the branch has an upstream; the first push of a branch goes to `origin` and sets it. */
-export const push = (dir: string): Promise<void> =>
-  inRepo(dir, async () => {
-    const s = await entries(dir);
-    if (!s.branch) throw new Error('Check out a branch in the project first');
-    if (s.upstream) {
-      await gitNow(dir, ['push'], SYNC);
-      return;
-    }
-    if (!(await gitNow(dir, ['remote'])).split(/\r?\n/).includes('origin')) throw new Error('No remote named origin. Add one from the terminal to push.');
-    await gitNow(dir, ['push', '-u', 'origin', 'HEAD'], SYNC); // HEAD, not the name: it may start with `-`
-  });
+/** Plain `push` when the branch has an upstream; the first push of a branch goes to `origin` and sets it. Never forced. */
+export const push = (dir: string): Promise<void> => inRepo(dir, () => pushNow(dir));
+
+async function pushNow(dir: string): Promise<void> {
+  const s = await entries(dir);
+  if (!s.branch) throw new Error('Check out a branch in the project first');
+  if (s.upstream) {
+    await gitNow(dir, ['push'], SYNC);
+    return;
+  }
+  if (!(await remotes(dir)).includes('origin')) throw new Error('No remote named origin. Add one from the terminal to push.');
+  await gitNow(dir, ['push', '-u', 'origin', 'HEAD'], SYNC); // HEAD, not the name: it may start with `-`
+}
+
+const remotes = async (dir: string) => (await gitNow(dir, ['remote'])).split(/\r?\n/).filter(Boolean);
 
 const listWorktrees = async (dir: string): Promise<GitWorktree[]> =>
   parseWorktrees(await gitNow(dir, ['worktree', 'list', '--porcelain', '-z']));
@@ -250,20 +259,141 @@ export const threadBranch = (dir: string, branch: string): Promise<ThreadBranch>
  * Merges a local branch into the one HEAD is on, always with a merge commit. A conflict leaves the merge in progress
  * for the Git view to resolve; any other failure (local changes in the way, say) changes nothing and is rethrown.
  */
-export const mergeBranch = (dir: string, branch: string): Promise<'merged' | 'conflict'> =>
-  inRepo(dir, async () => {
-    await mustBeLocal(dir, branch);
-    const into = await headBranch(dir);
-    if (!into) throw new Error('Check out a branch in the project first');
-    // Git refuses to start a merge in the middle of one, and the catch below would then take MERGE_HEAD for this merge's conflict.
-    if (await isMerging(dir)) throw new Error('Finish the merge in progress first');
+export const mergeBranch = (dir: string, branch: string): Promise<'merged' | 'conflict'> => inRepo(dir, () => mergeNow(dir, branch));
+
+async function mergeNow(dir: string, branch: string): Promise<'merged' | 'conflict'> {
+  await mustBeLocal(dir, branch);
+  const into = await headBranch(dir);
+  if (!into) throw new Error('Check out a branch in the project first');
+  // Git refuses to start a merge in the middle of one, and the catch below would then take MERGE_HEAD for this merge's conflict.
+  if (await isMerging(dir)) throw new Error('Finish the merge in progress first');
+  try {
+    // The full ref, so a tag with the same name is never merged instead; given that way git would title the commit
+    // "Merge branch 'refs/heads/x'", so the title is ours.
+    await gitNow(dir, ['merge', '--no-ff', '--no-edit', '-m', `Merge branch '${branch}' into ${into}`, `refs/heads/${branch}`]);
+    return 'merged';
+  } catch (e) {
+    if (await isMerging(dir)) return 'conflict';
+    throw e;
+  }
+}
+
+// ---- A thread's final actions. Each holds the worktree's queue, then the project's (the order worktrees.ts takes them),
+// re-reads the state there and refuses when it is not what the user saw (`stamp`). ----
+
+const MAX_LISTED = 200;
+const CHANGED = 'The branch or its files changed since you looked. Review the thread state again.';
+
+const inThread = <T>(project: string, wt: string, fn: () => Promise<T>): Promise<T> => queued(wt, () => inRepo(project, fn));
+
+/** Capture the files Git would stage without changing the user's index. */
+async function worktreeTree(wt: string): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), 'ark-git-index-'));
+  const env = { GIT_INDEX_FILE: join(dir, 'index') };
+  try {
+    await gitNow(wt, ['read-tree', 'HEAD'], { env });
+    await gitNow(wt, ['add', '-A'], { env });
+    return (await gitNow(wt, ['write-tree'], { env })).trim();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The thread's state, unqueued: the caller holds both queues. */
+async function readThreadGit(project: string, wt: string, branch: string): Promise<ThreadGit> {
+  if (!existsSync(join(wt, '.git'))) throw new Error("This thread's worktree is missing.");
+  await mustBeLocal(project, branch);
+  const w = await entries(wt);
+  if (w.branch !== branch) throw new Error(`The thread's worktree is on ${w.branch ?? 'a detached HEAD'}, not ${branch}.`);
+  const p = await entries(project);
+  const into = await headBranch(project);
+  const tip = async (b: string) => (await gitNow(project, ['rev-parse', `refs/heads/${b}`])).trim();
+  const count = async (args: string[]) => Number((await gitNow(project, ['rev-list', '--count', ...args])).trim());
+  const source = await tip(branch);
+  const target = into ? await tip(into) : null;
+  const remote = w.upstream ?? ((await remotes(project)).includes('origin') ? 'origin' : null);
+  const changed = w.entries.map((e) => e.rel);
+  const s: Omit<ThreadGit, 'stamp'> = {
+    branch, source, target, into,
+    uncommitted: changed.slice(0, MAX_LISTED),
+    changes: changed.length,
+    ahead: into ? await count([`refs/heads/${into}..refs/heads/${branch}`]) : 0,
+    projectChanges: p.entries.filter((e) => e.x !== '?').length, // untracked files: git itself refuses to overwrite them
+    merging: await isMerging(project),
+    remote,
+    upstream: !!w.upstream,
+    // Before a first push: the commits no remote has yet.
+    unpushed: w.upstream ? w.ahead : remote ? await count([`refs/heads/${branch}`, '--not', '--remotes']) : 0,
+    behind: w.upstream ? w.behind : 0,
+  };
+  const contents = createHash('sha256');
+  if (changed.length) {
+    contents.update(await gitNow(wt, ['ls-files', '--stage', '-z']));
+    for (const rel of changed) {
+      const path = join(wt, rel);
+      contents.update(rel).update('\0');
+      try {
+        const st = lstatSync(path);
+        contents.update(String(st.mode));
+        if (st.isSymbolicLink()) contents.update(readlinkSync(path));
+        else if (st.isFile()) contents.update(readFileSync(path));
+        else if (st.isDirectory()) contents.update(await gitNow(path, ['rev-parse', 'HEAD']));
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+        contents.update('deleted');
+      }
+    }
+  }
+  return { ...s, stamp: createHash('sha1').update(JSON.stringify({ ...s, changed, contents: contents.digest('hex') })).digest('hex') };
+}
+
+/** The state again, inside the queues: refuses when it is not what the user saw. */
+async function unchanged(project: string, wt: string, branch: string, stamp: string): Promise<ThreadGit> {
+  const s = await readThreadGit(project, wt, branch);
+  if (s.stamp !== stamp) throw new Error(CHANGED);
+  return s;
+}
+
+export const threadGit = (project: string, wt: string, branch: string): Promise<ThreadGit> =>
+  inThread(project, wt, () => readThreadGit(project, wt, branch));
+
+/** Commits everything in the thread's worktree, with the user's message. */
+export const commitThread = (project: string, wt: string, branch: string, stamp: string, message: string): Promise<void> =>
+  inThread(project, wt, async () => {
+    const tree = await worktreeTree(wt);
+    const s = await unchanged(project, wt, branch, stamp);
+    if (!s.changes) throw new Error('Nothing to commit');
+    const text = message.trim();
+    if (!text) throw new Error('Write a commit message');
+    if ((await gitNow(wt, ['ls-files', '-u'])).trim()) throw new Error('Resolve the conflicts first');
+    await gitNow(wt, ['add', '-A']);
+    if ((await gitNow(wt, ['write-tree'])).trim() !== tree) throw new Error(CHANGED);
+    await gitNow(wt, ['commit', '-F', '-'], { input: text });
+  });
+
+/** Merges the thread's branch into `into`, which must be the branch the project has checked out. A conflict stays in the project. */
+export const mergeThread = (project: string, wt: string, branch: string, into: string, stamp: string): Promise<'merged' | 'conflict'> =>
+  inThread(project, wt, async () => {
+    const s = await unchanged(project, wt, branch, stamp);
+    if (s.into && s.into !== into) throw new Error(`The project is on ${s.into}, not ${into}. Check out the target branch first.`);
+    const block = mergeBlock(s);
+    if (block) throw new Error(block);
+    if (!s.ahead) throw new Error('Nothing to merge');
+    return mergeNow(project, branch);
+  });
+
+/** Pushes the thread's branch from its worktree: to its upstream, or to origin the first time. Never forced. */
+export const pushThread = (project: string, wt: string, branch: string, stamp: string): Promise<void> =>
+  inThread(project, wt, async () => {
+    const s = await unchanged(project, wt, branch, stamp);
+    const block = pushBlock(s);
+    if (block) throw new Error(block);
+    if (!s.unpushed) throw new Error('Nothing to push');
     try {
-      // The full ref, so a tag with the same name is never merged instead; given that way git would title the commit
-      // "Merge branch 'refs/heads/x'", so the title is ours.
-      await gitNow(dir, ['merge', '--no-ff', '--no-edit', '-m', `Merge branch '${branch}' into ${into}`, `refs/heads/${branch}`]);
-      return 'merged';
+      await pushNow(wt);
     } catch (e) {
-      if (await isMerging(dir)) return 'conflict';
+      // The remote moved since the last fetch: still no force.
+      if (/rejected|non-fast-forward|fetch first/i.test((e as Error).message)) throw new Error(`${s.remote} has commits this branch lacks: pull or merge them first. Ark never force-pushes.`);
       throw e;
     }
   });

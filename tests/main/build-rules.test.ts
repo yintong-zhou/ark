@@ -29,6 +29,15 @@ describe('startBuild', () => {
     expect(d.thread.build!.current).toBe(0);
     expect(d.thread.build!.phases[1]).toEqual({ title: 'B', text: 'b', builder: 'dev', step: 'develop', rounds: 0, notes: 0, open: 0 });
   });
+  test('a later cycle starts fresh phases and keeps the earlier cycles and the worktree', () => {
+    const earlier = [phase({ title: 'Old', step: 'done', notes: 3, commit: 'c1' })];
+    const t = thread(earlier, { phase: 'planning', waived: ['code'] });
+    const previous = [{ plan: 'p', phases: earlier }];
+    const d = startBuild(t, { worktree: 'w', branch: 'b', plan: 'p-2', cycle: 2, previous, phases: [{ title: 'New', text: 'n' }] });
+    expect(d.step).toEqual({ do: 'develop' });
+    expect(d.thread.build).toEqual({ worktree: 'w', branch: 'b', plan: 'p-2', cycle: 2, previous, current: 0, phases: [phase({ title: 'New', text: 'n', builder: 'dev' })] });
+    expect(t.build!.phases).toBe(earlier); // input untouched
+  });
 });
 
 describe('afterChecks', () => {

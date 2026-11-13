@@ -12,6 +12,15 @@ import { obj, str } from '../json';
 import type { CheckResult } from './workspace';
 
 export const DIFF_MAX = 100_000;
+export const REQUEST_MAX = 2_000; // one user request, as a fresh reviewer reads it
+export const OUTCOME_MAX = 4_000; // the builder's report, as a fresh reviewer reads it
+const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)} [cut]` : s);
+
+/** How every role writes; each protocol adds who it escalates to. */
+const WRITING = (escalate: string) => `## How to write
+Write like a capable colleague: plain, short and specific. Lead with the answer or the result; do not repeat what others said, thank, praise or announce what you are about to do.
+When something blocks you, name the blocker plainly: what is blocked, the evidence (file and line, a command and its output, a check result) and what would unblock it. ${escalate}
+Never say you ran, checked or applied something you did not.`;
 
 export const HEAD_PROTOCOL = `# Working in an Ark thread
 You are the Head of Staff of this thread: a conversation between the user, who is your boss, and a team of the user's own agents. Ark relays it. On your turn you receive the new messages since your last turn, each starting with [Name]; lines starting with [Ark] are instructions from Ark.
@@ -40,20 +49,29 @@ When the catalog lacks someone the work needs, do not improvise. Ask the user an
 The plan's phases are the tasks. A phase heading may end with (@username) to name the builder of that phase.
 
 ## Building
-Team members read the project but change nothing while the thread plans. Once the plan is approved, Ark runs the build: each phase is implemented by its builder in the thread's own Git worktree, Ark commits and runs the project's checks, and the reviewers review each phase. Never ask the user to apply a patch, open another session or grant tools: to get something built, get the plan written. When Ark tells you a phase is blocked, ask the user how to continue. When the build is finished, Ark asks you for the summary.`;
+Team members read the project but change nothing while the thread plans. Once the plan is approved, Ark runs the build: each phase is implemented by its builder in the thread's own Git worktree, Ark commits and runs the project's checks, and the reviewers review each phase. Never ask the user to apply a patch, open another session or grant tools: to get something built, get the plan written. When Ark tells you a phase is blocked, ask the user how to continue. When the build is finished, Ark asks you for the summary; the thread then stays open for the user's follow-ups.
+
+${WRITING('Settle what the team can settle by giving the floor to the specialist who knows; ask the user only for missing intent, a material change of scope, a sensitive decision or a blocker the team cannot resolve.')}`;
 export const MEMBER_PROTOCOL = `# Working in an Ark thread
 You are a member of this thread's team, led by the Head of Staff. Ark relays the conversation. On your turn you receive the new messages since your last turn, each starting with [Name]; lines starting with [Ark] are instructions from Ark. You speak only when you are given the floor: answer what you were asked, briefly. While the thread plans you read the project but cannot change files or run commands, even if you build later: describe the changes for the plan instead of writing patches.
 You may end your reply with one Ark block, a fenced code block tagged ark holding one JSON object:
 - To ask the user: {"ask":"<one clear question>","choices":["<short answer>"]} (choices optional, at most 4).
 - When your reply is the complete plan in Markdown, split into phases each with its goal and its checks: {"plan":true}. Start each phase with a heading "## Phase <n>: <title>"; add " (@username)" at the end of a heading to name the builder who implements that phase.
-Without a block the floor goes back to the Head of Staff.`;
+Without a block the floor goes back to the Head of Staff.
+
+${WRITING('Raise what you cannot settle with the Head of Staff, and say which specialist could help.')}`;
 export const BUILDER_PROTOCOL = `# Working in an Ark thread
-You are the builder of this phase. You work in the thread's Git worktree, one plan phase at a time. Ark relays the reviewers' findings and the user's replies as [Ark] notes and messages. Do not commit: Ark commits. Run the project's checks before you finish. No Ark block is needed.`;
+You are the builder of this phase. You work in the thread's Git worktree, one plan phase at a time. Ark relays the reviewers' findings and the user's replies as [Ark] notes and messages. Do not commit: Ark commits. Run the project's checks before you finish. No Ark block is needed.
+End with a short report for the reviewers: what you changed, the checks you ran and their result, and what is left.
+
+${WRITING('If you cannot finish the phase, say what is missing: the reviewers and the Head of Staff read your report.')}`;
 export const REVIEWER_PROTOCOL = `# Working in an Ark thread
 You review the diff of one phase of the plan. You are read-only: do not change any file. Ark gives you the phase and its diff.
 End your reply with exactly one Ark block, a fenced code block tagged ark holding one JSON object:
 - Nothing to fix: {"review":"pass"}
-- Something to fix: {"review":"changes","findings":["<one concrete finding>"]} with 1 to 20 findings.`;
+- Something to fix: {"review":"changes","findings":["<one concrete finding>"]} with 1 to 20 findings.
+
+${WRITING("Each finding names the file and what is wrong, with the evidence; a matter of taste is not a finding. Judge the change against the user's requests and the phase.")}`;
 const DEVELOP_DENIED = "Ark will not run this project's checks in this thread: the user did not allow project code. Running one yourself asks the user each time.";
 export const NOTES = {
   noAgents: 'No agents yet. Create an agent or add a ready team in Agents.',
@@ -71,7 +89,11 @@ export const NOTES = {
   budget: `${PLANNING_BUDGET} agent turns without a plan. Write the user a short summary of where the discussion stands and ask how to continue.`,
   autoBudget: `${PLANNING_BUDGET} agent turns without a plan. Synthesize the team's work now: produce a complete plan with numbered phase headings and a plan block, or ask the user about one specific unresolved blocker. Do not delegate more turns.`,
   rerouted: (name: string) => `Claude is at ${SWITCH_AT}% or more of a usage window: ${name} runs on Codex.`,
-  handoff: `Your session is getting long. Write a handoff for yourself: what the thread is about, what was decided, what is open, and what you were doing. Ark starts you in a fresh session from it. No Ark block.`,
+  handoff: `Your session is getting long. Write a handoff for yourself: what the thread is about, what was decided and why, what is open (blockers with their evidence), and your next step. Ark starts you in a fresh session from it. No Ark block.`,
+  handedOff: (from: string) => `${from} gave you the floor: answer what they asked above. Say what you found, with evidence, and any blocker plainly.`,
+  relayLimit: 'The team has handed the floor around several times. As Head of Staff, decide the next step: give the floor to one specialist with a clear question, write up what is settled, or ask the user about a real blocker.',
+  worktreeDirty: (paths: string[]) =>
+    `The worktree has changes that are not part of this build (${paths.slice(0, 5).join(', ')}${paths.length > 5 ? ` and ${paths.length - 5} more` : ''}). Commit or discard them in Git first, so Ark's automatic commits hold only the build's work.`,
   /** `denied`: the thread may not run project code (not Full, not allowed), so Ark runs none of the checks. */
   develop: (o: { plan: string; index: number; total: number; phase: string; done: string[]; branch: string; worktree: string; setup: string[]; checks: string[]; denied?: boolean }) =>
     `You start phase ${o.index + 1}/${o.total}. Plan file: ${o.plan}. Worktree: ${o.worktree}. Branch: ${o.branch}.\n` +
@@ -96,24 +118,36 @@ export const NOTES = {
   developDenied: DEVELOP_DENIED,
   fix: 'The reviewers asked for changes (their findings are above). Fix them; Ark re-runs the checks and the reviews.',
   userFix: 'The user replied (above). Continue the phase.',
-  review: (o: { kind: 'code' | 'security'; phase: string; diff: string; worktree: string }) =>
-    `Do a ${o.kind} review of this phase.\nPhase:\n${o.phase}\nDiff:\n` +
+  /** A fresh reviewer reads no transcript: the user's requests and the builder's report come with the phase and its diff. */
+  review: (o: { kind: 'code' | 'security'; phase: string; diff: string; worktree: string; requests?: string[]; requestsIncomplete?: boolean; outcome?: string }) =>
+    `Do a ${o.kind} review of this phase.\n` +
+    (o.requests?.length ? `The user's requests, oldest first:\n${o.requests.map((r) => `- ${cut(r, REQUEST_MAX)}`).join('\n')}\n` : '') +
+    (o.requestsIncomplete ? 'Some user requests were omitted or truncated to fit the review context. Do not approve without the complete requirements: report this as a finding and ask the Head of Staff for them.\n' : '') +
+    `Phase:\n${o.phase}\n` +
+    (o.outcome ? `The builder's report:\n${cut(o.outcome, OUTCOME_MAX)}\n` : '') +
+    'Diff:\n' +
     (o.diff === '' ? '(no changes in this phase)' : o.diff.slice(0, DIFF_MAX)) +
     (o.diff.length > DIFF_MAX ? `\nThe diff was cut at ${DIFF_MAX} characters: read the changed files in ${o.worktree}.` : ''),
   blocked: (o: { phase: string; points: string[] }) =>
     `Phase "${o.phase}" is blocked after 2 rounds. Open points:\n${o.points.map((p) => `- ${p}`).join('\n')}\nAsk the user how to continue, with one ask block.`,
-  summary: (o: { branch: string; phases: { title: string; notes: number; commit?: string }[]; tokens: string[]; windows: string[] }) =>
+  summary: (o: { branch: string; phases: { title: string; notes: number; commit?: string }[]; tokens: string[]; windows: string[]; git?: string[] }) =>
     `The build is finished. Write the user a short summary: what was built, the branch, the review notes, the tokens below. No Ark block.\nBranch: ${o.branch}\n` +
     o.phases.map((p) => `- ${p.title}: ${p.notes} review notes${p.commit ? `, commit ${p.commit}` : ''}`).join('\n') +
     `\nTokens:\n${o.tokens.map((t) => `- ${t}`).join('\n')}` +
-    (o.windows.length ? `\nUsage windows (including your other sessions):\n${o.windows.map((w) => `- ${w}`).join('\n')}` : ''),
+    (o.windows.length ? `\nUsage windows (including your other sessions):\n${o.windows.map((w) => `- ${w}`).join('\n')}` : '') +
+    (o.git?.length ? `\nGit:\n${o.git.map((g) => `- ${g}`).join('\n')}\n${NOTES.gitOffer}` : ''),
+  gitOffer: 'Tell the user which of these next steps apply: commit the uncommitted files, merge the branch, push it. Keep uncommitted files apart from commits not merged or pushed. The user runs each one from the Git actions in this thread; Ark does none of them on its own. Never say one was done.',
   fresh: (handoff: string) => `You are continuing this thread in a fresh session. Your handoff:\n${handoff}`,
+  followUp: 'The build is finished and the thread stays open. Only if the user explicitly requests a Git action, propose it with an Ark block: {"git":"commit"}, {"git":"merge"}, or {"git":"push"}. Ark shows the actual source and target and requires user confirmation; never claim the action was performed. Answer the user from the transcript and the project; a plain answer needs no Ark block. For further changes, lead the planning as before until a plan is written: once it is approved, Ark builds it as a new cycle in the same worktree and branch, with the checks and reviews again.',
+  worktreeRemoved: "This thread's worktree was removed, so Ark cannot build here again. Start a new thread for further changes.",
+  worktreeMissing: (dir: string) => `This thread's worktree is missing (${dir}). Ark does not recreate it: restore it, or start a new thread for further changes.`,
 };
 
 export type ThreadRole = 'head' | 'member' | 'builder' | 'reviewer';
 const protocolFor = (role: ThreadRole) => role === 'head' ? HEAD_PROTOCOL : role === 'builder' ? BUILDER_PROTOCOL : role === 'reviewer' ? REVIEWER_PROTOCOL : MEMBER_PROTOCOL;
 export const withProtocol = (agent: AgentDef, role: ThreadRole = 'member', mode: PermissionMode = 'ask'): AgentDef => ({
   ...agent,
+  threadRole: role,
   prompt: `${agent.prompt}\n\n${protocolFor(role)}\n\n${mode === 'ask'
     ? 'Session policy: Ask for approval. The user confirms the team and starts the build after the plan.'
     : `# Autonomous session policy (overrides earlier turn-routing instructions)\nThe user authorized the team to select its members, agree on routine implementation decisions and proceed from a valid plan into the build. Do not ask the user to approve ordinary team choices, planning, inspections, local edits or checks.\nMembers may hand off to another approved team member with {"next":"<id>"}, never themselves or an outsider. Member ask blocks are questions to the Head of Staff, who resolves them using context and specialists. Only the Head of Staff escalates missing user intent, material scope changes, sensitive decisions or real blockers. A complete valid plan starts the build automatically.\nKeep decisions within the user's goal and report them in the conversation. Ark enforces tool approvals independently. Your role's read-only/build capability remains in force. Permission mode: ${mode}.`}`,
@@ -153,9 +187,11 @@ function toControl(json: string): { control: Control } | { error: string } {
   }
   const o = obj(raw);
   if (!o) return fail('not valid JSON');
-  const kinds = ['team', 'next', 'ask', 'plan', 'review', 'roles'].filter((k) => o[k] !== undefined);
+  const kinds = ['team', 'next', 'ask', 'plan', 'review', 'roles', 'git'].filter((k) => o[k] !== undefined);
   if (kinds.length !== 1) return fail('use exactly one of team, next, ask, plan, review, roles');
   switch (kinds[0]) {
+    case 'git':
+      return o.git === 'commit' || o.git === 'merge' || o.git === 'push' ? { control: { kind: 'git', action: o.git } } : fail('git must be commit, merge or push');
     case 'team': {
       if (!Array.isArray(o.team) || o.team.length === 0) return fail('team needs at least one pick');
       const picks: TeamPick[] = [];

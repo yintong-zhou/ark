@@ -200,3 +200,7 @@ test('modelOptions keeps a setting it would not offer', () => {
   const gone = modelOptions({ claude: true, codex: true }, ['gpt-x'], { kind: 'model', engine: 'codex', model: 'gpt-old' });
   expect(gone.at(-1)).toEqual({ value: 'codex:gpt-old', label: 'Codex gpt-old' });
 });
+
+test('thread role context is never written to agent files', () => {
+  expect(serializeAgentFile({ ...AGENT, threadRole: 'reviewer' })).not.toContain('threadRole');
+});

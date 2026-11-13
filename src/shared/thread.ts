@@ -7,6 +7,8 @@ import type { EngineAssignment } from './agent-problems';
 export const MANAGER = 'head-of-staff';
 export const LEGACY_MANAGER = 'project-manager';
 export const PLANNING_BUDGET = 20;
+/** Consecutive member-to-member handoffs before the floor goes back to the Head of Staff. */
+export const MEMBER_RELAYS = 3;
 export const HANDOFF_AT = 0.4;
 export type Project = { id: string; name: string; dir: string; git: boolean };
 export type Phase = 'team' | 'planning' | 'build' | 'done';
@@ -33,13 +35,24 @@ export type BuildPhase = {
   open: number;       // findings in the current review round
   checks?: string[];  // scripts that passed at the last run; [] = no checks found; undefined = not run yet
 };
-/** `removed` is set once the worktree is removed and never cleared. */
-export type Build = { worktree: string; branch: string; plan: string; phases: BuildPhase[]; current: number; removed?: true };
+/** One build cycle's plan file and phases. */
+export type ReviewContext = { roles: Roles; waived: ReviewKind[] };
+export type BuildCycle = { plan: string; phases: BuildPhase[]; reviewContext?: ReviewContext };
+/**
+ * `removed` is set once the worktree is removed and never cleared. Each approved follow-up plan is a new cycle in the
+ * same worktree: `cycle` counts them (absent = 1) and `previous` keeps the earlier ones, oldest first.
+ */
+export type Build = {
+  worktree: string; branch: string; plan: string; phases: BuildPhase[]; current: number; removed?: true; cycle?: number; previous?: BuildCycle[];
+  reviewContext?: ReviewContext;
+  summaryAt?: number; // last seq the cycle's summary reads; later messages are answered after it, also after a restart
+};
 export type Control =
   | { kind: 'team'; picks: TeamPick[]; leftOut: string; difficulty?: Difficulty; roles?: Roles }
   | { kind: 'roles'; roles: Partial<Roles> }
   | { kind: 'next'; agent: string; level?: Level }
   | { kind: 'ask'; question: string; choices: string[] }
+  | { kind: 'git'; action: 'commit' | 'merge' | 'push' }
   | { kind: 'plan' }
   | { kind: 'review'; pass: boolean; findings: string[] };
 type Base = { seq: number; at: number };
@@ -48,7 +61,7 @@ export type ThreadMessage = Base & (
   | { kind: 'agent'; agent: string; text: string; model: string; engine?: EngineId; tokens: TokenCount; control?: Control }
   | { kind: 'reaction'; target: number; emoji: Reaction }
   | { kind: 'note'; text: string } // Ark's own line: shown to the user and to the agents
-  | { kind: 'phase'; index: number } // shown as the phase card
+  | { kind: 'phase'; index: number; cycle?: number } // shown as the phase card; cycle absent = 1
   | { kind: 'approval'; agent: string; tool: string; detail: string }
   | { kind: 'decision'; target: number; allow: boolean } // the answer to an approval, hidden like a reaction
 );
@@ -71,6 +84,7 @@ export type Thread = {
   waived?: ReviewKind[];
   waitingOn?: string;                // agent that asked the user
   agentTurns: number;                // planning agent turns since the last user message
+  relay?: number;                    // consecutive member-to-member handoffs (autonomous sessions)
   retried: boolean;                  // the current speaker already got its one correction
   summarizing: boolean;              // the manager was asked for the budget summary
   cursors: Record<string, number>;   // last seq each agent's live session has seen

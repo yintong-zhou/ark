@@ -75,8 +75,9 @@ export async function removeWorktree(dir: string, path: string, d: WorktreeDeps,
 }
 
 /**
- * Deleting a thread takes its worktree with it. Work still in the worktree (uncommitted changes, or commits not yet on
- * the upstream) is committed and pushed first; a clean worktree just goes. The branch stays either way.
+ * Deleting a thread takes its worktree with it, never its work: Ark commits and pushes nothing here. Uncommitted changes
+ * block the delete until the user commits them (from the thread) or discards them (in the Git view). Commits stay on the
+ * branch, which is kept.
  */
 export async function discardThreadWorktree(dir: string, t: Thread, d: WorktreeDeps): Promise<void> {
   const b = t.build;
@@ -86,11 +87,11 @@ export async function discardThreadWorktree(dir: string, t: Thread, d: WorktreeD
     await pruneWorktrees(dir, d); // the folder was deleted by hand: only git's entry is left
     return;
   }
-  const s = await git.status(b.worktree);
-  const dirty = s.entries.length > 0;
-  if (dirty) await git.commit(b.worktree, 'Ark: work saved before deleting the thread', true);
-  // ponytail: a failed push (no origin, offline) does not block the delete: the commits stay on the local branch.
-  if (dirty || (s.upstream && s.ahead > 0)) await git.push(b.worktree).catch(() => undefined);
+  const n = (await git.status(b.worktree)).entries.length;
+  if (n) {
+    throw new Error(`This thread's worktree has ${n} uncommitted ${n === 1 ? 'change' : 'changes'}. Commit ${n === 1 ? 'it' : 'them'} from the thread, or discard ${n === 1 ? 'it' : 'them'} in the Git view, then delete the thread.`);
+  }
+  // ponytail: a change made between this check and the removal makes git refuse the removal (it never forces), so nothing is lost.
   await removeWorktree(dir, b.worktree, d, true);
 }
 

@@ -22,6 +22,8 @@ export type AgentDef = {
   role?: string;
   avatar?: string;
   lock?: boolean;
+  /** Session-only context; never persisted in the agent catalog. */
+  threadRole?: 'head' | 'member' | 'builder' | 'reviewer';
 };
 export type ParseResult = { ok: true; agent: AgentDef } | { ok: false; error: string };
 

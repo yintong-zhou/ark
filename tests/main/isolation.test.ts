@@ -13,7 +13,18 @@ import {
   claudeSettingsProblem,
   cleanEnv,
   codexArgs,
+  codexSkillsSection,
 } from '../../src/main/services/engines/isolation';
+
+test('Codex respects an explicit skill that disables model invocation', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ark-codex-skill-'));
+  try {
+    mkdirSync(join(dir, 'manual'));
+    writeFileSync(join(dir, 'manual', 'SKILL.md'), '---\nname: manual\ndescription: manual skill\ndisable-model-invocation: true\n---\nbody');
+    const section = codexSkillsSection(dir, ['manual']);
+    expect(section).toContain('only when the user explicitly invokes');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('cleanEnv removes the session variables and keeps the rest', () => {
   const out = cleanEnv({

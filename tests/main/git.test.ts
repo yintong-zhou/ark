@@ -20,7 +20,11 @@ import {
   stage,
   status,
   switchBranch,
+  commitThread,
+  mergeThread,
+  pushThread,
   threadBranch,
+  threadGit,
   unstage,
   worktrees,
 } from '../../src/main/services/git/repo';
@@ -766,15 +770,133 @@ test('a thread of another project sharing the repo still has to be done before i
   expect(log.dropped).toEqual([]);
 });
 
-test('deleting a thread commits its pending work on the branch, then removes the worktree, whatever the phase', async () => {
-  const dir = committed({ 'a.txt': 'a\n' });
+test('deleting a thread with uncommitted work is refused: nothing is committed, pushed or removed', async () => {
+  const { dir, bare } = withOrigin();
   const wt = addWorktree(dir, 'wt');
+  const tip = commitFile(wt, 'done.txt', 'd\n');
   put(wt, 'new.txt', 'x\n');
   const { d, log } = wtDeps([owner(wt, { phase: 'build' })]);
+  await expect(wts.discardThreadWorktree(dir, d.threads()[0], d)).rejects.toThrow(
+    "This thread's worktree has 1 uncommitted change. Commit it from the thread, or discard it in the Git view, then delete the thread.");
+  expect(log.removed).toEqual([]);
+  expect(existsSync(join(wt, 'new.txt'))).toBe(true);
+  expect(sh(wt, 'rev-parse', 'HEAD').trim()).toBe(tip);
+  expect(sh(bare, 'branch', '--list', 'wt').trim()).toBe(''); // never pushed
+});
+
+test('deleting a thread with a clean worktree removes it without pushing, and keeps the branch and its commits', async () => {
+  const { dir, bare } = withOrigin();
+  const wt = addWorktree(dir, 'wt');
+  const tip = commitFile(wt, 'done.txt', 'd\n');
+  const { d, log } = wtDeps([owner(wt)]);
   await wts.discardThreadWorktree(dir, d.threads()[0], d);
   expect(log.removed).toEqual(['T1']);
   expect(existsSync(wt)).toBe(false);
-  expect(sh(dir, 'show', 'wt:new.txt').trim()).toBe('x'); // the work lives on the branch
+  expect(sh(dir, 'rev-parse', 'refs/heads/wt').trim()).toBe(tip);
+  expect(sh(bare, 'branch', '--list', 'wt').trim()).toBe('');
+});
+
+// ---- A thread's final Git actions: status, then explicit commit, merge and push, each checked against what the user saw ----
+
+/** A project with an origin and a thread worktree on `ark/t` holding one commit of its own. */
+function threadRepo() {
+  const { dir, bare } = withOrigin();
+  const wt = addWorktree(dir, 'ark/t');
+  commitFile(wt, 't.txt', 't\n');
+  return { dir, bare, wt, state: () => threadGit(dir, wt, 'ark/t') };
+}
+const CHANGED = 'The branch or its files changed since you looked. Review the thread state again.';
+
+test('threadGit tells uncommitted files from commits not merged and not pushed', async () => {
+  const { dir, wt, state } = threadRepo();
+  put(wt, 'u.txt', 'u\n');
+  const s = await state();
+  expect(s).toMatchObject({ branch: 'ark/t', changes: 1, uncommitted: ['u.txt'], into: 'main', ahead: 1, projectChanges: 0, merging: false, remote: 'origin', upstream: false, unpushed: 1, behind: 0 });
+  expect(s.source).toBe(sh(wt, 'rev-parse', 'HEAD').trim());
+  expect(s.target).toBe(sh(dir, 'rev-parse', 'HEAD').trim());
+  const plain = committed({ 'a.txt': 'a\n' });
+  const wt2 = addWorktree(plain, 'ark/x');
+  expect(await threadGit(plain, wt2, 'ark/x')).toMatchObject({ remote: null, unpushed: 0, ahead: 0 });
+});
+
+test('commitThread commits the worktree with the message, and refuses when the files changed since', async () => {
+  const { dir, wt, state } = threadRepo();
+  put(wt, 'u.txt', 'u\n');
+  const seen = await state();
+  put(wt, 'v.txt', 'v\n'); // changed after the user looked
+  const before = sh(wt, 'rev-parse', 'HEAD').trim();
+  await expect(commitThread(dir, wt, 'ark/t', seen.stamp, 'Finish')).rejects.toThrow(CHANGED);
+  expect(sh(wt, 'rev-parse', 'HEAD').trim()).toBe(before);
+  const now = await state();
+  await commitThread(dir, wt, 'ark/t', now.stamp, 'Finish the page');
+  expect(sh(wt, 'log', '-1', '--format=%s').trim()).toBe('Finish the page');
+  expect((await state()).changes).toBe(0);
+});
+
+test('mergeThread merges into the checked-out branch named, and refuses a moved, dirty or ambiguous target', async () => {
+  const { dir, wt, state } = threadRepo();
+  const seen = await state();
+  commitFile(dir, 'm.txt', 'm\n'); // the target moved
+  await expect(mergeThread(dir, wt, 'ark/t', 'main', seen.stamp)).rejects.toThrow(CHANGED);
+  put(dir, 'a.txt', 'local edit\n'); // a dirty target
+  let s = await state();
+  await expect(mergeThread(dir, wt, 'ark/t', 'main', s.stamp)).rejects.toThrow('main has uncommitted changes in the project: commit or discard them first.');
+  expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('local edit\n');
+  sh(dir, 'checkout', '-q', 'a.txt');
+  s = await state();
+  await expect(mergeThread(dir, wt, 'ark/t', 'dev', s.stamp)).rejects.toThrow('The project is on main, not dev. Check out the target branch first.');
+  sh(dir, 'checkout', '-q', '--detach');
+  s = await state();
+  expect(s.into).toBeNull();
+  await expect(mergeThread(dir, wt, 'ark/t', 'main', s.stamp)).rejects.toThrow('The project has no branch checked out: check out the target branch first.');
+  sh(dir, 'switch', '-q', 'main');
+  put(wt, 'u.txt', 'u\n');
+  s = await state();
+  await expect(mergeThread(dir, wt, 'ark/t', 'main', s.stamp)).rejects.toThrow('Commit or discard the worktree changes first.');
+  rmSync(join(wt, 'u.txt'));
+  s = await state();
+  expect(await mergeThread(dir, wt, 'ark/t', 'main', s.stamp)).toBe('merged');
+  expect(readFileSync(join(dir, 't.txt'), 'utf8')).toBe('t\n');
+  expect((await state()).ahead).toBe(0);
+}, 30_000); // many real git calls: slow on Windows
+
+test('mergeThread leaves a conflict in the project for the user to resolve', async () => {
+  const { dir, wt, state } = threadRepo();
+  commitFile(wt, 'a.txt', 'theirs\n');
+  commitFile(dir, 'a.txt', 'ours\n');
+  const s = await state();
+  expect(await mergeThread(dir, wt, 'ark/t', 'main', s.stamp)).toBe('conflict');
+  expect((await status(dir)).merging).toBe(true);
+  expect((await state()).merging).toBe(true);
+});
+
+test('pushThread pushes to origin and sets the upstream; it never force-pushes over a diverged remote', async () => {
+  const { dir, bare, wt, state } = threadRepo();
+  let s = await state();
+  await pushThread(dir, wt, 'ark/t', s.stamp);
+  expect(sh(bare, 'rev-parse', 'ark/t').trim()).toBe(sh(wt, 'rev-parse', 'HEAD').trim());
+  expect(await state()).toMatchObject({ upstream: true, remote: 'origin/ark/t', unpushed: 0 });
+  const other = cloneOf(bare);
+  sh(other, 'switch', '-q', 'ark/t');
+  const theirs = commitFile(other, 'o.txt', 'o\n');
+  sh(other, 'push', '-q', 'origin', 'ark/t');
+  commitFile(wt, 'w.txt', 'w\n');
+  sh(wt, 'fetch', '-q');
+  s = await state();
+  expect(s).toMatchObject({ unpushed: 1, behind: 1 });
+  await expect(pushThread(dir, wt, 'ark/t', s.stamp)).rejects.toThrow('origin/ark/t has 1 commit this branch lacks: pull or merge it first. Ark never force-pushes.');
+  expect(sh(bare, 'rev-parse', 'ark/t').trim()).toBe(theirs);
+});
+
+test('pushThread without a remote says so, and refuses when the branch moved since', async () => {
+  const plain = committed({ 'a.txt': 'a\n' });
+  const wt = addWorktree(plain, 'ark/x');
+  commitFile(wt, 'x.txt', 'x\n');
+  await expect(pushThread(plain, wt, 'ark/x', (await threadGit(plain, wt, 'ark/x')).stamp)).rejects.toThrow('No remote named origin. Add one from the terminal to push.');
+  const { dir, wt: wt2, state } = threadRepo();
+  const seen = await state();
+  commitFile(wt2, 'later.txt', 'l\n');
+  await expect(pushThread(dir, wt2, 'ark/t', seen.stamp)).rejects.toThrow(CHANGED);
 });
 
 test('a worktree git refuses to remove keeps its thread and its watch', async () => {
@@ -821,4 +943,13 @@ test('a folder held open: git drops the entry but not the folder, and the thread
     holder.kill();
     await new Promise((ok) => (holder.exitCode !== null ? ok(null) : holder.once('exit', ok)));
   }
+});
+
+test('commit refuses when a previously dirty file changes contents', async () => {
+  const { dir, wt, state } = threadRepo();
+  put(wt, 'u.txt', 'first\n');
+  const seen = await state();
+  put(wt, 'u.txt', 'second\n');
+  await expect(commitThread(dir, wt, 'ark/t', seen.stamp, 'Finish')).rejects.toThrow(CHANGED);
+  expect(readFileSync(join(wt, 'u.txt'), 'utf8')).toBe('second\n');
 });

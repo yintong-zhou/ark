@@ -12,7 +12,7 @@ import { ancestorInstructions, checkCodexPersonal, claudeArgs, claudeEnv, claude
 import { CLAUDE_TIER_MODEL, CODEX_TIER_EFFORT, codexTierModel, resolveRun, type CodexModel } from './engines/models';
 import { claudeImportProblem, codexProjectRules } from './engines/project-rules';
 import type { EngineSession } from './engines/session';
-import { buildSkillFolder, type SkillEntry } from './skills';
+import { buildSkillFolder, threadStyleInstructions, type SkillEntry } from './skills';
 import { workspace } from './threads/workspace';
 
 export type RunnerDeps = {
@@ -69,6 +69,8 @@ export class AgentRunner {
     const chatId = randomUUID();
     const dir = join(this.deps.tempDir, 'ark', 'sessions', chatId);
     const index = this.deps.skills();
+    const style = threadStyleInstructions(agent, index);
+    const prompt = agent.prompt + style.instructions;
     mkdirSync(dir, { recursive: true });
     try {
       const missingCheck = (missing: string[]) => {
@@ -90,7 +92,7 @@ export class AgentRunner {
         const built = buildSkillFolder('claude-plugin', pluginDir, agent.skills, index);
         missingCheck(built.missing);
         const roleFile = join(dir, 'role.md');
-        writeFileSync(roleFile, agent.prompt);
+        writeFileSync(roleFile, prompt);
         model = plan.model ?? CLAUDE_TIER_MODEL[plan.tier];
         // What the engine must not load: the user's own Claude skills and the project's.
         // Claude lists skills by frontmatter name, so forbid both the folder and the name.
@@ -125,7 +127,7 @@ export class AgentRunner {
           expectedFolders: built.folders,
           model,
           effort: CODEX_TIER_EFFORT[plan.tier],
-          instructions: rules ? `${agent.prompt}\n\n# Project instructions\n\n${rules}` : agent.prompt,
+          instructions: rules ? `${prompt}\n\n# Project instructions\n\n${rules}` : prompt,
           permissions,
           permissionMode,
         });
@@ -136,7 +138,7 @@ export class AgentRunner {
       }
       this.live.set(chatId, { session, dir });
       session.onEvent((e) => this.listeners.forEach((cb) => cb(chatId, e)));
-      return { chatId, engine: plan.engine, model, ...(plan.rerouted && { rerouted: true as const }) };
+      return { chatId, engine: plan.engine, model, ...(plan.rerouted && { rerouted: true as const }), ...(style.warnings.length && { skillWarnings: style.warnings }) };
     } catch (e) {
       removeDir(dir); // a failed start leaves nothing behind
       throw e;

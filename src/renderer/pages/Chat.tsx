@@ -108,8 +108,8 @@ export function Chat({ agentId }: { agentId: string }) {
         </ol>
         <div ref={end} />
       </div>}
-      <div className="px-2 pb-0.5 lg:px-3"><PermissionSelect value={mode} onChange={setMode} disabled readOnly /></div>
       <Composer
+        tools={<PermissionSelect value={mode} onChange={setMode} disabled readOnly />}
         label={`Message ${agentName}`}
         placeholder={`Message ${agentName}`}
         value={text}

@@ -3,16 +3,55 @@ import { basename, dirname, join } from 'node:path';
 import { splitFrontmatter } from '@shared/agent-file';
 import type { SkillSource } from '@shared/types';
 import { obj, str } from './json';
+import type { AgentDef } from '@shared/agent-file';
 
 /** Name of the throwaway plugin that wraps one session's private skills. */
 export const ARK_PLUGIN = 'ark-agent';
 
 export type SkillEntry = { name: string; folder: string; dir: string; source: SkillSource; description: string };
 export type SkillRoots = { claudeConfigDir: string; home: string; codexHome: string; ark: string };
+
+/** Only bundled adaptations enter session instructions; installed skill bodies and hooks are not loaded here. */
+export function threadStyleInstructions(agent: AgentDef, index: SkillEntry[]): { instructions: string; warnings: string[] } {
+  if (!agent.threadRole) return { instructions: '', warnings: [] };
+  const technical = agent.threadRole === 'builder' || agent.threadRole === 'reviewer' ||
+    (agent.threadRole === 'member' && /\b(code|coding|engineer|developer|technical|security|software|programmer)\b/i.test(`${agent.name} ${agent.description} ${agent.role ?? ''}`));
+  const explicit = new Set(agent.skills.map((name) => name.split(':').pop()?.toLowerCase()));
+  if (!technical && explicit.has('humanizer')) return { instructions: '', warnings: [] };
+  if (!technical) return { instructions: `\n\n# Humanizer - isolated adaptation\nBased on the MIT-licensed Humanizer by Mycelium AI and Siqi Chen and Wikipedia WikiProject AI Cleanup's Signs of AI writing. Adapt to the task and the author's voice. Prefer concrete, specific language and accurate claims; remove inflated significance, promotional claims, formulaic transitions, repetitive conclusions, unnecessary hedging and generic filler. Vary sentence structure naturally. Preserve meaning, citations, quotations, code, structured data and the user's requested format. Do not invent facts or claim access to a personal voice profile.`, warnings: [] };
+  const sections: string[] = [];
+  const warnings: string[] = [];
+  const adaptations: Record<string, string> = {
+    ponytail: "Ponytail - isolated adaptation of Dietrich Gebert's MIT-licensed skill: For coding tasks, identify affected callers and risks, reuse existing code, choose the smallest complete change and verify it. Preserve validation and safety, and report outstanding risks and checks not run.",
+    'i-have-adhd': "i-have-adhd - isolated adaptation of Ayoub Ghriss's MIT-licensed skill: When the user asks for this presentation, lead with the useful action or result, use short numbered steps when needed, keep state and blockers visible, and avoid tangents. Preserve complete answers and respect higher-priority instructions.",
+  };
+  for (const name of ['ponytail', 'i-have-adhd']) {
+    if (explicit.has(name)) continue;
+    const matches = index.filter((entry) => entry.folder.toLowerCase() === name);
+    // Unqualified names already carry indexSkills' source precedence; otherwise require one plugin match.
+    const preferred = matches.find((entry) => entry.name.toLowerCase() === name);
+    const selected = preferred ?? (matches.length === 1 ? matches[0] : undefined);
+    if (!selected) { warnings.push(`${name} unavailable: ${matches.length ? 'multiple installed skills have this name' : 'not installed'}.`); continue; }
+    try {
+      const file = join(selected.dir, 'SKILL.md');
+      const stat = lstatSync(file);
+      if (!stat.isFile() || stat.size > SKILL_MAX_BYTES) throw new Error('invalid skill file');
+      const parsed = splitFrontmatter(readFileSync(file, 'utf8'));
+      if (!parsed) throw new Error('invalid frontmatter');
+      if (parsed.data['disable-model-invocation'] === true) throw new Error('model invocation disabled');
+      sections.push(adaptations[name]);
+    } catch (e) {
+      const reason = e instanceof Error && ['invalid skill file', 'invalid frontmatter', 'model invocation disabled'].includes(e.message) ? e.message : 'cannot read skill';
+      warnings.push(`${name} unavailable: ${reason}.`);
+    }
+  }
+  return { instructions: sections.length ? `\n\n# Thread communication skills\n${sections.join('\n\n')}\nUse these adaptations only when appropriate to the task; they grant no tools and enable no hooks.` : '', warnings };
+}
 export const SKILL_MAX_FILES = 200;
 export const SKILL_MAX_BYTES = 5 * 1024 * 1024;
 // No trailing dot or dash (Windows drops them) and no reserved device names (CON, NUL, COM1...).
 const SAFE_SKILL = /^(?!(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))[a-z0-9][\w.-]{0,63}(?<![.-])$/i;
+const UNSAFE_SKILL_TEXT = /(?:~[\\/]|\$HOME|%USERPROFILE%|[A-Za-z]:[\\/]|(?:^|\s)\/Users\/|(?:^|\s)\/home\/|!`)/m;
 
 export function checkSkillFolder(src: string): { name: string; files: string[] } {
   const name = basename(src);
@@ -164,6 +203,15 @@ export function buildSkillFolder(
   const folders = picked.map((s) => s.folder);
   const dup = folders.find((f, i) => folders.indexOf(f) !== i);
   if (dup) throw new Error(`Two skills named ${dup}`);
+
+  for (const s of picked) {
+    checkSkillFolder(s.dir);
+    const content = readFileSync(join(s.dir, 'SKILL.md'), 'utf8');
+    const parsed = splitFrontmatter(content);
+    if ((content.startsWith('---') && !parsed) || parsed?.data.hooks || parsed?.data['allowed-tools'] || UNSAFE_SKILL_TEXT.test(content)) {
+      throw new Error(`Skill incompatible with isolated sessions: ${s.name} (hooks, tool grants, personal paths or invalid frontmatter)`);
+    }
+  }
 
   const base = layout === 'claude-plugin' ? join(target, 'skills') : target;
   mkdirSync(base, { recursive: true });

@@ -4,13 +4,13 @@
 // a different number after an await returns without recording anything.
 // The build phase runs its own loop (runBuild) over the build rules; Git and the checks go through Workspace.
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { agentId, type AgentDef, type EngineId, type Permissions } from '@shared/agent-file';
 import type { ImageInput, Upload } from '@shared/attachments';
 import {
   BUILD_TURN_MS, MANAGER,
-  type Control, type Level, type NewMessage, type Reaction, type ReviewKind, type Thread, type ThreadMessage, type ThreadUpdate,
+  type Build, type Control, type Level, type NewMessage, type Reaction, type ReviewKind, type Thread, type ThreadMessage, type ThreadUpdate,
 } from '@shared/thread';
 import { taskBoardText, taskInput } from '@shared/tasks';
 import { atLevel, chooseThreadEngine } from '@shared/agent-problems';
@@ -24,10 +24,11 @@ import { moveWindows } from '@shared/usage-math';
 import type { AgentRunner } from '../agent-runner';
 import type { Catalog } from '../catalog';
 import { afterBuildUser, afterChecks, afterManager, afterReview, openPoints, startBuild, withPhase, type BuildStep } from './build-rules';
-import { formatForAgent, NOTES, parsePhases, parseReply, withProtocol, type ThreadRole } from './protocol';
+import { formatForAgent, NOTES, parsePhases, parseReply, REQUEST_MAX, withProtocol, type ThreadRole } from './protocol';
 import { afterReply, afterUser, approveTeam, mentionOf, needsHandoff, type Step } from './rules';
 import type { ThreadStore } from './store';
 import { branchName, setupHints, type CheckResult, type Workspace } from './workspace';
+import { resolveInside } from '../files/guard';
 
 export type ConductorDeps = {
   store: ThreadStore;
@@ -39,6 +40,8 @@ export type ConductorDeps = {
   worktrees: string; // root folder of the threads' worktrees
   windows: (engine: EngineId) => { fiveHour?: UsageWindow; weekly?: UsageWindow } | undefined; // the account's current usage windows
   checksStopMs?: number; // how long pause and a permission change wait for stopped checks to exit
+  /** The thread branch's Git state in plain lines, for the summary; read-only. Ark never commits, merges or pushes for it. */
+  gitState?: (t: Thread) => Promise<string[] | undefined>;
 };
 
 /** How speak() runs a turn. */
@@ -55,10 +58,13 @@ type Speak = {
   timeoutMs?: number;
   /** An extra check on the parsed reply: an error turns it into a bad block (no control). */
   check?: (control: Control | undefined, body: string) => string | undefined;
+  /** The input stops at this seq, and so does the cursor: later messages stay unseen for the next turn. */
+  until?: number;
 };
 type Spoken = { t: Thread; chatId: string; body: string; control?: Control; error?: string };
 
 const TITLE_MAX = 60;
+const REVIEW_REQUEST_BUDGET = 40_000;
 
 export class Conductor {
   private readonly listeners = new Set<(u: ThreadUpdate) => void>();
@@ -105,11 +111,9 @@ export class Conductor {
     const m = this.deps.store.append(threadId, this.userMessage(threadId, text, files));
     const tags = mergeTags(t.tags, text);
     if (tags.length !== (t.tags?.length ?? 0)) this.deps.store.save((t = { ...t, tags }));
-    // A finished build, or its summary turn: nobody reads the message.
-    const over = t.phase === 'done' || (t.status === 'running' && !!t.build?.phases.every((p) => p.step === 'done'));
-    const end = over ? [this.deps.store.append(threadId, { kind: 'note', text: 'The build is finished; start a new thread to continue.' })] : [];
-    // The build is starting, or a build turn or the checks run: the developer reads it on its next turn.
-    if (this.starting.has(threadId) || (t.phase === 'build' && t.status === 'running')) return this.emit(t, [m, ...end]);
+    // The build is starting, or a build turn or the checks run: the developer reads it on its next turn. During the
+    // summary turn the Head of Staff gets it right after the summary (runBuild); after a restart, on the next turn.
+    if (this.starting.has(threadId) || (t.phase === 'build' && t.status === 'running')) return this.emit(t, [m]);
     if (t.status === 'running') {
       this.interrupts.set(threadId, { to: mentionOf(text, t.team) });
       this.emit(t, [m]);
@@ -126,8 +130,9 @@ export class Conductor {
       this.save(d.thread, [m]);
       return this.goBuild(d.thread, d.step);
     }
+    // Team and planning; after a build, the Head of Staff answers follow-ups (read-only, in the project).
     const d = afterUser(t, mentionOf(text, t.team));
-    this.settle(d.thread, d.step, [m, ...end]);
+    this.settle(d.thread, d.step, [m]);
   }
 
   approveTeam(threadId: string, agentIds: string[]): void {
@@ -191,8 +196,9 @@ export class Conductor {
   }
 
   /**
-   * Creates the thread's worktree on a new branch, commits the plan into it and starts the build loop.
-   * Every refusal leaves the thread as it was.
+   * Creates the thread's worktree on a new branch, commits the plan into it and starts the build loop. A plan written
+   * after a build is a new cycle in the same worktree and branch, from its HEAD; a removed or missing worktree refuses
+   * it and is never recreated. Every refusal leaves the thread as it was (a later cycle's old review waivers aside).
    */
   async startDeveloper(threadId: string): Promise<void> {
     const { store, workspace: ws, worktrees } = this.deps;
@@ -205,10 +211,18 @@ export class Conductor {
     let plan = planOf(t);
     const problem = buildProblem(t, (id) => this.deps.catalog.get(id));
     if (problem) throw new Error(problem);
+    const prior = t.build; // the earlier cycle, when this plan follows a finished build
+    if (prior?.removed) throw new Error(NOTES.worktreeRemoved);
+    if (prior && !existsSync(prior.worktree)) throw new Error(NOTES.worktreeMissing(prior.worktree));
     if (this.starting.has(threadId)) throw new Error('The developer is already starting');
     this.starting.add(threadId);
     const entryGen = this.generation.get(threadId);
     try {
+      // A review waiver covers one cycle: the next one asks again.
+      if (prior && t.waived?.length) {
+        store.save((t = { ...t, waived: undefined }));
+        this.emit(t, []);
+      }
       for (const kind of missingReviews(t)) {
         const allowed = await this.askWaiver(t, kind);
         if (!allowed || this.generation.get(threadId) !== entryGen) throw new Error(`The build did not start: there is no ${kind} review. Ask the Head of Staff to pick a reviewer, or allow the build without it.`);
@@ -234,27 +248,65 @@ export class Conductor {
       this.halt(t); // a turn started by a late user message must not overwrite the build phase
       if (t.status === 'running') this.save((t = { ...t, status: 'idle', speaking: undefined }), []);
       const gen = this.generation.get(threadId);
-      const worktree = join(worktrees, threadId.slice(0, 8));
-      const branch = branchName(t.title, threadId);
+      const worktree = prior?.worktree ?? join(worktrees, threadId.slice(0, 8));
+      const branch = prior?.branch ?? branchName(t.title, threadId);
       // A start that failed after the worktree was made (plan write or commit) resumes in it: Ark never removes worktrees.
-      const made = existsSync(worktree) && (await ws.isRepoRoot(worktree)) && !!(await ws.head(worktree));
+      const made = existsSync(worktree) && (await ws.isRepoRoot(worktree)) ? await ws.head(worktree) : undefined;
       if (this.generation.get(threadId) !== gen) return; // Ark closed meanwhile: nothing was created
-      if (!made) await ws.addWorktree(project.dir, worktree, branch);
+      if (!made) {
+        if (prior) throw new Error(NOTES.worktreeMissing(worktree)); // a later cycle never recreates it
+        await ws.addWorktree(project.dir, worktree, branch);
+      }
+      const currentBranch = await ws.branch(worktree);
+      if (this.generation.get(threadId) !== gen) return;
+      if (currentBranch !== branch) throw new Error(`The thread worktree is on ${currentBranch ?? 'a detached HEAD'}, not its recorded branch ${branch}. Check out that branch before starting a build.`);
+      const cycle = prior ? (prior.cycle ?? 1) + 1 : 1;
       const dir = join(worktree, 'docs', 'plans');
-      mkdirSync(dir, { recursive: true });
-      const planFile = join(dir, `${new Date().toLocaleDateString('sv-SE')}-${agentId(t.title)}.md`); // sv-SE: local YYYY-MM-DD
-      writeFileSync(planFile, plan.text);
-      await ws.commitAll(worktree, `docs: plan for ${t.title}`); // the phase-1 base
+      // sv-SE: local YYYY-MM-DD. Each cycle has its own plan file.
+      const planName = `${new Date().toLocaleDateString('sv-SE')}-${agentId(t.title)}${cycle > 1 ? `-${cycle}` : ''}`;
+      if (made) {
+        // Ark's commits take everything in the worktree: work it does not own (the user's edits) must not ride along.
+        const stray = await ws.changes(worktree);
+        if (this.generation.get(threadId) !== gen) return;
+        if (stray.length) throw new Error(NOTES.worktreeDirty(stray));
+      }
+      // These path checks cannot prevent a concurrent junction swap before the write on Windows.
+      if (lstatSync(worktree).isSymbolicLink()) throw new Error('The worktree is a link or junction.');
+      for (const part of ['docs', 'docs/plans']) {
+        const folder = join(worktree, part);
+        try { if (lstatSync(folder).isSymbolicLink()) throw new Error(`Plan directory is a link or junction: ${part}`); }
+        catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+        resolveInside(worktree, part);
+        try { mkdirSync(folder); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
+        if (lstatSync(folder).isSymbolicLink()) throw new Error(`Plan directory is a link or junction: ${part}`);
+        resolveInside(worktree, part);
+      }
+      let planFile = '';
+      for (let suffix = 0; suffix < 10_000; suffix++) {
+        const candidate = join(dir, `${planName}${suffix ? `-${suffix}` : ''}.md`);
+        try {
+          writeFileSync(candidate, plan.text, { flag: 'wx' });
+          planFile = candidate;
+          break;
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+        }
+      }
+      if (!planFile) throw new Error('Could not find an unused plan filename.');
+      await ws.commitPlan(worktree, relative(worktree, planFile), `docs: plan for ${t.title}`); // the phase-1 base
 
       t = this.thread(threadId);
       const note = store.append(threadId, {
         kind: 'note',
-        text: `Building on branch ${branch} from ${head.slice(0, 7)}. Uncommitted changes in the project are not included.` +
+        text: (prior ? `Continuing on branch ${branch} in its worktree, from ${made!.slice(0, 7)}.`
+          : `Building on branch ${branch} from ${head.slice(0, 7)}. Uncommitted changes in the project are not included.`) +
           (t.waived?.includes('code') && !reviewer(t, 'code') ? ' No code review in this build.' : '') +
           (t.waived?.includes('security') && !reviewer(t, 'security') ? ' No security review in this build.' : ''),
       });
       const cursors = { ...t.cursors, ...Object.fromEntries(t.roles!.builders.map((id) => [id, plan.seq])) };
-      const d = startBuild({ ...t, waitingOn: undefined, cursors }, { worktree, branch, plan: planFile, phases });
+      const previous = prior && [...(prior.previous ?? []), { plan: prior.plan, phases: prior.phases, ...(prior.reviewContext && { reviewContext: prior.reviewContext }) }];
+      const reviewContext = { roles: t.roles!, waived: [...(t.waived ?? [])] };
+      const d = startBuild({ ...t, waitingOn: undefined, cursors }, { worktree, branch, plan: planFile, phases, reviewContext, ...(previous && { cycle, previous }) });
       // Ark closed during the start: the worktree exists, so the build is recorded, but no loop starts.
       if (this.generation.get(threadId) !== gen) return this.save({ ...d.thread, status: 'idle', speaking: undefined }, [note]);
       this.save(d.thread, [note]);
@@ -557,9 +609,10 @@ export class Conductor {
     return gen;
   }
 
-  /** The seq of the phase card of plan phase `index` (0 when there is none). */
-  private phaseSeq(threadId: string, index: number): number {
-    return this.deps.store.messages(threadId).findLast((m) => m.kind === 'phase' && m.index === index)?.seq ?? 0;
+  /** The seq of the phase card of plan phase `index` in the build's current cycle (0 when there is none). */
+  private phaseSeq(threadId: string, b: Build, index: number): number {
+    const cycle = b.cycle ?? 1;
+    return this.deps.store.messages(threadId).findLast((m) => m.kind === 'phase' && m.index === index && (m.cycle ?? 1) === cycle)?.seq ?? 0;
   }
 
   /** The first user message the developer has not read yet, if any. */
@@ -603,13 +656,15 @@ export class Conductor {
       const previous = t.assignments?.[agent];
       t = { ...t, assignments: { ...t.assignments, [agent]: { engine: started.engine, model: started.model } } };
       const changed = !previous || previous.engine !== started.engine || previous.model !== started.model;
-      this.save(t, changed ? [store.append(id, { kind: 'note', text: `${names[agent] ?? agent} runs on ${started.engine === 'codex' ? 'Codex' : 'Claude Code'} (${started.model}).` })] : []);
+      const sessionNotes = changed ? [store.append(id, { kind: 'note', text: `${names[agent] ?? agent} runs on ${started.engine === 'codex' ? 'Codex' : 'Claude Code'} (${started.model}).` })] : [];
+      for (const warning of started.skillWarnings ?? []) sessionNotes.push(store.append(id, { kind: 'note', text: `${names[agent] ?? agent}: ${warning}` }));
+      this.save(t, sessionNotes);
     }
 
     // The input.
     // The cursor moves to the last message in this input, not to the reply: anything added during the
     // turn (a user message, a reaction) is still unseen next time; formatForAgent skips the agent's own.
-    const all = store.messages(id);
+    const all = o.until === undefined ? store.messages(id) : store.messages(id).filter((m) => m.seq <= o.until!);
     const upTo = all.at(-1)?.seq ?? 0;
     const handoff = o.build ? undefined : t.handoffs[agent];
     const seen = !fresh ? (t.cursors[agent] ?? 0) : o.build ? o.build.since : (handoff?.seq ?? 0);
@@ -656,7 +711,7 @@ export class Conductor {
     const bad = o.check?.(parsed.control, parsed.body);
     const { body, control, error } = bad ? { body: parsed.body, control: undefined, error: bad } : parsed;
     const msg = store.append(id, { kind: 'agent', agent, text: body, model: result.model, engine, tokens: result.tokens, ...(control ? { control } : {}) });
-    if (control?.kind === 'plan' && (t.phase === 'team' || t.phase === 'planning')) store.writePlan(id, body);
+    if (control?.kind === 'plan' && t.phase !== 'build') store.writePlan(id, body);
     t = { ...t, cursors: { ...t.cursors, [agent]: upTo, ...(o.role === 'builder' ? Object.fromEntries((t.roles?.builders ?? []).map((id) => [id, upTo])) : {}) } };
     this.save(t, [msg]);
 
@@ -701,6 +756,7 @@ export class Conductor {
         note: step.note,
         level: step.level,
         check: (control, body) => {
+          if (control?.kind === 'git' && (agent !== MANAGER || t.phase !== 'done' || !t.build || t.build.removed)) return 'ark block: git is available only to the Head after a finished build';
           if (agent === MANAGER && control?.kind === 'team') return checkProposal(control, (id) => catalog.get(id));
           if (agent === MANAGER && control?.kind === 'roles') return checkRoles(control.roles, t.roles, t.team, (id) => catalog.get(id));
           // A plan the build cannot split into phases: the same.
@@ -727,7 +783,8 @@ export class Conductor {
       if (d.step.do === 'wait' && interrupt) d = afterUser(d.thread, interrupt.to);
       const added = agent === MANAGER && control?.kind === 'roles' && !error && d.thread.roles ? [store.append(id, { kind: 'note', text: `Roles updated: ${rolesLine(d.thread.roles, this.names())}` })] : [];
       this.settle(d.thread, d.step, added, d.step.do === 'wait' && control?.kind === 'ask' ? agent : undefined);
-      if (autonomous(t) && !error && !interrupt && t.phase === 'planning' && control?.kind === 'plan' && d.step.do === 'wait') {
+      // A plan after a build (phase done) is the next cycle's: it starts the same way.
+      if (autonomous(t) && !error && !interrupt && (t.phase === 'planning' || t.phase === 'done') && control?.kind === 'plan' && d.step.do === 'wait') {
         try {
           await this.startDeveloper(id);
         } catch (e) {
@@ -820,6 +877,15 @@ export class Conductor {
     if (step.do !== 'wait' && step.do !== 'finish') turn(undefined);
     try {
       for (;;) {
+        if (step.do === 'finish') {
+          // A message the user sent during the summary turn: the Head of Staff answers it now, once.
+          const from = t.cursors[MANAGER] ?? 0;
+          const unread = store.messages(id).find((m) => m.kind === 'user' && m.seq > from);
+          if (unread?.kind === 'user') {
+            const d = afterUser(t, mentionOf(unread.text, t.team));
+            return this.settle(d.thread, d.step, []);
+          }
+        }
         if (step.do === 'wait' || step.do === 'finish') {
           const note = step.do === 'wait' && step.note ? [store.append(id, { kind: 'note', text: step.note })] : [];
           const waiting = step.do === 'wait';
@@ -835,10 +901,25 @@ export class Conductor {
           if (!live()) return;
           turn(agent);
           this.dropSession(id, agent); // a fresh session per review
+          // It reads no transcript: the user's requests (the first and the latest) and the builder's last report go in the lead.
+          const all = store.messages(id);
+          const asked = all.flatMap((m) => (m.kind === 'user' && m.text.trim() ? [m.text.trim()] : []));
+          let size = 0;
+          let requestsIncomplete = false;
+          const requests: string[] = [];
+          for (const request of asked) {
+            const text = request.slice(0, REQUEST_MAX);
+            if (text.length !== request.length) requestsIncomplete = true;
+            if (size + text.length + 3 > REVIEW_REQUEST_BUDGET) { requestsIncomplete = true; continue; }
+            requests.push(text); size += text.length + 3;
+          }
+          const since = this.phaseSeq(id, b, b.current);
+          const report = all.findLast((m) => m.kind === 'agent' && m.agent === p.builder && m.seq > since);
           const r = await this.speak(t, agent, gen, {
-            build: { cwd: b.worktree, lead: NOTES.review({ kind: step.who, phase: p.text, diff, worktree: b.worktree }) },
+            build: { cwd: b.worktree, lead: NOTES.review({ kind: step.who, phase: p.text, diff, worktree: b.worktree, requests, requestsIncomplete, ...(report?.kind === 'agent' && report.text && { outcome: report.text }) }) },
             note: step.retry,
-            role: 'reviewer', level: 'standard',
+            // A consequential review (a hard request) runs one level up; atLevel keeps a locked model as it is.
+            role: 'reviewer', level: t.difficulty === 'hard' ? 'heavy' : 'standard',
           });
           if (!r) return;
           this.dropSession(id, agent);
@@ -850,8 +931,12 @@ export class Conductor {
         }
 
         if (step.do === 'escalate' || step.do === 'summary') {
+          if (step.do === 'summary' && b.summaryAt === undefined) {
+            t = { ...t, build: { ...b, summaryAt: store.messages(id).at(-1)?.seq ?? 0 } };
+            this.save(t, []);
+          }
           const note = step.do === 'escalate'
-            ? NOTES.blocked({ phase: p.title, points: blockedOn ?? openPoints(store.messages(id), this.phaseSeq(id, b.current)) })
+            ? NOTES.blocked({ phase: p.title, points: blockedOn ?? openPoints(store.messages(id), this.phaseSeq(id, b, b.current)) })
             : NOTES.summary({
                 branch: b.branch,
                 phases: b.phases.map((q) => ({ title: q.title, notes: q.notes, commit: q.commit?.slice(0, 7) })),
@@ -860,9 +945,13 @@ export class Conductor {
                   return `${names[a] ?? a} (${model}): ${x.input} in / ${x.output} out`;
                 }),
                 windows: windowLines(t.windows),
+                git: step.do === 'summary' ? await this.deps.gitState?.(t).catch(() => undefined) : undefined,
               });
+          if (!live()) return;
+          // The summary reads up to where the build ended, even when it runs again after a restart: what the user wrote
+          // later is answered after it (step finish), once.
           turn(MANAGER);
-          const r = await this.speak(t, MANAGER, gen, { note });
+          const r = await this.speak(t, MANAGER, gen, { note, ...(step.do === 'summary' && { until: t.build!.summaryAt }) });
           if (!r) return;
           asker = MANAGER; // a blocked phase waits on the manager's question
           ({ thread: t, step } = afterManager(r.t));
@@ -879,7 +968,7 @@ export class Conductor {
           if (!base) throw new Error('The worktree has no commit');
           t = withPhase(t, (q) => { q.base = base; }).thread;
           this.dropSession(id, builder); // a fresh session per phase
-          turn(undefined, [store.append(id, { kind: 'phase', index: b.current })]);
+          turn(undefined, [store.append(id, { kind: 'phase', index: b.current, ...(b.cycle && b.cycle > 1 && { cycle: b.cycle }) })]);
         } else {
           note = step.why === 'checks' ? NOTES.checksFailed(step.results ?? []) : step.why === 'review' ? NOTES.fix : NOTES.userFix;
         }
@@ -900,7 +989,7 @@ ${NOTES.userFix}` : NOTES.userFix;
           denied: !this.projectCode(id),
         });
         const r = await this.speak(t, builder, gen, {
-          build: { cwd: b.worktree, permissions: 'build', lead, since: Math.min(this.phaseSeq(id, b.current), (unread ?? Infinity) - 1) },
+          build: { cwd: b.worktree, permissions: 'build', lead, since: Math.min(this.phaseSeq(id, b, b.current), (unread ?? Infinity) - 1) },
           note,
           role: 'builder', level: 'standard',
           timeoutMs: BUILD_TURN_MS,

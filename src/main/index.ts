@@ -22,6 +22,9 @@ import { indexSkills, personalSkills } from './services/skills';
 import { readHandoffThresholds } from './services/settings';
 import type { StatuslinePaths } from './services/statusline';
 import { Conductor } from './services/threads/conductor';
+import { threadGit } from './services/git/repo';
+import { threadGitLines } from '@shared/git';
+import type { Thread } from '@shared/thread';
 import { ThreadStore } from './services/threads/store';
 import { workspace } from './services/threads/workspace';
 import { UsageService } from './services/usage';
@@ -152,7 +155,12 @@ app.whenReady().then(() => {
   });
   const store = new ThreadStore(userData);
   store.recover();
-  const conductor = new Conductor({ store, catalog, head: () => readHead(userData), runner, workspace, handoffThreshold: (engine) => readHandoffThresholds(userData)[engine], worktrees: join(userData, 'worktrees'), windows: (e) => usage.get().agents.find((a) => a.id === e) });
+  // The summary reads the thread branch's Git state (read-only) to offer the next steps; the user runs them.
+  const gitState = async (t: Thread) => {
+    const p = store.projects().find((x) => x.id === t.projectId);
+    return p && t.build && !t.build.removed ? threadGitLines(await threadGit(p.dir, t.build.worktree, t.build.branch)) : undefined;
+  };
+  const conductor = new Conductor({ store, catalog, head: () => readHead(userData), runner, workspace, handoffThreshold: (engine) => readHandoffThresholds(userData)[engine], worktrees: join(userData, 'worktrees'), windows: (e) => usage.get().agents.find((a) => a.id === e), gitState });
   const win = createWindow(userData);
   conductor.onUpdate((u) => {
     if (!win.isDestroyed()) win.webContents.send('threads:update', u);

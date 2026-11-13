@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
@@ -12,7 +12,7 @@ import { IT_SERVICES_AGENTS } from '../../src/main/services/it-services';
 import { Conductor } from '../../src/main/services/threads/conductor';
 import { ThreadStore } from '../../src/main/services/threads/store';
 import { NOTES } from '../../src/main/services/threads/protocol';
-import type { CheckResult } from '../../src/main/services/threads/workspace';
+import { branchName, type CheckResult } from '../../src/main/services/threads/workspace';
 
 type Reply = string | Error | { text: string; tokens: TokenCount; contextWindow: number; contextUsed?: number };
 
@@ -35,6 +35,7 @@ function fakeRunner() {
   };
   const listeners = new Set<(chatId: string, e: ChatEvent) => void>();
   const r = {
+    skillWarnings: [] as string[],
     started: [] as AgentDef[],
     starts: [] as { id: string; dir: string; permissions: string }[],
     codes: [] as { id: string; mode?: string; projectCode?: boolean }[], // what each start was told about project code
@@ -50,7 +51,7 @@ function fakeRunner() {
       await r.gate;
       const chatId = `c${++n}`;
       agentOf.set(chatId, agent.id);
-      return { chatId, engine: r.reports.engine, model: 'haiku', ...(r.reports.rerouted ? { rerouted: true as const } : {}) };
+      return { chatId, engine: r.reports.engine, model: 'haiku', skillWarnings: r.skillWarnings, ...(r.reports.rerouted ? { rerouted: true as const } : {}) };
     },
     turn: (chatId: string, text: string, _timeout?: number, _message?: string, images?: ImageInput[]) =>
       new Promise<TurnResult>((resolve, reject) => {
@@ -84,6 +85,8 @@ function fakeWorkspace() {
   const w = {
     calls: [] as unknown[][],
     headResult: 'abcdef0123456789' as string | undefined,
+    currentBranch: undefined as string | null | undefined,
+    createdBranch: '' as string,
     checks: [] as string[],
     results: [] as CheckResult[][],
     diffText: 'diff --git a/x b/x',
@@ -91,7 +94,8 @@ function fakeWorkspace() {
     head: async (dir: string) => (w.calls.push(['head', dir]), w.headResult),
     notRoots: [] as string[], // folders inside a repository that are not its top folder
     isRepoRoot: async (dir: string) => !w.notRoots.includes(dir),
-    addWorktree: async (repo: string, path: string, branch: string) => void w.calls.push(['addWorktree', repo, path, branch]),
+    addWorktree: async (repo: string, path: string, branch: string) => { mkdirSync(path, { recursive: true }); w.createdBranch = branch; w.calls.push(['addWorktree', repo, path, branch]); },
+    branch: async (dir: string) => { w.calls.push(['branch', dir]); return w.currentBranch === undefined ? w.createdBranch : w.currentBranch ?? undefined; },
     commitAll: async (dir: string, message: string) => {
       w.calls.push(['commitAll', dir, message]);
       const e = w.commitError;
@@ -99,7 +103,14 @@ function fakeWorkspace() {
       if (e) throw e;
       return `${++n}`.padStart(12, 's');
     },
+    commitPlan: async (dir: string, file: string, message: string) => {
+      w.calls.push(['commitPlan', dir, file, message]); w.calls.push(['commitAll', dir, message]);
+      const e = w.commitError; w.commitError = undefined; if (e) throw e;
+      return `${++n}`.padStart(12, 's');
+    },
     diff: async (dir: string, base: string) => (w.calls.push(['diff', dir, base]), w.diffText),
+    changesResult: [] as string[],
+    changes: async (dir: string) => (w.calls.push(['changes', dir]), w.changesResult),
     log: async () => '',
     projectChecks: () => w.checks,
     // As the real one types them: a root script is `npm run <s>`, and test is also `npm test`.
@@ -1034,34 +1045,405 @@ test('a git failure after a developer turn is noted as the build, not the develo
   expect(runner.stopped).not.toContain(devChat);
 });
 
-test('a message to a finished build gets a note and reaches nobody', async () => {
-  const { id } = await planned();
+/** A thread whose first build went through and whose Head of Staff wrote the summary. */
+async function finished(plan = PLAN, teamBlock = BUILD_TEAM) {
+  const t = await planned(plan, teamBlock);
   runner.reply('developer', 'Built.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
   runner.reply(MANAGER, 'Done.');
-  await c.startDeveloper(id);
+  await c.startDeveloper(t.id);
   await idle();
-  const turnsBefore = runner.turns.length;
-  c.send(id, 'One more thing');
+  expect(thread(t.id)).toMatchObject({ phase: 'done', status: 'idle' });
+  return t;
+}
+const said = (text: string) => runner.turns.filter((x) => x.text.includes(text)).length;
+
+test('a message to a finished build reaches the Head of Staff, and the build stays recorded', async () => {
+  const { id } = await finished();
+  const build = thread(id).build;
+  const from = runner.turns.length;
+  runner.reply(MANAGER, 'It is on the branch.');
+  c.send(id, 'Where is it?');
   await idle();
-  expect(notes(id).at(-1)).toBe('The build is finished; start a new thread to continue.');
-  expect(runner.turns).toHaveLength(turnsBefore);
-  expect(thread(id)).toMatchObject({ phase: 'done', status: 'idle' });
+  expect(agentsOf(from)).toEqual([MANAGER]);
+  expect(runner.turns.at(-1)!.text).toContain('[User] Where is it?');
+  expect(runner.turns.at(-1)!.text).toContain(NOTES.followUp);
+  expect(thread(id)).toMatchObject({ phase: 'done', status: 'waiting', build });
+  expect(notes(id).join('\n')).not.toContain('start a new thread');
 });
 
-test('a message during the summary turn gets the same note', async () => {
+test('a message during the summary turn is delivered once, after the summary', async () => {
   const { id } = await planned();
   runner.reply('developer', 'Built.');
   runner.reply('code-reviewer', PASS);
   runner.reply('security-reviewer', PASS);
   await c.startDeveloper(id);
   await until(() => runner.turns.at(-1)?.agent === MANAGER);
-  c.send(id, 'Too late');
-  expect(notes(id).at(-1)).toBe('The build is finished; start a new thread to continue.');
-  runner.reply(MANAGER, 'Done.');
+  const from = runner.turns.length - 1;
+  c.send(id, 'Also a footer?');
+  expect(notes(id).join('\n')).not.toContain('start a new thread');
+  runner.reply(MANAGER, 'Done.', 'A footer needs a new plan.');
   await idle();
-  expect(thread(id).phase).toBe('done');
+  expect(agentsOf(from)).toEqual([MANAGER, MANAGER]);
+  expect(runner.turns[from].text).toContain('The build is finished.');
+  expect(runner.turns.at(-1)!.text).toContain('[User] Also a footer?');
+  expect(said('Also a footer?')).toBe(1);
+  expect(thread(id)).toMatchObject({ phase: 'done', status: 'waiting' });
+});
+
+test('a message from the summary survives a restart and reaches the Head of Staff once', async () => {
+  const { id } = await planned();
+  runner.reply('developer', 'Built.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  await c.startDeveloper(id);
+  await until(() => runner.turns.at(-1)?.agent === MANAGER);
+  c.send(id, 'Also a footer?');
+  runner.reply(MANAGER, 'Done.');
+  await until(() => runner.turns.at(-1)?.text.includes('Also a footer?') ?? false); // the follow-up turn, never answered
+  c.stopAll();
+  store.recover();
+  const c2 = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => undefined });
+  expect(thread(id)).toMatchObject({ phase: 'done', status: 'idle' });
+  const from = runner.turns.length;
+  runner.reply(MANAGER, 'Here you go.');
+  c2.send(id, 'Any news?');
+  await idle();
+  expect(agentsOf(from)).toEqual([MANAGER]);
+  const text = runner.turns.at(-1)!.text;
+  expect(text.split('Also a footer?')).toHaveLength(2);
+  expect(text).toContain('[User] Any news?');
+  c2.stopAll();
+});
+
+test('a legacy finished thread whose worktree is gone still answers, read-only in the project', async () => {
+  const t = store.create(projectId, 'Old');
+  store.save({ ...t, phase: 'done', status: 'idle', team: ['project-manager', 'developer'], cursors: { 'project-manager': 0 },
+    build: { worktree: join(root, 'gone'), branch: 'ark/old', plan: 'p', phases: [{ title: 'A', text: 'a', step: 'done', rounds: 0, notes: 0, open: 0 }], current: 0, removed: true } });
+  runner.reply(MANAGER, 'It was merged long ago.');
+  c.send(t.id, 'What happened here?');
+  await idle();
+  expect(runner.starts.at(-1)).toEqual({ id: MANAGER, dir: join(root, 'app'), permissions: 'read-only' });
+  expect(runner.turns.at(-1)!.text).toContain('[User] What happened here?');
+  expect(thread(t.id)).toMatchObject({ phase: 'done', status: 'waiting', build: { removed: true } });
+});
+
+const FOOTER = '# Plan\n## Phase 1: Footer\nAdd a footer.';
+
+test('the summary reads the Git state and offers only its actions; it runs none of them', async () => {
+  const asked: string[] = [];
+  c.stopAll();
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => undefined,
+    gitState: async (t) => (asked.push(t.id), ['Branch ark/x.', 'Uncommitted files in the worktree: 2.', 'Commits not pushed: 1 (never pushed; a push would go to origin).']) });
+  const { id } = await finished();
+  const summary = runner.turns.findLast((x) => x.agent === MANAGER)!.text;
+  expect(summary).toContain('Git:\n- Branch ark/x.\n- Uncommitted files in the worktree: 2.\n- Commits not pushed: 1 (never pushed; a push would go to origin).');
+  expect(summary).toContain(NOTES.gitOffer);
+  expect(asked).toEqual([id]);
+  // Ark's own build commits only: the summary commits, merges and pushes nothing
+  expect(ws.calls.filter((x) => x[0] === 'commitAll').map((x) => x[2])).toEqual(['docs: plan for Build a landing page', 'ark: phase 1 - Setup']);
+});
+
+test('a Git state that cannot be read leaves it out of the summary', async () => {
+  c.stopAll();
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => undefined, gitState: async () => { throw new Error('no git'); } });
+  await finished();
+  expect(runner.turns.findLast((x) => x.agent === MANAGER)!.text).not.toContain('Git:');
+});
+
+test('a message during the Git status await is answered after the summary', async () => {
+  let release!: () => void;
+  let entered = false;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  c.stopAll();
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => undefined,
+    gitState: async () => { entered = true; await gate; return []; } });
+  const { id } = await planned();
+  runner.reply('developer', 'Built.'); runner.reply('code-reviewer', PASS); runner.reply('security-reviewer', PASS);
+  await c.startDeveloper(id);
+  await until(() => entered);
+  const before = runner.turns.length;
+  c.send(id, 'Also add a footer?');
+  runner.reply(MANAGER, 'Summary.', 'We can plan the footer.');
+  release();
+  await idle();
+  const turns = runner.turns.slice(before).filter((x) => x.agent === MANAGER);
+  expect(turns).toHaveLength(2);
+  expect(turns[0].text).not.toContain('Also add a footer?');
+  expect(turns[1].text).toContain('Also add a footer?');
+});
+
+test('a fresh reviewer receives middle user requests within the budget', async () => {
+  const { id } = await planned();
+  for (let i = 0; i < 12; i++) store.append(id, { kind: 'user', text: `Requirement ${i}` });
+  runner.reply('developer', 'Built.'); runner.reply('code-reviewer', PASS); runner.reply('security-reviewer', PASS); runner.reply(MANAGER, 'Done.');
+  await c.startDeveloper(id); await idle();
+  const review = runner.turns.find((x) => x.agent === 'code-reviewer')!.text;
+  expect(review).toContain('- Requirement 1\n');
+  expect(review).toContain('Requirement 11');
+});
+
+test('a reviewer is told when request context was truncated', async () => {
+  const { id } = await planned();
+  store.append(id, { kind: 'user', text: 'x'.repeat(3000) });
+  runner.reply('developer', 'Built.'); runner.reply('code-reviewer', PASS); runner.reply('security-reviewer', PASS); runner.reply(MANAGER, 'Done.');
+  await c.startDeveloper(id); await idle();
+  expect(runner.turns.find((x) => x.agent === 'code-reviewer')!.text).toContain('Some user requests were omitted or truncated');
+});
+
+test('plan creation refuses a junction leading outside the worktree', async () => {
+  const { id } = await planned();
+  const wt = join(worktrees, id.slice(0, 8));
+  const outside = join(root, 'outside');
+  mkdirSync(wt, { recursive: true }); mkdirSync(outside);
+  symlinkSync(outside, join(wt, 'docs'), 'junction');
+  ws.currentBranch = branchName(thread(id).title, id);
+  await expect(c.startDeveloper(id)).rejects.toThrow(/link|junction/i);
+  expect(existsSync(join(outside, 'plans'))).toBe(false);
+});
+
+test('a restart during the summary turn: the summary leaves out the later messages, which the Head answers once after it', async () => {
+  const { id } = await planned();
+  runner.reply('developer', 'Built.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  await c.startDeveloper(id);
+  await until(() => runner.turns.at(-1)?.agent === MANAGER); // the summary turn, never answered
+  c.send(id, 'Also a footer?');
+  c.stopAll();
+  store.recover();
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => undefined });
+  const from = runner.turns.length;
+  runner.reply(MANAGER, 'Summary again.', 'A footer needs a new plan.');
+  c.send(id, 'Any news?');
+  await idle();
+  expect(agentsOf(from)).toEqual([MANAGER, MANAGER]);
+  const [summary, follow] = runner.turns.slice(from);
+  expect(summary.text).toContain('The build is finished.');
+  expect(summary.text).not.toContain('Also a footer?');
+  expect(summary.text).not.toContain('Any news?');
+  expect(follow.text).toContain('[User] Also a footer?');
+  expect(follow.text).toContain('[User] Any news?');
+  expect(said('Also a footer?')).toBe(1);
+  expect(said('Any news?')).toBe(1);
+  expect(thread(id)).toMatchObject({ phase: 'done', status: 'waiting' });
+});
+
+test('a new cycle refuses all uncommitted changes, including an existing plan', async () => {
+  const { id } = await finished();
+  runner.reply(MANAGER, ark({ plan: true }, FOOTER));
+  c.send(id, 'Please add a footer');
+  await idle();
+  const commits = ws.calls.filter((x) => x[0] === 'commitAll').length;
+  ws.changesResult = ['src/stray.ts'];
+  await expect(c.startDeveloper(id)).rejects.toThrow(NOTES.worktreeDirty(['src/stray.ts']));
+  expect(ws.calls.filter((x) => x[0] === 'commitAll')).toHaveLength(commits);
+  expect(thread(id).phase).toBe('planning');
+  ws.changesResult = [`docs/plans/${new Date().toLocaleDateString('sv-SE')}-build-a-landing-page-2.md`]; // a start that failed after writing it
+  await expect(c.startDeveloper(id)).rejects.toThrow(NOTES.worktreeDirty(ws.changesResult));
+  expect(ws.calls.filter((x) => x[0] === 'commitAll')).toHaveLength(commits);
+});
+
+test('a follow-up refuses a switched or detached worktree before writing a plan', async () => {
+  const { id } = await finished();
+  runner.reply(MANAGER, ark({ plan: true }, FOOTER));
+  c.send(id, 'Please add a footer');
+  await idle();
+  const commits = ws.calls.filter((x) => x[0] === 'commitAll').length;
+  for (const branch of ['other-branch', null]) {
+    ws.currentBranch = branch;
+    await expect(c.startDeveloper(id)).rejects.toThrow(/worktree.*branch/i);
+    expect(ws.calls.filter((x) => x[0] === 'commitAll')).toHaveLength(commits);
+  }
+});
+
+test('a follow-up plan uses a new path when the original filename already exists', async () => {
+  const { id } = await finished();
+  const wt = thread(id).build!.worktree;
+  const existing = join(wt, 'docs', 'plans', `${new Date().toLocaleDateString('sv-SE')}-build-a-landing-page-2.md`);
+  writeFileSync(existing, 'Existing user plan');
+  runner.reply(MANAGER, ark({ plan: true }, FOOTER));
+  c.send(id, 'Please add a footer');
+  await idle();
+  await c.startDeveloper(id);
+  expect(readFileSync(existing, 'utf8')).toBe('Existing user plan');
+  expect(thread(id).build!.plan).not.toBe(existing);
+  expect(readFileSync(thread(id).build!.plan, 'utf8')).toBe(FOOTER);
+});
+
+test('the first build also preserves an existing plan filename', async () => {
+  const { id } = await planned();
+  const dir = join(worktrees, id.slice(0, 8), 'docs', 'plans');
+  mkdirSync(dir, { recursive: true });
+  const existing = join(dir, `${new Date().toLocaleDateString('sv-SE')}-build-a-landing-page.md`);
+  writeFileSync(existing, 'Existing user plan');
+  ws.currentBranch = branchName(thread(id).title, id);
+  await c.startDeveloper(id);
+  expect(readFileSync(existing, 'utf8')).toBe('Existing user plan');
+  expect(thread(id).build!.plan).not.toBe(existing);
+  expect(readFileSync(thread(id).build!.plan, 'utf8')).toBe(PLAN);
+});
+
+test('a fresh reviewer gets the user request and the builder report, not the planning transcript', async () => {
+  const { id } = await planned();
+  runner.reply('developer', 'Built the hero; typecheck passes.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  runner.reply(MANAGER, 'Done.');
+  await c.startDeveloper(id);
+  await idle();
+  for (const who of ['code-reviewer', 'security-reviewer']) {
+    const text = runner.turns.find((x) => x.agent === who)!.text;
+    expect(text).toContain("The user's requests, oldest first:\n- Build a landing page");
+    expect(text).toContain("The builder's report:\nBuilt the hero; typecheck passes.");
+    expect(text).not.toContain('[Planner]');
+  }
+});
+
+test('reviews of a hard thread run one level up, unless the reviewer model is locked', async () => {
+  const sec = agents.findIndex((a) => a.id === 'security-reviewer');
+  agents[sec] = { ...agents[sec], engine: { kind: 'model', engine: 'codex', model: 'gpt-locked' } };
+  const { id } = await planned();
+  runner.reply('developer', 'Built.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  runner.reply(MANAGER, 'Done.');
+  await c.startDeveloper(id);
+  await idle();
+  const started = (who: string) => runner.started.findLast((a) => a.id === who)!;
+  expect([started('code-reviewer').tier, started('code-reviewer').engine]).toEqual(['heavy', { kind: 'engine', engine: 'codex' }]);
+  expect([started('security-reviewer').tier, started('security-reviewer').engine]).toEqual(['standard', { kind: 'model', engine: 'codex', model: 'gpt-locked' }]);
+  expect(started('developer').engine).toEqual({ kind: 'model', engine: 'claude', model: 'opus' }); // locked builder unchanged
+});
+
+test('reviews of an easy thread stay at the standard level', async () => {
+  const t = await planned('## Phase 1: Fix\na', EASY);
+  store.save({ ...thread(t.id), waived: ['security'] });
+  runner.reply('developer', 'Fixed.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply(MANAGER, 'Done.');
+  await c.startDeveloper(t.id);
+  await idle();
+  expect(runner.started.findLast((a) => a.id === 'code-reviewer')!.tier).toBe('standard');
+});
+
+test('member handoffs return to the Head of Staff after the relay limit', async () => {
+  runner.reply(MANAGER, ark({ team: [{ agent: 'planner', reason: 'r' }, { agent: 'seo', reason: 'r' }] }), ark({ next: 'planner' }), ark({ ask: 'Shall we go on?' }));
+  runner.reply('planner', ark({ next: 'seo' }), ark({ next: 'seo' }));
+  runner.reply('seo', ark({ next: 'planner' }), ark({ next: 'planner' }));
+  const t = c.create(projectId, 'Plan a page', [], 'auto');
+  await idle();
+  const order = runner.turns.map((x) => x.agent);
+  expect(order).toEqual([MANAGER, MANAGER, 'planner', 'seo', 'planner', MANAGER]);
+  expect(runner.turns[3].text).toContain(NOTES.handedOff('planner'));
+  expect(runner.turns.at(-1)!.text).toContain(NOTES.relayLimit);
+  expect(thread(t.id).status).toBe('waiting');
+});
+
+test('a follow-up change plans and builds a new cycle in the same worktree, after a restart, keeping the first', async () => {
+  const { id } = await finished();
+  const first = thread(id).build!;
+  c.stopAll();
+  store.recover();
+  c = new Conductor({ head: () => HEAD, store, catalog, runner, workspace: ws, worktrees, windows: () => undefined });
+  runner.reply(MANAGER, ark({ next: 'planner' }));
+  runner.reply('planner', ark({ plan: true }, FOOTER));
+  c.send(id, 'Please add a footer');
+  await idle();
+  expect(thread(id)).toMatchObject({ phase: 'planning', status: 'waiting', build: first });
+  ws.headResult = 'fedcba9876543210'; // the worktree moved on since the project
+  ws.checks = ['test'];
+  const from = runner.turns.length;
+  runner.reply('developer', 'Footer built.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  runner.reply(MANAGER, 'Footer done.');
+  await c.startDeveloper(id);
+  await allowProjectCode(id);
+  await idle();
+  expect(agentsOf(from)).toEqual(['developer', 'code-reviewer', 'security-reviewer', MANAGER]);
+  expect(ws.calls.filter((x) => x[0] === 'addWorktree')).toHaveLength(1);
+  const b = thread(id).build!;
+  expect(b).toMatchObject({ worktree: first.worktree, branch: first.branch, cycle: 2, current: 0, previous: [{ plan: first.plan, phases: first.phases }] });
+  expect(b.previous?.[0].reviewContext).toEqual(first.reviewContext);
+  expect(b.reviewContext).toMatchObject({ roles: { codeReview: 'code-reviewer', securityReview: 'security-reviewer' }, waived: [] });
+  expect(b.phases).toEqual([expect.objectContaining({ title: 'Footer', step: 'done', base: 'fedcba9876543210', checks: ['test'] })]);
+  expect(b.plan).not.toBe(first.plan);
+  expect(readFileSync(b.plan, 'utf8')).toBe(FOOTER);
+  expect(readFileSync(first.plan, 'utf8')).toBe(PLAN);
+  expect(ws.calls).toContainEqual(['runChecks', first.worktree, ['test']]);
+  expect(notes(id)).toContainEqual(`Continuing on branch ${first.branch} in its worktree, from fedcba9.`);
+  expect(store.messages(id).filter((m) => m.kind === 'phase')).toEqual([
+    expect.objectContaining({ index: 0 }), expect.objectContaining({ index: 0, cycle: 2 }),
+  ]);
+  expect(store.messages(id).find((m) => m.kind === 'phase')).not.toHaveProperty('cycle');
+  expect(thread(id)).toMatchObject({ phase: 'done', status: 'idle', permissionMode: 'ask' });
+});
+
+test('each new cycle asks again for a review the user waived before', async () => {
+  const easy = ark({ team: [{ agent: 'developer', reason: 'r' }], difficulty: 'easy', builders: ['developer'] });
+  const t = await planned('## Phase 1: Fix\na', easy);
+  const starting = c.startDeveloper(t.id);
+  await tick();
+  c.answer(t.id, last(t.id).seq, true);
+  await tick();
+  c.answer(t.id, last(t.id).seq, true);
+  await starting;
+  runner.reply('developer', 'done');
+  runner.reply(MANAGER, 'summary');
+  await idle();
+  expect(thread(t.id)).toMatchObject({ phase: 'done', waived: ['code', 'security'] });
+  runner.reply(MANAGER, ark({ plan: true }, '## Phase 1: More\nb'));
+  c.send(t.id, 'One more fix');
+  await idle();
+  expect(thread(t.id).phase).toBe('planning');
+  const again = c.startDeveloper(t.id);
+  await tick();
+  expect(last(t.id)).toMatchObject({ kind: 'approval', tool: 'a build without a code review' });
+  expect(thread(t.id).waived).toBeUndefined();
+  c.answer(t.id, last(t.id).seq, false);
+  await expect(again).rejects.toThrow('The build did not start: there is no code review.');
+  expect(thread(t.id)).toMatchObject({ phase: 'planning', build: { phases: [{ title: 'Fix', step: 'done' }] } });
+});
+
+test('an Auto follow-up plan starts the next cycle by itself', async () => {
+  const { id } = await finished();
+  await c.setPermissionMode(id, 'auto');
+  runner.reply(MANAGER, ark({ plan: true }, FOOTER), 'Footer done.');
+  runner.reply('developer', 'Footer built.');
+  runner.reply('code-reviewer', PASS);
+  runner.reply('security-reviewer', PASS);
+  c.send(id, 'Please add a footer');
+  await until(() => thread(id).build?.cycle === 2);
+  await idle();
+  expect(thread(id)).toMatchObject({ phase: 'done', build: { cycle: 2, phases: [{ title: 'Footer', step: 'done' }] } });
+});
+
+test('a removed worktree blocks the next cycle and is never recreated', async () => {
+  const { id } = await finished();
+  c.worktreeRemoved(id);
+  runner.reply(MANAGER, ark({ plan: true }, FOOTER));
+  c.send(id, 'Please add a footer');
+  await idle();
+  const commits = ws.calls.filter((x) => x[0] === 'commitAll').length;
+  await expect(c.startDeveloper(id)).rejects.toThrow("This thread's worktree was removed, so Ark cannot build here again. Start a new thread for further changes.");
+  expect(ws.calls.filter((x) => x[0] === 'addWorktree')).toHaveLength(1);
+  expect(ws.calls.filter((x) => x[0] === 'commitAll')).toHaveLength(commits);
+  expect(thread(id)).toMatchObject({ phase: 'planning', build: { removed: true, phases: [{ title: 'Setup' }] } });
+});
+
+test('a missing worktree folder blocks the next cycle and is never recreated', async () => {
+  const { id } = await finished();
+  const wt = thread(id).build!.worktree;
+  rmSync(wt, { recursive: true, force: true });
+  runner.reply(MANAGER, ark({ plan: true }, FOOTER));
+  c.send(id, 'Please add a footer');
+  await idle();
+  await expect(c.startDeveloper(id)).rejects.toThrow(`This thread's worktree is missing (${wt}). Ark does not recreate it: restore it, or start a new thread for further changes.`);
+  expect(existsSync(wt)).toBe(false);
+  expect(ws.calls.filter((x) => x[0] === 'addWorktree')).toHaveLength(1);
+  expect(thread(id).phase).toBe('planning');
 });
 
 // A user message written during the build always reaches the developer (spec §8.2): never only the transcript.
@@ -1820,4 +2202,12 @@ test('when nobody can build, the old thread waits on the question and its worktr
   await idle();
   expect(thread(t.id)).toMatchObject({ phase: 'build', status: 'waiting', waitingOn: MANAGER });
   expect(thread(t.id).build!.removed).toBeUndefined();
+});
+
+test('reports thread skill warnings as visible notes', async () => {
+  runner.skillWarnings = ['i-have-adhd unavailable: not installed'];
+  const t = c.create(projectId, 'style notice');
+  c.send(t.id, 'hello');
+  await tick();
+  expect(notes(t.id)).toContain('Head of Staff: i-have-adhd unavailable: not installed');
 });

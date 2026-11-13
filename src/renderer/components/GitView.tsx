@@ -6,7 +6,8 @@ import { act, refresh, useGit } from '../git/status-store';
 import { BranchMenu, ThreadBranchSection, WorktreesSection } from './GitSections';
 import { EntryIcon } from './EntryIcon';
 import { confirmAction } from './Confirm';
-import { DiscardIcon, FetchIcon, FileIcon, GitBranchIcon, MinusIcon, PlusIcon, PullIcon, PushIcon, RefreshIcon } from './Icons';
+import { ArrowIcon, DiscardIcon, FetchIcon, FileIcon, GitBranchIcon, MinusIcon, PlusIcon, PullIcon, PushIcon, RefreshIcon } from './Icons';
+import { GitDivergence } from './GitDivergence';
 import { Menu, type MenuItem } from './Menu';
 import { BUTTON_INSET, FIELD } from './ui';
 
@@ -181,10 +182,11 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
         </button>
       </div>
       <div className="flex min-w-0 items-center gap-1 border-b border-divider px-[4px] pb-1 text-meta text-muted">
-        <span className="min-w-0 flex-1 truncate" title={status.upstream ?? 'Push to publish this branch'}>
-          {status.upstream ? `→ ${status.upstream}` : 'No upstream'}
+        <span className="flex min-w-0 flex-1 items-center gap-[4px]" title={status.upstream ?? 'Push to publish this branch'}>
+          {status.upstream && <span className="shrink-0 [&_svg]:size-[12px]"><ArrowIcon dir="forward" /></span>}
+          <span className="truncate">{status.upstream ?? 'No upstream'}</span>
         </span>
-        {status.upstream && <span className="shrink-0" title={`${status.ahead} commits ahead, ${status.behind} behind`}>↑{status.ahead} ↓{status.behind}</span>}
+        {status.upstream && <GitDivergence ahead={status.ahead} behind={status.behind} />}
       </div>
       {menu?.kind === 'branches' && <BranchMenu root={root} status={status} locked={locked} attempt={attempt} at={menu} onClose={closeMenu} />}
       {menu?.kind === 'actions' && <Menu items={actions} at={menu} onClose={closeMenu} width={240} label="Git actions" />}

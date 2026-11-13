@@ -59,7 +59,7 @@ editor and keep it in Git. It has a role prompt, an engine (Claude Code or Codex
 - **Import**: copy agents from `~/.claude/agents` and from Claude Code plugins into the catalog.
 - **New agent**: choose a profile image, alias, role and unique username, then set its task, model, file permissions, skills and system prompt. Lock a model when it must always be used.
 - **Draft with AI**: describe an agent in one sentence and a light-tier agent writes a draft for you to approve.
-- **Import skill**: in the Skills field of an agent (or of the Head of Staff), choose a folder with a `SKILL.md` and Ark copies it to `%APPDATA%\ark\skills` (up to 200 files and 5 MB, no links followed). It shows as `Ark`, wins over an installed skill of the same name, and `Remove` sends the copy to the Recycle Bin. Your own Claude skills stay out of reach of the agents.
+- **Import skill**: in the Skills field of an agent (or of the Head of Staff), choose a folder with a `SKILL.md` and Ark copies it to `%APPDATA%\ark\skills` (up to 200 files and 5 MB, no links followed). It shows as `Ark`, wins over an installed skill of the same name, and `Remove` sends the copy to the Recycle Bin. Only skills selected for the agent are copied into its session.
 - **Chat**: pick an agent and a project folder and talk to it, on Claude Code or Codex.
 
 Each agent sees only its own skills. The project's own `CLAUDE.md` or `AGENTS.md` is kept, so the agent follows the
@@ -71,6 +71,13 @@ Claude agent can read the project but has no edit, write or shell tools; a Codex
 Agents never change `~/.claude` or `~/.codex`: Ark only reads skills and agents there, and copies the skills an agent
 needs into a private folder for each session. The engines themselves still keep their usual session logs
 (`~/.claude/projects` and `~/.codex/sessions`). (Only **Connect status line**, above, edits `settings.json`.)
+
+Thread sessions also receive role-appropriate communication guidance: a bundled Humanizer adaptation for general roles,
+or bundled Ponytail and i-have-adhd adaptations for technical roles when the corresponding installed skill is available
+and permits automatic invocation. The adaptations contain no personal voice profile, plugin hooks or tool grants. Ark
+shows a thread note when an automatic style is unavailable; explicitly selected skills retain their own invocation rules.
+Ark refuses selected skills with certain incompatible hooks, tool grants, paths or links, but these checks are not a proof
+that arbitrary skill instructions cannot refer to personal data.
 
 `npm run test:live` checks this against the real engines. It makes a few cheap calls on your Claude Code and Codex
 subscriptions.
@@ -92,11 +99,12 @@ A **project** is a local folder that is a Git repository (Ark offers **Initializ
 one piece of work in a project: a conversation between you and a team of agents from the catalog. Each thread keeps its
 transcript on disk in `%APPDATA%\ark\threads`, so it survives closing Ark.
 
-Delete a thread with the × beside its name; Ark moves its conversation and attachments to the Recycle Bin. Pause it
-and remove its worktree first, if applicable. **Remove project** hides the project from Ark, keeping its threads,
+Delete a thread with the × beside its name; Ark moves its conversation and attachments to the Recycle Bin. Pause it first;
+Ark removes a clean worktree, keeping its branch, and blocks deletion when the worktree has uncommitted changes.
+**Remove project** hides the project from Ark, keeping its threads,
 worktrees and original folder. Running threads are paused. Add the same folder again to restore it.
 
-- **Permissions**: each thread has its own permission menu above the composer, set before you start it and changeable later
+- **Permissions**: each thread has its own permission menu alongside the composer, set before you start it and changeable later
   (a change stops the thread's agent sessions, so no agent keeps working under the old setting; send a message to continue):
   - **Ask for approval**: you approve the team and the plan, and every risky action shows a card.
   - **Approve for me** (the default for new threads): the team picks its members, agrees on routine choices and goes from
@@ -133,8 +141,13 @@ worktrees and original folder. Running threads are paused. Add the same folder a
   thread's folder. In **Ask for approval**, **Start build** approves it; otherwise the build starts by itself.
 
 - **Build phase**: **Start build** creates a Git worktree on a new branch `ark/<title>-<id>` under `%APPDATA%\ark\worktrees`. The plan is committed there first. Each phase is built by its assigned builder, followed by Ark's checks and the thread's code and security reviewers. A missing review is skipped only after you explicitly allow it on a card, in every permission mode. The Head of Staff raises blocked work and summarizes the result.
+- **After a build**: the thread stays open for questions and follow-up work, including after restarting Ark. A further change goes through planning and a new build cycle on the same branch and worktree, with checks and review gates applied again. Earlier build history remains available. If the worktree was removed or is missing, the conversation remains available but Ark cannot start another build there or recreate it silently.
 - **Difficulty and models**: for an easy change, the first builder writes a short plan without a discussion. For a hard request, the Head of Staff involves a manager-type agent and sends the planner a heavy-level turn. A locked exact model stays fixed; unlocked agents may run a turn at the selected level. Auto sessions are balanced between installed engines and keep their chosen engine for the session.
-- **Thread cost**: the team panel shows tokens per model, and how the usage windows moved while the thread ran, for example
+- **Thread cost**: the team panel shows tokens per model (input with cached included, cached, output) and an estimated USD
+  cost at standard public API list prices. It is an estimate, not a subscription or API bill: cache writes count as plain
+  input, and long-context, regional, fast-mode and discounted rates are not applied. Models whose price cannot be worked out
+  from the summed tokens (unknown models, Claude Haiku 5.5, gpt-5.6-sol while its price is promotional) read
+  "API estimate unavailable". It also shows how the usage windows moved while the thread ran, for example
   `Claude 5h 41% → 44%`, marked "Including your other sessions" because a window counts all your usage. The build summary
   lists the same.
 - **Approvals**: build agents can edit files in the worktree, but anything risky (installing packages, network commands,

@@ -8,6 +8,8 @@ asarUnpack:
   - node_modules/node-pty/**
 npmRebuild: false
 extraResources:
+  - from: resources/thread-style-licenses.txt
+    to: thread-style-licenses.txt
   - from: resources/statusline-wrapper.cjs
     to: statusline-wrapper.cjs
 extraFiles:

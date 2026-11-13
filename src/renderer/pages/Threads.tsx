@@ -207,7 +207,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                 trail={trail(t)}
                 title={t.title}
                 onRemove={async () => {
-                  if (await confirmAction(`Delete thread "${t.title}"? Its conversation and attachments will be moved to the Recycle Bin, and its worktree removed (unsaved work is committed and pushed first).`)) void attempt(() => ws.removeThread(t.id));
+                  if (await confirmAction(`Delete thread "${t.title}"? Its conversation and attachments will be moved to the Recycle Bin, and its worktree removed. Its branch and commits stay; nothing is committed or pushed. A worktree with uncommitted changes must be committed or discarded first.`)) void attempt(() => ws.removeThread(t.id));
                 }}
                 onClick={() => {
                   onDraft(false);
@@ -259,8 +259,8 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
                   {permissionMode === 'ask' ? 'The Head of Staff proposes a team and waits for your approval.' : 'The team plans and builds autonomously. You can pause it at any time.'}
                 </Empty>
               </div>
-              <div className="px-2 pb-0.5 lg:px-3"><PermissionSelect value={permissionMode} onChange={setPermissionMode} /></div>
               <Composer
+                tools={<PermissionSelect value={permissionMode} onChange={setPermissionMode} />}
                 label="What do you want to work on?"
                 placeholder="Describe the goal"
                 value={text}

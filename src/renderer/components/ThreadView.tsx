@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentDef } from '@shared/agent-file';
 import type { Phase, Reaction, Thread, ThreadMessage } from '@shared/thread';
-import { actionable, decisionsOf, lastModel, reactionsOf, startsGroup } from '@shared/thread-view';
+import { actionable, cyclePhases, cycleReviews, decisionsOf, lastModel, reactionsOf, startsGroup } from '@shared/thread-view';
 import { tokenize } from '@shared/tokens';
 import { readable } from '../errors';
 import { Sent, toUploads } from './Attachments';
@@ -17,6 +17,7 @@ import { TaskBoard } from './TaskBoard';
 import { BUTTON, ICON_BUTTON } from './ui';
 import { modeOf } from '@shared/permissions';
 import { PermissionSelect } from './PermissionSelect';
+import { ThreadGit } from './ThreadGit';
 
 type Props = {
   thread: Thread;
@@ -117,10 +118,11 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
               );
             }
             if (m.kind === 'phase') {
-              const phase = thread.build?.phases[m.index];
+              const phases = cyclePhases(thread.build, m.cycle);
+              const phase = phases?.[m.index];
               return phase && (
                 <li key={m.seq} className="mt-2 pl-[68px] pr-2 lg:pl-[80px] lg:pr-3">
-                  <PhaseCard phase={phase} index={m.index} total={thread.build?.phases.length ?? 0} builder={phase.builder ? name(phase.builder) : undefined} reviews={{ code: !!thread.roles?.codeReview, security: !!thread.roles?.securityReview }} />
+                  <PhaseCard phase={phase} index={m.index} total={phases.length} builder={phase.builder ? name(phase.builder) : undefined} reviews={cycleReviews(thread.build, m.cycle)} />
                 </li>
               );
             }
@@ -174,6 +176,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
                     m.text && <Body text={m.text} agents={agents} onTag={onTag} onLink={onLink} />
                   )}
                   {m.kind === 'user' && m.attachments && <Sent threadId={thread.id} list={m.attachments} />}
+                  {m.kind === 'agent' && m.control?.kind === 'git' && mine && <ThreadGit thread={thread} onProblem={setProblem} requested={m.control.action} />}
                   {m.kind === 'agent' && m.control && (
                     <Cards
                       control={m.control}
@@ -203,10 +206,8 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
         <div ref={end} />
       </div>}
 
-      <div className="flex items-center gap-1 px-2 pb-0.5 lg:px-3">
-        <PermissionSelect value={modeOf(thread)} disabled={inflight > 0 && !reviewApprovalPending} onChange={(mode) => void run(() => window.ark.threads.setPermissionMode(thread.id, mode))} />
-        {thread.status === 'running' && <span className="text-meta text-muted">Changing permissions pauses the team</span>}
-      </div>
+      {/* The branch's final Git actions, once a build finished; a new cycle shows them blocked. */}
+      {thread.build && !thread.build.removed && (thread.phase === 'done' || thread.phase === 'planning') && <ThreadGit thread={thread} onProblem={setProblem} />}
       <Composer
         label="Message the thread"
         placeholder="Message the team"
@@ -214,6 +215,14 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
         onChange={setText}
         onSubmit={submit}
         attach
+        tools={
+          <PermissionSelect
+            value={modeOf(thread)}
+            disabled={inflight > 0 && !reviewApprovalPending}
+            note={thread.status === 'running' ? 'Changing permissions pauses the team.' : undefined}
+            onChange={(mode) => void run(() => window.ark.threads.setPermissionMode(thread.id, mode))}
+          />
+        }
         mentions={thread.team.map((id) => ({ id, name: name(id), avatar: agents.find((a) => a.id === id)?.avatar }))}
         tags={tags}
         problem={problem}

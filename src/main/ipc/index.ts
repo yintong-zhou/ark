@@ -24,7 +24,7 @@ import { createEntry, listDir, readText, renameEntry, statFile, trashEntry, writ
 import { RootWatcher } from '../services/files/watch';
 import { markIgnored } from '../services/files/ignored';
 import * as git from '../services/git/repo';
-import { checkMergeable, gitRoot } from '../services/git/rules';
+import { checkFinalAction, gitRoot } from '../services/git/rules';
 import { discardThreadWorktree, pruneWorktrees, removeWorktree, worktreeRows, type WorktreeDeps } from '../services/git/worktrees';
 import type { HistoryStore } from '../services/history';
 import { listShells, termData, Terminals, termSize, type Shell } from '../services/terminals';
@@ -121,6 +121,12 @@ function bool(v: unknown): boolean {
 // A branch name or a worktree path from the renderer: main checks it against git's own lists, this only bounds it.
 function branchArg(v: unknown): string {
   if (typeof v !== 'string' || v.length < 1 || v.length > 255 || v.includes('\0')) throw new Error('Invalid branch name');
+  return v;
+}
+
+/** The `stamp` of a ThreadGit the renderer showed: main compares it with the state it reads again. */
+function stampArg(v: unknown): string {
+  if (typeof v !== 'string' || !/^[0-9a-f]{40}$/.test(v)) throw new Error('Invalid Git state');
   return v;
 }
 
@@ -322,7 +328,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('threads:list', () => store.threads());
   handle('threads:remove', async (id) => {
     const t = threadOf(id);
-    await discardThreadWorktree(projectFolder(t.projectId), t, wtDeps); // commits and pushes pending work, then removes it
+    await discardThreadWorktree(projectFolder(t.projectId), t, wtDeps); // refuses uncommitted work; never commits or pushes
     await conductor.remove(t.id, (path) => shell.trashItem(path));
   });
   handle('threads:open', (id) => {
@@ -461,16 +467,31 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     return removeWorktree(dir, pathArg(path), wtDeps);
   });
   handle('git:prune-worktrees', (id) => pruneWorktrees(projectFolder(id), wtDeps));
-  handle('git:thread-branch', (id) => {
+  // A thread's final Git actions: each one the user's explicit request, on a finished thread, checked against the state
+  // the user saw (stamp) inside the folders' queues. No hooks, no prompts, never forced (services/git/repo.ts).
+  handle('git:thread-state', (id) => {
     const t = threadOf(id);
-    return t.build ? git.threadBranch(projectFolder(t.projectId), t.build.branch) : null;
+    return t.build && !t.build.removed ? git.threadGit(projectFolder(t.projectId), t.build.worktree, t.build.branch) : null;
   });
-  handle('git:merge-thread', async (id) => {
+  const finalOf = (id: unknown) => {
     const t = threadOf(id);
-    const branch = checkMergeable(t);
-    const dir = projectFolder(t.projectId);
-    const merged = (await git.mergeBranch(dir, branch)) === 'merged';
-    return { merged, status: await git.status(dir) }; // the project's status: a conflict is resolved there
+    return { ...checkFinalAction(t), dir: projectFolder(t.projectId) };
+  };
+  handle('git:commit-thread', async (id, stamp, message) => {
+    const f = finalOf(id);
+    if (typeof message !== 'string' || !message.trim() || message.length > 10_000) throw new Error('Write a commit message');
+    await git.commitThread(f.dir, f.worktree, f.branch, stampArg(stamp), message);
+    return git.threadGit(f.dir, f.worktree, f.branch);
+  });
+  handle('git:merge-thread', async (id, into, stamp) => {
+    const f = finalOf(id);
+    const merged = (await git.mergeThread(f.dir, f.worktree, f.branch, branchArg(into), stampArg(stamp))) === 'merged';
+    return { merged, status: await git.status(f.dir) }; // the project's status: a conflict is resolved there
+  });
+  handle('git:push-thread', async (id, stamp) => {
+    const f = finalOf(id);
+    await git.pushThread(f.dir, f.worktree, f.branch, stampArg(stamp));
+    return git.threadGit(f.dir, f.worktree, f.branch);
   });
 
   // Terminals: node-pty loads on the first one, so a broken native module is an error in the panel, not a dead app.

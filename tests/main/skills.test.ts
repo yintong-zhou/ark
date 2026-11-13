@@ -1,8 +1,8 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { beforeAll, expect, test } from 'vitest';
-import { arkSkillDir, buildSkillFolder, importSkill, indexSkills, personalSkills, SKILL_MAX_BYTES, SKILL_MAX_FILES, type SkillRoots } from '../../src/main/services/skills';
+import { arkSkillDir, buildSkillFolder, importSkill, indexSkills, personalSkills, threadStyleInstructions, SKILL_MAX_BYTES, SKILL_MAX_FILES, type SkillRoots } from '../../src/main/services/skills';
 
 let root: string;
 let roots: SkillRoots;
@@ -189,4 +189,40 @@ test('arkSkillDir names only imported skills', () => {
   expect(arkSkillDir('mine', roots.ark)).toBe(join(roots.ark, 'mine'));
   expect(() => arkSkillDir('nope', roots.ark)).toThrow('Not an imported skill');
   expect(() => arkSkillDir('../claude', roots.ark)).toThrow('Not an imported skill');
+});
+
+test('automatic styles refuse unsafe instructions and disabled model invocation', () => {
+  const def = { id: 'dev', name: 'Dev', description: '', engine: { kind: 'auto' as const }, tier: 'light' as const, skills: [], permissions: 'read-only' as const, prompt: '', threadRole: 'builder' as const };
+  const pony = join(root, 'auto', 'ponytail');
+  const adhd = join(root, 'auto', 'i-have-adhd');
+  skill(pony); skill(adhd);
+  writeFileSync(join(pony, 'SKILL.md'), '---\nname: ponytail\nallowed-tools: [Bash]\n---\nRead ~/.claude/private');
+  writeFileSync(join(adhd, 'SKILL.md'), '---\nname: i-have-adhd\ndisable-model-invocation: true\n---\nprivate instructions');
+  const index = [pony, adhd].map((dir) => ({ name: basename(dir), folder: basename(dir), dir, source: 'agents-user' as const, description: '' }));
+  const result = threadStyleInstructions(def, index);
+  expect(result.instructions).toContain('Ponytail - isolated adaptation');
+  expect(result.warnings.join(' ')).toContain('model invocation disabled');
+  expect(result.instructions).not.toContain('~/.claude/private');
+  expect(result.instructions).not.toContain('private instructions');
+  expect(threadStyleInstructions({ ...def, skills: ['ponytail'] }, index).instructions).not.toContain('Ponytail - isolated adaptation');
+  expect(threadStyleInstructions(def, [...index, { ...index[0], name: 'plugin:ponytail' }]).instructions).toContain('Ponytail - isolated adaptation');
+  const plugins = [{ ...index[0], name: 'one:ponytail' }, { ...index[0], name: 'two:ponytail' }];
+  expect(threadStyleInstructions(def, plugins).warnings.join(' ')).toContain('multiple installed skills');
+});
+
+
+test.each([
+  ['tool grant', '---\nname: risky\nallowed-tools: [Bash]\n---\nbody'],
+  ['hooks', '---\nname: risky\nhooks: {PreToolUse: []}\n---\nbody'],
+  ['personal path', '---\nname: risky\n---\nRead ~/.claude/private'],
+  ['dynamic shell', '---\nname: risky\n---\n!`echo unsafe`'],
+])('rejects explicit skills with %s before copying', (_label, content) => {
+  const dir = join(root, 'unsafe', 'risky');
+  skill(dir); writeFileSync(join(dir, 'SKILL.md'), content);
+  expect(() => buildSkillFolder('claude-plugin', join(root, 'unsafe-out'), ['risky'], [{ name: 'risky', folder: 'risky', dir, source: 'agents-user', description: '' }])).toThrow(/incompatible/);
+});
+
+test('a user-selected Humanizer controls its own invocation instead of receiving an automatic adaptation', () => {
+  const def = { id: 'writer', name: 'Writer', description: '', engine: { kind: 'auto' as const }, tier: 'light' as const, skills: ['humanizer'], permissions: 'read-only' as const, prompt: '', threadRole: 'member' as const };
+  expect(threadStyleInstructions(def, []).instructions).not.toContain('Humanizer - isolated adaptation');
 });

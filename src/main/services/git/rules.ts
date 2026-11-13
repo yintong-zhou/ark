@@ -47,3 +47,15 @@ export function checkMergeable(t: Thread): string {
   if (!t.build) throw new Error('Unknown worktree');
   return t.build.branch;
 }
+
+/**
+ * A final commit, merge or push on a thread's branch: only once the thread is finished and quiet, never while a new build
+ * cycle plans or builds on the branch, and never on a removed worktree.
+ */
+export function checkFinalAction(t: Thread): { worktree: string; branch: string } {
+  if (!t.build) throw new Error('This thread has no build.');
+  if (t.build.removed) throw new Error("This thread's worktree was removed.");
+  if (t.status === 'running') throw new Error(GIT_BUSY);
+  if (t.phase !== 'done') throw new Error('A new build cycle is in progress on this branch. Commit, merge and push wait for it to finish.');
+  return { worktree: t.build.worktree, branch: t.build.branch };
+}

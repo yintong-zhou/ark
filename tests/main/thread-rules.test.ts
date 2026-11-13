@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { HANDOFF_AT, MANAGER, PLANNING_BUDGET, type Control, type Thread } from '@shared/thread';
+import { HANDOFF_AT, MANAGER, MEMBER_RELAYS, PLANNING_BUDGET, type Control, type Thread } from '@shared/thread';
 import { NOTES } from '../../src/main/services/threads/protocol';
 import { afterReply, afterUser, approveTeam, mentionOf, needsHandoff } from '../../src/main/services/threads/rules';
 
@@ -19,7 +19,7 @@ test('autonomous members ask the manager instead of stopping for the user', () =
 });
 
 test('autonomous members can hand off within their team, never to themselves or outsiders', () => {
-  expect(afterReply(th({ permissionMode: 'auto' }), 'seo', next('planner'), undefined).step).toEqual({ do: 'turn', agent: 'planner' });
+  expect(afterReply(th({ permissionMode: 'auto' }), 'seo', next('planner'), undefined).step).toEqual({ do: 'turn', agent: 'planner', note: NOTES.handedOff('seo') });
   for (const target of ['seo', 'ghost']) {
     expect(afterReply(th({ permissionMode: 'auto' }), 'seo', next(target), undefined).thread.retried).toBe(true);
   }
@@ -110,10 +110,27 @@ describe('afterReply', () => {
     expect(afterReply(th(), 'planner', undefined, 'bad', {}).step).toEqual({ do: 'turn', agent: MANAGER });
   });
 
-  test('build and done: a reply ends in idle, never a loop', () => {
-    for (const phase of ['build', 'done'] as const) {
-      const t = th({ phase });
-      expect(afterReply(t, MANAGER, undefined, undefined)).toEqual({ thread: t, step: { do: 'idle' } });
+  test('build: a reply ends in idle, never a loop', () => {
+    const t = th({ phase: 'build' });
+    expect(afterReply(t, MANAGER, undefined, undefined)).toEqual({ thread: t, step: { do: 'idle' } });
+  });
+
+  test('done: the Head answers a follow-up and waits; a member hands the floor back; the turns are budgeted', () => {
+    const t = th({ phase: 'done', agentTurns: 2 });
+    expect(afterReply(t, MANAGER, undefined, undefined)).toMatchObject({ thread: { phase: 'done', agentTurns: 3 }, step: { do: 'wait' } });
+    expect(afterReply(t, MANAGER, next('seo'), undefined).step).toEqual({ do: 'turn', agent: 'seo' });
+    expect(afterReply(t, 'seo', undefined, undefined).step).toEqual({ do: 'turn', agent: MANAGER });
+    expect(afterReply(t, MANAGER, ask, undefined).step).toEqual({ do: 'wait' });
+    expect(afterReply(t, MANAGER, team, undefined).thread.retried).toBe(true);
+    expect(afterReply(th({ phase: 'done', agentTurns: PLANNING_BUDGET - 1 }), 'seo', undefined, undefined).thread.summarizing).toBe(true);
+  });
+
+  test('done: a new plan opens the next planning cycle and waits on its card, the build kept', () => {
+    const build = { worktree: 'w', branch: 'b', plan: 'p', phases: [], current: 0 };
+    for (const from of [MANAGER, 'planner']) {
+      const d = afterReply(th({ phase: 'done', build }), from, plan, undefined);
+      expect(d.step).toEqual({ do: 'wait' });
+      expect(d.thread).toMatchObject({ phase: 'planning', build });
     }
   });
 
@@ -167,9 +184,14 @@ describe('afterUser', () => {
     expect(afterUser(th(), undefined).step).toEqual({ do: 'turn', agent: MANAGER });
   });
 
-  test('build and done: idle', () => {
+  test('build: idle', () => {
     expect(afterUser(th({ phase: 'build' }), undefined).step).toEqual({ do: 'idle' });
-    expect(afterUser(th({ phase: 'done' }), 'seo').step).toEqual({ do: 'idle' });
+  });
+
+  test('done: a follow-up goes to the Head of Staff, or to the member it mentions', () => {
+    expect(afterUser(th({ phase: 'done', agentTurns: 4 }), undefined)).toMatchObject({ thread: { phase: 'done', agentTurns: 0 }, step: { do: 'turn', agent: MANAGER, note: NOTES.followUp } });
+    expect(afterUser(th({ phase: 'done' }), 'seo').step).toEqual({ do: 'turn', agent: 'seo' });
+    expect(afterUser(th({ phase: 'done', waitingOn: MANAGER }), undefined).step).toMatchObject({ do: 'turn', agent: MANAGER });
   });
 });
 
@@ -227,4 +249,36 @@ test('a roles block is not valid in the team phase, and a member cannot send one
   const d = afterReply(th({ roles: { builders: [] } }), 'planner', { kind: 'roles', roles: { builders: ['dev'] } }, undefined);
   expect(d.thread.roles).toEqual({ builders: [] });
   expect(d.step).toEqual({ do: 'turn', agent: MANAGER });
+});
+
+describe('member routing is bounded', () => {
+  const auto = (o: Partial<Thread> = {}) => th({ permissionMode: 'auto', ...o });
+  test('consecutive member handoffs are counted, and the floor goes back to the Head of Staff at the limit', () => {
+    let t = auto();
+    for (let i = 1; i < MEMBER_RELAYS; i++) {
+      const d = afterReply(t, i % 2 ? 'seo' : 'planner', next(i % 2 ? 'planner' : 'seo'), undefined);
+      expect(d.step).toMatchObject({ do: 'turn', agent: i % 2 ? 'planner' : 'seo' });
+      expect(d.thread.relay).toBe(i);
+      t = d.thread;
+    }
+    const d = afterReply(t, 'seo', next('planner'), undefined);
+    expect(d.step).toEqual({ do: 'turn', agent: MANAGER, note: NOTES.relayLimit });
+    expect(d.thread.relay).toBe(0);
+  });
+  test('the Head of Staff and the user reset the count', () => {
+    expect(afterReply(auto({ relay: 2 }), MANAGER, next('seo'), undefined).thread.relay).toBe(0);
+    expect(afterReply(auto({ relay: 2 }), 'seo', undefined, undefined).thread.relay).toBe(0);
+    expect(afterUser(auto({ relay: 2 }), undefined).thread.relay).toBe(0);
+  });
+  test('the planning budget still applies on top', () => {
+    const d = afterReply(auto({ agentTurns: PLANNING_BUDGET - 1 }), 'seo', next('planner'), undefined);
+    expect(d.step).toMatchObject({ do: 'turn', agent: MANAGER, note: NOTES.autoBudget });
+  });
+});
+
+test('git proposal is accepted only from the manager after a build', () => {
+  const control = { kind: 'git', action: 'merge' } as unknown as Control;
+  expect(afterReply(th({ phase: 'done', build: { worktree: 'w', branch: 'b', plan: 'p', phases: [], current: 0 } }), MANAGER, control, undefined).step).toEqual({ do: 'wait' });
+  expect(afterReply(th(), MANAGER, control, undefined).thread.retried).toBe(true);
+  expect(afterReply(th({ phase: 'done' }), MANAGER, control, undefined).thread.retried).toBe(true);
 });
