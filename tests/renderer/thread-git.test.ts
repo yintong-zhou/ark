@@ -11,10 +11,11 @@ const state = (o: Partial<ThreadGit> = {}): ThreadGit => ({
 const html = (s: ThreadGit, phase: 'done' | 'planning' = 'done') =>
   renderToStaticMarkup(createElement(ThreadGitPanel, { state: s, phase, busy: false, message: 'Finish T', onMessage: () => {}, onAction: () => {} }));
 
-test('the card lists the state and an explicit button per action, with source and target', () => {
+test('the card shows the branch and an explicit button per action, with source and target', () => {
   const h = html(state());
   expect(h).toContain('aria-label="Git actions for this thread"');
-  expect(h).toContain('Uncommitted files in the worktree: 1.');
+  expect(h).toContain('<code class="min-w-0 truncate font-mono">ark/t</code>');
+  expect(h).not.toContain('Uncommitted files');
   expect(h).toContain('>Commit 1 file on ark/t</button>');
   expect(h).toContain('aria-label="Commit message"');
   expect(h).toContain('>Merge ark/t into main</button>');
@@ -28,7 +29,8 @@ test('a new cycle disables every action; nothing left shows no button', () => {
   expect(html(state(), 'planning').match(/disabled=""/g)).toHaveLength(3);
   const done = html(state({ uncommitted: [], changes: 0, ahead: 0, unpushed: 0 }));
   expect(done).not.toContain('<button');
-  expect(done).toContain('Nothing to commit, merge or push.');
+  expect(done).toContain('ark/t'); // only the branch is left
+  expect(done).not.toContain('Nothing to');
 });
 
 test('a requested action card shows only its concrete action', () => {

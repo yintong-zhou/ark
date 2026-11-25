@@ -16,6 +16,7 @@ import { FileTree } from '../components/FileTree';
 import { GitView } from '../components/GitView';
 import { AgentsIcon, CloseIcon, ExplorerIcon, GitBranchIcon, PlusIcon, ThreadIcon, TrashIcon } from '../components/Icons';
 import { Empty, PaneHeader } from '../components/Page';
+import { loadFlag, saveFlag } from '../saved';
 import { Main, Pill, Presence, Sidebar, SideLabel, SideRow } from '../components/Shell';
 import { TabStrip } from '../components/TabStrip';
 import { TeamPanel } from '../components/TeamPanel';
@@ -70,6 +71,8 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
   const tags = [...new Set(mine.flatMap((t) => t.tags ?? []))];
   const only = filter && tags.includes(filter) ? filter : undefined;
   const listed = only ? mine.filter((t) => t.tags?.includes(only)) : mine;
+  const [workspaceOpen, setWorkspaceOpen] = useState(() => loadFlag('ark-workspace-open', true));
+  const toggleWorkspace = () => setWorkspaceOpen((open) => { saveFlag('ark-workspace-open', !open); return !open; });
   const [selectedView, setViewState] = useState(lastView);
   const view = selectedView === 'team' && !thread ? 'files' : selectedView;
   const setView = (v: View) => setViewState(keepView(v));
@@ -236,6 +239,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
             tabs={tabs}
             label={draft ? 'New thread' : thread ? `# ${thread.title}` : project.name}
             terminal={{ open: terms.open, onToggle: () => toggleTerminal(project.id, root) }}
+            workspace={{ open: workspaceOpen, onToggle: toggleWorkspace }}
           />
         )}
         <div className="flex min-h-0 flex-1 flex-col">
@@ -313,7 +317,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
         )}
       </Main>
 
-      {project && (
+      {project && workspaceOpen && (
         <Sidebar
           title="Workspace"
           label="Workspace"

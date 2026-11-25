@@ -1,4 +1,4 @@
-﻿import { useState, type ReactNode } from 'react';
+﻿﻿import { useState, type ReactNode } from 'react';
 import { AGENT_ID_RE, agentId, isLocked, validateAgent, type AgentDef, type EngineId, type EngineSetting, type Permissions } from '@shared/agent-file';
 import type { ImageInput } from '@shared/attachments';
 import { FACES, nextFace } from '@shared/avatars';
@@ -43,6 +43,8 @@ function Form({ initial, isNew, taken, face, skills, reloadSkills, installed, co
   const [idea, setIdea] = useState('');
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState<string>();
+  const [writing, setWriting] = useState(false);
+  const [writeError, setWriteError] = useState<string>();
   const changeName = (nextAlias: string, nextRole: string) => { setAlias(nextAlias); setRole(nextRole); if (isNew && !usernameEdited) setUsername(agentId(nextRole || nextAlias)); };
   const name = role.trim() ? `${alias.trim()} - ${role.trim()}` : alias.trim();
   const legacyLong = !isNew && initial.alias === undefined && alias === initial.name && alias.length > 40 && !role;
@@ -57,6 +59,11 @@ function Form({ initial, isNew, taken, face, skills, reloadSkills, installed, co
       changeName(a.alias ?? a.name, a.role ?? ''); setDescription(a.description); setEngine(a.engine); setPermissions(a.permissions); setPicked(a.skills); setPrompt(a.prompt);
     } catch (e) { setDraftError(readable(e)); } finally { setDrafting(false); }
   };
+  const writePrompt = async () => {
+    setWriting(true); setWriteError(undefined);
+    try { setPrompt(await window.ark.catalog.writePrompt({ name, alias: alias.trim(), role: role.trim(), description, permissions, skills: picked, prompt })); }
+    catch (e) { setWriteError(readable(e)); } finally { setWriting(false); }
+  };
   const upload = async () => { try { setImageError(undefined); const pickedImage = await window.ark.catalog.pickImage(); if (pickedImage) { setImage(pickedImage); setAvatar('custom'); } } catch (e) { setImageError(readable(e)); } };
   return <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); if (!problem && checked.ok) void run(() => window.ark.catalog.save(checked.agent, image)); }}>
     {isNew && <div className="flex flex-col gap-1"><div className="flex gap-1"><input aria-label="Describe the agent in one sentence" placeholder="Describe the agent in one sentence" value={idea} maxLength={2000} disabled={drafting} onChange={(e) => setIdea(e.target.value)} className={`${INPUT} flex-1`} /><button type="button" disabled={drafting || !idea.trim()} onClick={() => void draftAgent()} className={BUTTON}>{drafting ? 'Drafting' : 'Draft with AI'}</button></div>{draftError && <p role="alert" className="text-muted">{draftError}</p>}</div>}
@@ -68,7 +75,15 @@ function Form({ initial, isNew, taken, face, skills, reloadSkills, installed, co
     <ModelField engine={engine} lock={lock} installed={installed} codex={codex} onChange={(e, l) => { setEngine(e); setLock(l); }} />
     <Field label="Can change files"><Select label="Can change files" value={permissions} onChange={(v) => setPermissions(v as Permissions)} options={[{ value: 'read-only', label: 'No - advisor only' }, { value: 'build', label: 'Yes - can write code in the thread worktree' }]} className="w-full" /></Field>
     <SkillsField skills={skills} picked={picked} onChange={setPicked} onReload={reloadSkills} />
-    <Field label="System prompt"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={10} className={`${FIELD} font-mono`} /></Field>
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center justify-between gap-1">
+        <label htmlFor="system-prompt" className="text-meta text-muted">System prompt</label>
+        <button type="button" disabled={writing || !(alias.trim() || role.trim() || description.trim())} onClick={() => void writePrompt()} className={`${BUTTON} text-meta`}>{writing ? 'Writing' : prompt.trim() ? 'Improve with AI' : 'Write with AI'}</button>
+      </div>
+      <textarea id="system-prompt" value={prompt} disabled={writing} onChange={(e) => setPrompt(e.target.value)} rows={10} className={`${FIELD} font-mono`} />
+      <span className="text-meta text-muted">Written from the name, role, task, permissions and skills above; with a prompt already here, it is improved instead. You can edit the result before saving.</span>
+      {writeError && <p role="alert" className="text-muted">{writeError}</p>}
+    </div>
     {(problem ?? saveError) && <p role="alert" className="text-muted">{problem ?? saveError}</p>}
     <div className="flex gap-1"><button type="submit" disabled={!!problem} className={CTA}>Save</button><button type="button" onClick={onDone} className={BUTTON}>Cancel</button>{!isNew && <button type="button" onClick={() => confirmDelete ? void run(() => window.ark.catalog.remove(initial.id)) : setConfirmDelete(true)} className={`${BUTTON} ml-auto`}>{confirmDelete ? 'Confirm delete' : 'Delete'}</button>}</div>
   </form>;

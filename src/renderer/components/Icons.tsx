@@ -95,6 +95,15 @@ export const AgentsIcon = () => (
   </svg>
 );
 
+/** A window with its right column: the workspace panel. */
+export const PanelRightIcon = ({ open }: { open: boolean }) => (
+  <svg {...base}>
+    <rect x="3" y="4" width="14" height="12" rx="2" />
+    <path d="M12.5 4v12" />
+    {open && <path d="M14 8h1M14 10h1M14 12h1" opacity="0.55" />}
+  </svg>
+);
+
 /** Sliders: the settings. */
 export const SettingsIcon = () => (
   <svg {...base}>

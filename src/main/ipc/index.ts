@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { app, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
-import { DRAFTER, extractAgentFile } from '@shared/agent-draft';
+import { DRAFTER, extractAgentFile, extractPrompt, PROMPT_WRITER, promptRequest, type PromptBrief } from '@shared/agent-draft';
 import { checkUploads, kindOf, type Upload } from '@shared/attachments';
 import { cleanBounds } from '@shared/browser';
 import { AGENT_ID_RE, agentId as slug, parseAgentFile, splitFrontmatter, validateAgent } from '@shared/agent-file';
@@ -252,6 +252,18 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
     const r = file ? parseAgentFile(file, slug(typeof name === 'string' ? name : '')) : undefined;
     if (!r?.ok) throw new Error('The draft was not a valid agent file: ' + (r ? r.error : 'no agent file in the reply'));
     return { ...r.agent, skills: r.agent.skills.filter((s) => names.includes(s)) }; // drop skills the drafter made up
+  });
+  handle('catalog:write-prompt', async (brief) => {
+    const b = brief as Partial<PromptBrief> | null;
+    const text = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
+    if (!b || !text(b.name, 200) || !text(b.description, 4000) || !text(b.alias ?? '', 200) || !text(b.role ?? '', 200) || !text(b.prompt ?? '', 50000)
+      || (b.permissions !== 'read-only' && b.permissions !== 'build') || !Array.isArray(b.skills) || b.skills.length > 100 || !b.skills.every((x) => text(x, 200))) throw new Error('invalid agent');
+    if (!(b.alias?.trim() || b.role?.trim() || b.description?.trim())) throw new Error('Give the agent a name, a role or a task first');
+    const dir = join(tempDir, 'ark', 'drafter'); // an empty folder of Ark's own, as for catalog:draft
+    mkdirSync(dir, { recursive: true });
+    const prompt = extractPrompt(await runner.oneShot(PROMPT_WRITER, dir, promptRequest(b as PromptBrief)));
+    if (!prompt) throw new Error('The writer sent back no prompt');
+    return prompt;
   });
   handle('skills:list', (): SkillInfo[] => skills().map(({ name, source, description }) => ({ name, source, description })));
   // The folder that came back 'exists' stays here so replace() needs no path from the renderer.
