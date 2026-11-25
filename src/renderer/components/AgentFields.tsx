@@ -2,11 +2,11 @@ import { useState, type ReactNode } from 'react';
 import { engineString, modelOptions, parseEngineSetting, type EngineId, type EngineSetting } from '@shared/agent-file';
 import type { SkillInfo } from '@shared/types';
 import { Select } from './Select';
-import { INPUT } from './ui';
+import { BUTTON, INPUT } from './ui';
 
 export function ModelField({ engine, lock, installed, codex, onChange }: { engine: EngineSetting; lock: boolean; installed: Record<EngineId, boolean>; codex: string[]; onChange: (engine: EngineSetting, lock: boolean) => void }) {
   return <div className="flex flex-col gap-1">
-    <label className="flex flex-col gap-[4px]"><span className="text-meta text-muted">Model</span>
+    <label className="flex flex-col gap-0.5"><span className="text-meta text-muted">Model</span>
       <Select label="Model" value={engineString(engine)} onChange={(v) => { const next = parseEngineSetting(v); if (next) onChange(next, next.kind === 'model' ? lock : false); }} options={modelOptions(installed, codex, engine)} className="w-full" />
     </label>
     {engine.kind === 'model' && <label className="flex items-center gap-1"><input type="checkbox" checked={lock} onChange={(e) => onChange(engine, e.target.checked)} className="accent-neutral-light" />Lock this model</label>}
@@ -15,7 +15,7 @@ export function ModelField({ engine, lock, installed, codex, onChange }: { engin
 }
 
 const SOURCE_LABEL: Record<string, string> = { ark: 'Ark' };
-const BTN = 'rounded-sm border border-raised px-1 py-[2px] text-meta hover:bg-raised/50';
+const BTN = `${BUTTON} text-meta`;
 
 export function SkillsField({ skills, picked, onChange, onReload, children }: { skills: SkillInfo[]; picked: string[]; onChange: (picked: string[]) => void; onReload: () => Promise<void>; children?: ReactNode }) {
   const [filter, setFilter] = useState('');
@@ -41,18 +41,18 @@ export function SkillsField({ skills, picked, onChange, onReload, children }: { 
   return <fieldset className="flex flex-col gap-1">
     <legend className="mb-1 text-meta text-muted">Skills</legend>
     <p className="text-meta text-muted">Skills installed on this PC, plus the ones you import into Ark.</p>
-    <div className="flex gap-1">
-      <input aria-label="Filter skills" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className={INPUT} />
+    <div className="flex flex-wrap gap-1">
+      <input aria-label="Filter skills" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className={`${INPUT} flex-1`} />
       <button type="button" onClick={doImport} className={BTN}>Import skill</button>
     </div>
     {note && <p className="text-meta text-muted">{note}{exists && <> <button type="button" onClick={doReplace} className={BTN}>Replace it</button></>}</p>}
-    <ul className="flex max-h-40 flex-col overflow-y-auto rounded-sm border border-raised">
-      {shown.length === 0 && <li className="px-1 py-[4px] text-muted">No skills match.</li>}
-      {shown.map((s) => <li key={s.name}><label className="flex cursor-pointer items-center gap-1 px-1 py-[4px] hover:bg-raised/50">
+    <ul className="flex max-h-40 flex-col overflow-y-auto rounded-md border border-divider">
+      {shown.length === 0 && <li className="px-1 py-0.5 text-muted">No skills match.</li>}
+      {shown.map((s) => <li key={s.name}><label className="flex cursor-pointer items-center gap-1 px-1 py-0.5 hover:bg-raised/50">
         <input type="checkbox" checked={picked.includes(s.name)} onChange={() => onChange(picked.includes(s.name) ? picked.filter((n) => n !== s.name) : [...picked, s.name])} className="accent-neutral-light" />
         <span>{s.name}</span><span className="text-meta text-muted">{SOURCE_LABEL[s.source] ?? s.source}</span>
       </label>
-        {s.source === 'ark' && <span className="flex items-center gap-1 px-1 pb-[4px]">
+        {s.source === 'ark' && <span className="flex items-center gap-1 px-1 pb-0.5">
           {confirm === s.name
             ? <><button type="button" onClick={() => doRemove(s.name)} className={BTN}>Remove from Ark</button><button type="button" onClick={() => setConfirm('')} className={BTN}>Cancel</button></>
             : <button type="button" onClick={() => setConfirm(s.name)} className={BTN}>Remove</button>}

@@ -3,6 +3,7 @@ import { threadGitActions, threadGitLines, type ThreadGit as State, type ThreadG
 import type { Thread } from '@shared/thread';
 import { readable } from '../errors';
 import { confirmAction } from './Confirm';
+import { GitBranchIcon } from './Icons';
 import { BUTTON_INSET, FIELD_INSET } from './ui';
 
 /**
@@ -67,9 +68,13 @@ export function ThreadGitPanel({ state, phase, busy, message, onMessage, onActio
 }) {
   const actions = threadGitActions(state, phase).filter((a) => !requested || a.kind === requested);
   return (
-    <section aria-label="Git actions for this thread" className="mx-2 mb-1 flex flex-col gap-[4px] rounded-md bg-raised p-1 text-meta text-muted lg:mx-3">
+    <section aria-label="Git actions for this thread" className="surface-card mx-2 mb-1 flex flex-col gap-1 rounded-md bg-raised p-1.5 text-meta text-muted lg:mx-3">
+      <p className="flex items-center gap-1 text-secondary">
+        <span className="text-muted [&_svg]:size-2"><GitBranchIcon /></span>
+        <code className="min-w-0 truncate font-mono">{state.branch}</code>
+      </p>
       <ul className="flex flex-col">
-        {threadGitLines(state).map((l) => <li key={l}>{l}</li>)}
+        {threadGitLines(state).filter((l) => !l.startsWith('Branch ')).map((l) => <li key={l}>{l}</li>)}
       </ul>
       {!actions.length && <p>{requested ? `No ${requested} action is available for the current Git state.` : 'Nothing to commit, merge or push.'}</p>}
       {actions.map((a) => (

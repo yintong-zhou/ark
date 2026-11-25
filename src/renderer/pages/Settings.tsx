@@ -1,9 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { ThemeMode, ViewMode } from '@shared/types';
 import { AGENT_NAME } from '../agents';
 import { Page } from '../components/Page';
 import { applyTheme } from '../theme';
 import { StatuslineSection } from './StatuslineConnect';
+import { Highlight, LayoutGroup } from '../motion';
+import { INPUT } from '../components/ui';
 
 /** Every Ark setting in one place. Engines and the Head of Staff stay in the agent catalog, next to the agents they configure. */
 
@@ -21,19 +23,23 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 }
 
 function Choice<T extends string>({ label, value, options, onPick }: { label: string; value: T; options: [T, string][]; onPick: (v: T) => void }) {
+  const group = useId();
   return (
-    <div role="group" aria-label={label} className="control-inset flex h-4 w-fit items-center rounded-sm bg-primary p-[2px]">
-      {options.map(([v, text]) => (
-        <button
-          key={v}
-          onClick={() => onPick(v)}
-          aria-pressed={value === v}
-          className={`h-full rounded-xs px-1 text-meta ${value === v ? 'control-raised bg-raised text-secondary' : 'text-muted hover:text-secondary'}`}
-        >
-          {text}
-        </button>
-      ))}
-    </div>
+    <LayoutGroup id={group}>
+      <div role="group" aria-label={label} className="control-inset flex h-5 w-fit items-center rounded-sm bg-primary p-0.5">
+        {options.map(([v, text]) => (
+          <button
+            key={v}
+            onClick={() => onPick(v)}
+            aria-pressed={value === v}
+            className={`relative isolate h-full rounded-xs px-1.5 text-body ${value === v ? 'text-secondary' : 'text-muted hover:text-secondary'}`}
+          >
+            {value === v && <Highlight group={group} className="control-raised absolute inset-0 -z-10 rounded-xs bg-raised" />}
+            <span>{text}</span>
+          </button>
+        ))}
+      </div>
+    </LayoutGroup>
   );
 }
 
@@ -68,7 +74,7 @@ export function Settings() {
         <Choice label="Usage view" value={view} options={VIEWS.map((v): [ViewMode, string] => [v, v[0].toUpperCase() + v.slice(1)])} onPick={pickView} />
       </Section>
       <Section title="Handoff" hint="Context used at the end of a thread turn. Applies to Claude and Codex planning sessions.">
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           {(['claude', 'codex'] as const).map((engine) => (
             <label key={engine} className="flex items-center gap-1">
               {AGENT_NAME[engine]}
@@ -77,7 +83,7 @@ export function Settings() {
                 type="number" min={1} max={100} step={1}
                 defaultValue={thresholds[engine]}
                 key={engine + ':' + thresholds[engine]}
-                className="w-6 rounded-sm bg-raised px-1 text-secondary"
+                className={`${INPUT} w-8 tabular-nums`}
                 onBlur={(e) => {
                   const percent = Number(e.currentTarget.value);
                   if (!Number.isInteger(percent) || percent < 1 || percent > 100) {

@@ -44,6 +44,7 @@
   --edge-light: rgb(222 225 230 / 0.10);
   --depth-control: inset 0 1px 0 rgb(250 250 249 / 0.07), 0 2px 3px rgb(0 0 0 / 0.20);
   --depth-card: inset 0 1px 0 rgb(250 250 249 / 0.04), 0 4px 12px rgb(0 0 0 / 0.14);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1); /* the one easing curve (same as EASE in motion.tsx) */
   --depth-floating: inset 0 1px 0 rgb(250 250 249 / 0.06), 0 12px 32px rgb(0 0 0 / 0.40), 0 2px 6px rgb(0 0 0 / 0.24);
 }
 
@@ -86,6 +87,15 @@
     scrollbar-color: var(--color-raised) transparent;
   }
 
+  /* State changes ease instead of snapping: named properties only, never layout. */
+  @media (prefers-reduced-motion: no-preference) {
+    button, a, summary, input, textarea, select, [role='tab'], [role='menuitem'], [role='menuitemradio'], [class*='hover:'], [class*='focus-within:'] {
+      transition-property: color, background-color, border-color, box-shadow, opacity, filter, transform;
+      transition-duration: 120ms;
+      transition-timing-function: var(--ease);
+    }
+  }
+
   :focus-visible {
     outline: 2px solid var(--color-neutral-light);
     outline-offset: 2px;
@@ -98,6 +108,7 @@
   border: 1px solid var(--edge-light);
   &:enabled:active {
     box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.25);
+    @media (prefers-reduced-motion: no-preference) { transform: scale(0.97); }
   }
 }
 
@@ -151,5 +162,37 @@
 @utility breathe {
   @media (prefers-reduced-motion: no-preference) {
     animation: presence 1.6s ease-in-out infinite;
+  }
+}
+
+/* A dialog or popup arriving: fades in and rises a few pixels. Leaving is instant on purpose. */
+@keyframes arrive {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+@keyframes arrive-fade {
+  from { opacity: 0; }
+}
+@utility arrive {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: arrive 160ms var(--ease);
+    transform-origin: top left;
+  }
+}
+@utility arrive-backdrop {
+  @media (prefers-reduced-motion: no-preference) {
+    &::backdrop { animation: arrive-fade 160ms var(--ease); }
+  }
+}
+
+/* An agent's eyes: closed for a moment every few seconds. Period and phase come from the agent (--blink-d, --blink-w), so a list never blinks in unison. */
+@keyframes blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95.5% { transform: scaleY(0.1); }
+}
+@utility blink {
+  @media (prefers-reduced-motion: no-preference) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: blink var(--blink-d, 6s) var(--blink-w, 0s) infinite;
   }
 }

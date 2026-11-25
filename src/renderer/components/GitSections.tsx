@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Disclosure } from './StateIcons';
 import { rootKey, type RootRef } from '@shared/files';
 import type { GitBranches, GitStatus, ThreadGit, WorktreeRow } from '@shared/git';
 import type { Thread } from '@shared/thread';
@@ -103,7 +104,7 @@ export function BranchMenu({ root, status, locked, attempt, at, onClose }: Props
       role="menu"
       // keep it on screen near the right and bottom edges
       style={{ left: Math.min(at.x, window.innerWidth - WIDTH - 8), top: Math.max(8, Math.min(at.y, window.innerHeight - HEIGHT - 16)), width: WIDTH, maxHeight: HEIGHT }}
-      className="fixed z-50 overflow-y-auto rounded-sm bg-raised py-[4px] shadow-lg"
+      className="surface-floating arrive fixed z-50 overflow-y-auto rounded-md bg-sidebar py-[4px]"
     >
       {mode === 'create' && (
         <div className="px-1 py-[4px]">
@@ -212,7 +213,7 @@ export function WorktreesSection({ projectId, attempt, onShowThread }: SectionPr
     <section>
       <div className={ROW}>
         <button aria-expanded={open} onClick={toggle} className="section flex flex-1 items-center gap-[4px] text-left">
-          <span aria-hidden className="w-2 shrink-0">{open ? '▾' : '▸'}</span>Worktrees
+          <span aria-hidden className="flex w-2 shrink-0 justify-center"><Disclosure open={open} /></span>Worktrees
         </button>
         <button disabled={busy} onClick={() => run(() => git.pruneWorktrees(projectId))} className={LINK}>Prune</button>
       </div>

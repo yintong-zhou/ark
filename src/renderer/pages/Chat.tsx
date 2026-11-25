@@ -126,7 +126,7 @@ export function Chat({ agentId }: { agentId: string }) {
 
 function Entry({ e, agentName, agent, onLink }: { e: ChatEntry; agentName: string; agent?: AgentDef; onLink: (href: string) => void }) {
   if (e.role === 'error') {
-    return <li role="alert" className="mt-2 whitespace-pre-wrap break-words pl-[80px] pr-3 text-meta text-muted">{e.text}</li>;
+    return <li role="alert" className="mt-2 whitespace-pre-wrap break-words pl-10 pr-3 text-meta text-muted">{e.text}</li>;
   }
   const you = e.role === 'user';
   const author = you ? 'You' : agentName;
@@ -137,7 +137,7 @@ function Entry({ e, agentName, agent, onLink }: { e: ChatEntry; agentName: strin
         <div className="flex items-baseline gap-1">
           <span className="head">{author}</span>
           {e.model && (
-            <span className="inline-flex items-center gap-[4px] rounded-full bg-raised px-1 text-meta text-muted" title={e.model}>
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-raised px-1 text-meta text-muted" title={e.model}>
               <ModelMark model={e.model} />
               {shortModel(e.model)}
             </span>

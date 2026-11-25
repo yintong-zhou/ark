@@ -11,9 +11,9 @@ const KINDS = [
 /** How a token count reads under a message and in the team panel: a line icon per kind and its number. */
 export function TokenLine({ tokens }: { tokens: TokenCount }) {
   return (
-    <span className="flex flex-wrap gap-x-[8px] text-meta text-muted">
+    <span className="flex flex-wrap gap-x-1 text-meta tabular-nums text-muted">
       {KINDS.map(([kind, label]) => (
-        <span key={kind} title={label} className="inline-flex items-center gap-[2px]">
+        <span key={kind} title={label} className="inline-flex items-center gap-0.5">
           <TokenIcon kind={kind} />
           <span className="sr-only">{label}:</span>
           {nf.format(tokens[kind])}

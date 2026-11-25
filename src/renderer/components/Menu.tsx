@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useOverlay } from '../browser/overlay';
 
 export type MenuItem = { label: string; onClick?: () => void; danger?: boolean; icon?: ReactNode; shortcut?: string; separator?: boolean; detail?: string; checked?: boolean };
@@ -61,12 +62,13 @@ export function Menu({ items, at, onClose, searchPlaceholder, label, width = sea
   const left = Math.max(8, Math.min(at.x, window.innerWidth - width - 8));
   const height = shown.reduce((n, i) => n + (i.detail ? 88 : 40), 0);
   const top = Math.max(8, Math.min(at.y, window.innerHeight - Math.max(40, height) - (searchPlaceholder ? 56 : 16)));
-  return (
+  // in the body, so a page that is still rising (a transformed ancestor) cannot shift a fixed popup
+  return createPortal(
     <div
       ref={ref}
       onKeyDown={navigate}
       style={{ left, top, width, maxHeight: window.innerHeight - top - 8 }}
-      className="surface-floating no-drag fixed z-50 flex max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md bg-sidebar"
+      className="surface-floating arrive no-drag fixed z-50 flex max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md bg-sidebar"
     >
       {searchPlaceholder && (
         <div className="shrink-0 border-b border-divider p-1">
@@ -104,6 +106,7 @@ export function Menu({ items, at, onClose, searchPlaceholder, label, width = sea
         ))}
         {shown.length === 0 && <li role="none" className="px-2 py-1 text-meta text-muted">No actions found.</li>}
       </ul>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import type { AgentDef } from '@shared/agent-file';
 import type { Phase, Reaction, Thread, ThreadMessage } from '@shared/thread';
 import { actionable, cyclePhases, cycleReviews, decisionsOf, lastModel, reactionsOf, startsGroup } from '@shared/thread-view';
@@ -8,7 +9,8 @@ import { Sent, toUploads } from './Attachments';
 import { AgentAvatar, Avatar } from './Avatar';
 import { ApprovalCard, Cards, PhaseCard, PlanCard } from './Cards';
 import { Composer } from './Composer';
-import { PHASE_GLYPH, shortModel } from './glyphs';
+import { shortModel } from './glyphs';
+import { StateIcon } from './StateIcons';
 import { ModelMark } from './Logos';
 import { Markdown } from './Markdown';
 import { PauseIcon, TasksIcon, ThreadIcon } from './Icons';
@@ -36,6 +38,9 @@ const AT_REST: Record<Phase, string> = {
   done: 'Finished',
 };
 
+/** Messages that have already risen into place, so a remount (Tasks and back) does not play them again. */
+const risen = new Set<string>();
+
 /** Time of day, with the date when it was not today. */
 const clock = (at: number) => {
   const d = new Date(at);
@@ -51,6 +56,10 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
   const [inflight, setInflight] = useState(0); // IPC calls awaiting main; the one-shot buttons wait for them
   const [answering, setAnswering] = useState(false);
   const end = useRef<HTMLDivElement>(null);
+  // a message written while the thread is open rises into place once; history, and a message seen again after a tab switch, stays still
+  const [openedAt] = useState(Date.now);
+  const arrives = (m: ThreadMessage) => (m.at < openedAt || risen.has(`${thread.id}:${m.seq}`) ? { initial: false as const } : { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 } });
+  useEffect(() => { messages.forEach((m) => risen.add(`${thread.id}:${m.seq}`)); }, [messages, thread.id]);
   // keep the latest message and the composer in view
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'end' });
@@ -86,11 +95,11 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
   };
 
   const status = thread.speaking
-    ? `⏳ ${name(thread.speaking)} is working`
+    ? `${name(thread.speaking)} is working`
     : thread.waitingOn
-      ? `✋ ${name(thread.waitingOn)} is waiting for you`
+      ? `${name(thread.waitingOn)} is waiting for you`
       : thread.status === 'error'
-        ? '⚠️ Something went wrong. Send a message to continue'
+        ? 'Something went wrong. Send a message to continue'
         : AT_REST[thread.phase];
 
   // Only these kinds are drawn, so a kind added later stays hidden until it gets a card. A reaction sits under its
@@ -100,7 +109,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
 
   return (
     <>
-      <PaneHeader title={thread.title} meta={board ? ['Task board'] : [`${PHASE_GLYPH[thread.phase]} ${PHASE[thread.phase]}`, status]} actions={
+      <PaneHeader title={thread.title} meta={board ? ['Task board'] : [PHASE[thread.phase], status]} actions={
         <button className={BUTTON} aria-label={board ? 'Conversation' : `Tasks (${thread.tasks?.length ?? 0})`} title={board ? 'Conversation' : 'Task board'} aria-pressed={board} onClick={() => setBoard(!board)}>
           {board ? <ThreadIcon /> : <TasksIcon />}
           {!board && <span className="text-meta">{thread.tasks?.length ?? 0}</span>}
@@ -112,23 +121,23 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
           {rows.map(({ m, first }) => {
             if (m.kind === 'note') {
               return (
-                <li key={m.seq} className="mt-2 whitespace-pre-wrap break-words pl-[68px] pr-2 text-meta text-muted lg:pl-[80px] lg:pr-3">
-                  <span aria-hidden className="mr-[4px]">ℹ️</span>{m.text}
-                </li>
+                <motion.li key={m.seq} {...arrives(m)} className="mt-2 whitespace-pre-wrap break-words pl-[68px] pr-2 text-meta text-muted lg:pl-[80px] lg:pr-3">
+                  <StateIcon kind="info" className="mr-[4px] inline size-[14px] align-[-2px]" />{m.text}
+                </motion.li>
               );
             }
             if (m.kind === 'phase') {
               const phases = cyclePhases(thread.build, m.cycle);
               const phase = phases?.[m.index];
               return phase && (
-                <li key={m.seq} className="mt-2 pl-[68px] pr-2 lg:pl-[80px] lg:pr-3">
+                <motion.li key={m.seq} {...arrives(m)} className="mt-2 pl-[68px] pr-2 lg:pl-[80px] lg:pr-3">
                   <PhaseCard phase={phase} index={m.index} total={phases.length} builder={phase.builder ? name(phase.builder) : undefined} reviews={cycleReviews(thread.build, m.cycle)} />
-                </li>
+                </motion.li>
               );
             }
             if (m.kind === 'approval') {
               return (
-                <li key={m.seq} className="mt-2 pl-[68px] pr-2 lg:pl-[80px] lg:pr-3">
+                <motion.li key={m.seq} {...arrives(m)} className="mt-2 pl-[68px] pr-2 lg:pl-[80px] lg:pr-3">
                   <ApprovalCard
                     m={m}
                     name={name(m.agent)}
@@ -137,7 +146,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
                     busy={answering}
                     answer={(allow) => { setAnswering(true); void run(() => window.ark.threads.answer(thread.id, m.seq, allow)).finally(() => setAnswering(false)); }}
                   />
-                </li>
+                </motion.li>
               );
             }
             const mine = card?.seq === m.seq;
@@ -146,7 +155,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
             const model = m.kind === 'agent' ? m.model || lastModel(messages, m.agent) : undefined;
             const mood = m.kind === 'agent' ? reactions.get(m.seq) : undefined;
             return (
-              <li key={m.seq} className={`group relative flex gap-1.5 px-2 hover:bg-raised/30 lg:gap-2 lg:px-3 ${first ? 'mt-2' : 'mt-[2px]'}`}>
+              <motion.li key={m.seq} {...arrives(m)} className={`group relative flex gap-1.5 px-2 hover:bg-raised/30 lg:gap-2 lg:px-3 ${first ? 'mt-2' : 'mt-[2px]'}`}>
                 {mine && <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-accent" />}
                 <div className="w-5 shrink-0">
                   {first ? (
@@ -199,7 +208,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
                   )}
                 </div>
                 {m.kind === 'agent' && <Mood current={mood} react={(e) => run(() => window.ark.threads.react(thread.id, m.seq, e))} />}
-              </li>
+              </motion.li>
             );
           })}
         </ol>

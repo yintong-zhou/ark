@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Reveal } from '../motion';
 
 /** The 48px bar over a pane: its title in Outfit, then muted facts kept apart by space, and the pane's actions. */
 export function PaneHeader({ title, meta = [], actions }: { title: string; meta?: string[]; actions?: ReactNode }) {
@@ -33,7 +34,7 @@ export function Page({ title, meta, actions, children, narrow = false }: {
 /** Label and value pairs. */
 export function Facts({ rows }: { rows: [label: string, value: ReactNode][] }) {
   return (
-    <dl className="grid grid-cols-[160px_1fr] gap-x-2 gap-y-1">
+    <dl className="grid grid-cols-[minmax(0,160px)_minmax(0,1fr)] gap-x-2 gap-y-1">
       {rows.map(([label, value]) => (
         <div key={label} className="contents">
           <dt className="text-muted">{label}</dt>
@@ -47,11 +48,11 @@ export function Facts({ rows }: { rows: [label: string, value: ReactNode][] }) {
 /** What a pane says when there is nothing to show yet, and the one thing to do about it. */
 export function Empty({ glyph, title, children, action }: { glyph?: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-start gap-2 px-2 py-5 lg:px-3">
-      {glyph && <span aria-hidden className="text-[32px] leading-none">{glyph}</span>}
+    <Reveal className="flex flex-col items-start gap-2 px-2 py-5 lg:px-3">
+      {glyph && <span aria-hidden className="h-0.5 w-3 rounded-xs bg-divider" />}
       <h2 className="text-title">{title}</h2>
       {children && <p className="max-w-[60ch] text-muted">{children}</p>}
       {action}
-    </div>
+    </Reveal>
   );
 }

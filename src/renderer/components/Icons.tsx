@@ -11,6 +11,14 @@ const base = {
   'aria-hidden': true,
 } as const;
 
+/** A quiet timestamp mark for usage readings. */
+export const ClockIcon = () => (
+  <svg {...base} width={16} height={16} viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 4.5V8l2.5 1.5" />
+  </svg>
+);
+
 /** Back and forward in the page history. */
 export const ArrowIcon = ({ dir }: { dir: 'back' | 'forward' }) => (
   <svg {...base}>

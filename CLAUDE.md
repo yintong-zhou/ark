@@ -20,6 +20,7 @@ behavior in `README.md`.
 - `src/renderer/editor/`, `src/renderer/files/`, `src/renderer/git/`: module-level stores for open tabs (Monaco, loaded
   lazily), the file tree and the Git status.
 - `src/main/services/terminals.ts`, `src/renderer/terminal/`: the user's terminals (node-pty in main, xterm loaded lazily).
+- `src/renderer/motion.tsx`: the app's motion (the `motion` package): one easing, three durations, `Reveal`, `Highlight` (sliding selection), `Tween`. Only opacity, transform and clip-path animate, never layout; nothing loops except the speaking dot. `StateIcons.tsx` replaces emoji as icons.
 - `src/main/ipc/index.ts`: IPC handlers. `src/preload/index.ts`: the `contextBridge` API.
 - `src/shared/`: types and pure logic used by both main and renderer.
 - `src/renderer/`: React UI (`pages/`, `components/`, `hooks/`).

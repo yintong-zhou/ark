@@ -18,7 +18,7 @@ export function Accounts({ state }: { state: UsageState | null }) {
     <Page title="Accounts" meta={['Read-only: Ark never signs in for you']}>
       <ul className="flex flex-col">
         {(state?.agents ?? []).map((a) => (
-          <li key={a.id} className="flex items-center gap-2 border-t border-divider py-2">
+          <li key={a.id} className="flex flex-wrap items-center gap-2 border-t border-divider py-2">
             <AgentTag id={a.id} />
             <span className="w-13 shrink-0 text-secondary">{AGENT_NAME[a.id]}</span>
             {!a.installed ? (
@@ -26,15 +26,15 @@ export function Accounts({ state }: { state: UsageState | null }) {
             ) : !a.account ? (
               <span className="text-muted">Account unknown: Ark couldn&apos;t read it from {AGENT_NAME[a.id]}</span>
             ) : a.account.loggedIn ? (
-              <span className="flex gap-3">
+              <span className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 break-words">
                 <span>{a.account.email ?? 'Signed in'}</span>
                 <span className="text-muted">{METHOD[a.account.method]}</span>
                 {a.account.plan && <span className="text-muted">{a.account.plan}</span>}
               </span>
             ) : (
-              <span className="flex items-center gap-1">
+              <span className="flex flex-wrap items-center gap-1">
                 <span className="text-muted">Not signed in. Run</span>
-                <code className="rounded-xs bg-raised px-[4px] font-mono text-secondary">{LOGIN[a.id]}</code>
+                <code className="rounded-xs bg-raised px-0.5 font-mono text-secondary">{LOGIN[a.id]}</code>
                 <button onClick={() => copy(a.id)} className="rounded-xs text-secondary underline-offset-4 hover:underline">
                   {copied === a.id ? 'Copied' : 'Copy'}
                 </button>

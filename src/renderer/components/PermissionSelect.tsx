@@ -16,7 +16,7 @@ export function PermissionSelect({ value, onChange, disabled = false, readOnly =
     <>
       <button type="button" aria-label={`Permissions: ${PERMISSION_LABEL[value]}`} aria-description={note} aria-haspopup="menu" aria-expanded={!!at}
         disabled={disabled} title={note ? `${detail} ${note}` : detail}
-        className="flex h-4 shrink-0 items-center gap-[4px] rounded-sm px-[6px] text-meta text-muted enabled:hover:bg-raised/60 enabled:hover:text-secondary disabled:opacity-40"
+        className="flex h-4 shrink-0 items-center gap-0.5 rounded-sm px-1 text-meta text-muted enabled:hover:bg-raised/60 enabled:hover:text-secondary disabled:opacity-40"
         // opens above: the control sits at the bottom of the pane; Menu keeps it on screen
         onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setAt({ x: rect.left, y: rect.top - 4 - PERMISSION_MODES.length * 88 - 16 }); }}>
         <AccessIcon mode={value} />
