@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import type { RootRef } from '@shared/files';
 import { closeBrowser, useBrowser } from '../browser/browser-store';
 import { activate, BROWSER_TAB, close, type TabsView } from '../editor/tabs-store';
-import { CloseIcon, PlusIcon } from './Icons';
+import { CloseIcon, PanelRightIcon, PlusIcon } from './Icons';
 import { ICON_BUTTON } from './ui';
 import { Highlight, LayoutGroup } from '../motion';
 import { EntryIcon } from './EntryIcon';
@@ -10,7 +10,7 @@ import { NewTabMenu } from './NewTabMenu';
 
 const TAB = 'no-drag group relative isolate flex h-4 max-w-[200px] shrink-0 items-center gap-0.5 rounded-sm px-1.5 text-meta';
 
-type Props = { projectId: string; root: RootRef; label: string; tabs: TabsView; terminal: { open: boolean; onToggle: () => void } };
+type Props = { projectId: string; root: RootRef; label: string; tabs: TabsView; terminal: { open: boolean; onToggle: () => void }; workspace: { open: boolean; onToggle: () => void } };
 
 /** The page's host and port, or `Browser` before an address. */
 function hostOf(url: string): string {
@@ -22,7 +22,7 @@ function hostOf(url: string): string {
 }
 
 /** The main pane's tabs, followed by a + menu for terminals and the browser. */
-export function TabStrip({ projectId, root, label, tabs, terminal }: Props) {
+export function TabStrip({ projectId, root, label, tabs, terminal, workspace }: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number }>();
   const closeMenu = useCallback(() => setMenu(undefined), []);
   const look = (on: boolean) => (on ? 'text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary');
@@ -111,6 +111,15 @@ export function TabStrip({ projectId, root, label, tabs, terminal }: Props) {
         className={`${ICON_BUTTON} no-drag ${menu ? 'bg-raised/50 text-secondary' : ''}`}
       >
         <PlusIcon />
+      </button>
+      <button
+        aria-label={workspace.open ? 'Hide workspace panel' : 'Show workspace panel'}
+        aria-pressed={workspace.open}
+        title={workspace.open ? 'Hide workspace panel' : 'Show workspace panel'}
+        onClick={workspace.onToggle}
+        className={`${ICON_BUTTON} no-drag ml-auto ${workspace.open ? '' : 'text-secondary'}`}
+      >
+        <PanelRightIcon open={workspace.open} />
       </button>
       {menu && <NewTabMenu projectId={projectId} root={root} terminal={terminal} at={menu} onClose={closeMenu} />}
     </div>

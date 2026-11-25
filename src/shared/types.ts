@@ -1,4 +1,5 @@
 import type { AgentDef, EngineId, EngineSetting, Tier } from './agent-file';
+import type { PromptBrief } from './agent-draft';
 import type { AgentTeams } from './agent-teams';
 import type { ImageInput, Upload } from './attachments';
 import type { BrowserCapture, BrowserKey, BrowserState, Picked, Rect } from './browser';
@@ -109,6 +110,8 @@ export interface ArkApi {
     importable(): Promise<ImportableAgent[]>;
     import(path: string): Promise<AgentDef>;
     draft(description: string): Promise<AgentDef>;
+    /** Writes the system prompt from the agent's fields, or improves the one it already has. */
+    writePrompt(brief: PromptBrief): Promise<string>;
   };
   head: { get(): Promise<AgentDef>; save(s: HeadSettings): Promise<void> };
   skills: {

@@ -13,3 +13,19 @@ export function saveSize(key: string, value: number): void {
     localStorage.setItem(key, String(value));
   } catch { /* not remembered */ }
 }
+
+/** A yes/no kept across restarts (a panel shown or hidden). */
+export function loadFlag(key: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v === '1';
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveFlag(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, value ? '1' : '0');
+  } catch { /* not remembered */ }
+}

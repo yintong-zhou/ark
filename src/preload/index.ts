@@ -53,6 +53,7 @@ const api: ArkApi = {
     importable: () => ipcRenderer.invoke('catalog:importable'),
     import: (path) => ipcRenderer.invoke('catalog:import', path),
     draft: (d) => ipcRenderer.invoke('catalog:draft', d),
+    writePrompt: (b) => ipcRenderer.invoke('catalog:write-prompt', b),
   },
   head: { get: () => ipcRenderer.invoke('head:get'), save: (settings) => ipcRenderer.invoke('head:save', settings) },
   skills: {

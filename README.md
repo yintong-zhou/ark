@@ -59,6 +59,8 @@ editor and keep it in Git. It has a role prompt, an engine (Claude Code or Codex
 - **Import**: copy agents from `~/.claude/agents` and from Claude Code plugins into the catalog.
 - **New agent**: choose a profile image, alias, role and unique username, then set its task, model, file permissions, skills and system prompt. Lock a model when it must always be used.
 - **Draft with AI**: describe an agent in one sentence and a light-tier agent writes a draft for you to approve.
+- **Write with AI / Improve with AI**: beside the system prompt. A light, read-only writer builds the prompt from the agent's name, role, task, file permissions and skills, or improves the prompt that is already there (keeping its intent and specific instructions). The result lands in the field for you to edit before saving. It is one call to your Claude Code or Codex subscription.
+- **Faces**: each agent gets a different face from a gallery of 24 small robots, or your own image. Faces blink every few seconds, each on its own rhythm; the animation is off when Windows is set to reduce motion.
 - **Import skill**: in the Skills field of an agent (or of the Head of Staff), choose a folder with a `SKILL.md` and Ark copies it to `%APPDATA%\ark\skills` (up to 200 files and 5 MB, no links followed). It shows as `Ark`, wins over an installed skill of the same name, and `Remove` sends the copy to the Recycle Bin. Only skills selected for the agent are copied into its session.
 - **Chat**: pick an agent and a project folder and talk to it, on Claude Code or Codex.
 
@@ -211,6 +213,7 @@ running turns and approval cards alone. Up to 100 tasks per thread, with titles 
 
 ## Files and editor
 
+- **Workspace column**: the button at the right end of the tab strip hides and shows the right column (Team, Files, Git). Ark remembers the choice.
 - **Files**: choose **Files** in the right workspace column, beside **Team** and **Git**. Threads stay on the left.
   Files shows the project folder as a tree,
   or the open thread's build worktree once it has one. Right-click for new file, new folder, rename, delete (to the
@@ -269,6 +272,7 @@ running turns and approval cards alone. Up to 100 tasks per thread, with titles 
   are left to merge. **Merge into `<branch>`** merges them into the project's branch with a merge commit. On a conflict
   the view moves to the project root with the merge banner. **Remove worktree** removes the thread's folder once the
   thread is done; the branch stays, and the folder picker goes back to the project.
+- **Thread card**: when a thread's build has finished, its conversation ends with a card that shows the working branch, plus a Commit, Merge or Push button only when there is something to do (and why one is blocked). Nothing runs without your click and a confirmation.
 - **No hooks**: Ark runs Git without the project's hooks, so pre-commit checks don't run. Use the terminal to run them.
 - **Threads at work**: on a thread's worktree, every Git action waits while the team's turn is running. Status and diffs
   stay readable.
@@ -292,6 +296,10 @@ running turns and approval cards alone. Up to 100 tasks per thread, with titles 
   refused. Its logins and storage live in a separate session that survives a restart.
 - **Keys in the page**: Ctrl+R and F5 reload the page (not Ark), Ctrl+` toggles the terminal, Ctrl+W does nothing.
 - The page stays loaded while you switch tabs, projects or areas. Reloading or closing Ark closes it.
+
+## Look and motion
+
+The interface is dark-first with one accent, and motion only explains something: the highlight glides to the selected rail tile, row or tab, a page fades in when you change screen, new messages rise into place, task cards slide between columns, usage gauges fill and their figures count to the new value. State changes ease instead of snapping. Nothing loops except the speaking dot and the agents' blinking, and everything that moves stops when Windows is set to reduce motion. Icons are line icons, never emoji; only reactions and the emoji you pick yourself are emoji.
 
 ## Run it
 
