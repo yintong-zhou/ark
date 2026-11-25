@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { threadGitActions, threadGitLines, type ThreadGit as State, type ThreadGitAction } from '@shared/git';
+import { threadGitActions, type ThreadGit as State, type ThreadGitAction } from '@shared/git';
 import type { Thread } from '@shared/thread';
 import { readable } from '../errors';
 import { confirmAction } from './Confirm';
@@ -73,10 +73,7 @@ export function ThreadGitPanel({ state, phase, busy, message, onMessage, onActio
         <span className="text-muted [&_svg]:size-2"><GitBranchIcon /></span>
         <code className="min-w-0 truncate font-mono">{state.branch}</code>
       </p>
-      <ul className="flex flex-col">
-        {threadGitLines(state).filter((l) => !l.startsWith('Branch ')).map((l) => <li key={l}>{l}</li>)}
-      </ul>
-      {!actions.length && <p>{requested ? `No ${requested} action is available for the current Git state.` : 'Nothing to commit, merge or push.'}</p>}
+      {!actions.length && requested && <p>{`No ${requested} action is available for the current Git state.`}</p>}
       {actions.map((a) => (
         <div key={a.kind} className="flex flex-wrap items-center gap-1">
           {a.kind === 'commit' && (
