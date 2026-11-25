@@ -1,4 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react';
+import { Disclosure } from './StateIcons';
 import { rootKey, type RootRef } from '@shared/files';
 import type { Thread } from '@shared/thread';
 import { commitState, GIT_BUSY, groups, letter, type GitEntry, type GitSide, type GitStatus } from '@shared/git';
@@ -129,7 +130,7 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
               onClick={() => setCollapsed((prev) => ({ ...prev, [side]: !prev[side] }))}
               className="section flex w-full items-center gap-[4px] rounded-xs text-left hover:text-secondary"
             >
-              <span aria-hidden className="w-2 shrink-0 text-center">{collapsed[side] ? '▸' : '▾'}</span>
+              <span aria-hidden className="flex w-2 shrink-0 justify-center"><Disclosure open={!collapsed[side]} /></span>
               <span className="truncate">{title}</span>
               <span className="ml-auto rounded-full bg-raised px-1 text-meta text-secondary">{list.length}</span>
             </button>
@@ -175,7 +176,7 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
         >
           <span className="shrink-0"><GitBranchIcon /></span>
           <span className="truncate">{status.branch ?? `detached at ${status.oid?.slice(0, 7) ?? ''}`}</span>
-          <span aria-hidden className="shrink-0 text-meta text-muted">▾</span>
+          <span aria-hidden className="shrink-0 text-muted"><Disclosure /></span>
         </button>
         <button title="Refresh Git" aria-label="Refresh Git" disabled={busy} onClick={() => void refresh(root)} className={ACTION}>
           <span className={`flex ${busy ? 'motion-safe:animate-spin' : ''}`}><RefreshIcon /></span>
@@ -230,7 +231,7 @@ export function GitView({ root, projectId, thread, busyThread, onOpenFile, onOpe
           }}
           className="flex w-4 shrink-0 items-center justify-center border-l border-primary/20 hover:bg-primary/10"
         >
-          <span aria-hidden>▾</span>
+          <span aria-hidden><Disclosure /></span>
         </button>
       </div>
       <div className="flex min-w-0 items-center justify-between gap-1 px-[4px] text-meta text-muted">

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { Disclosure } from './StateIcons';
 import { joinRel, parentOf, type FileEntry, type RootRef } from '@shared/files';
 import { changedDirs, letter } from '@shared/git';
 import { expand, toggle, useTree } from '../files/tree-store';
@@ -106,7 +107,7 @@ export function FileTree({ root, name, onOpen, attempt, git }: Props) {
           style={{ paddingLeft: depth * INDENT + 4 }}
           className={`${ROW} ${selected === rel ? 'bg-raised text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary'}`}
         >
-          <span aria-hidden className="flex w-2 shrink-0 justify-center text-meta">{isDir ? (isOpen ? '▾' : '▸') : ''}</span>
+          <span aria-hidden className="flex w-2 shrink-0 justify-center text-meta">{isDir ? <Disclosure open={isOpen} /> : ''}</span>
           <EntryIcon name={e.name} folder={isDir} open={isOpen} />
           <span className={`min-w-0 flex-1 truncate ${e.ignored ? 'italic opacity-55 group-hover:opacity-80 group-focus-visible:opacity-100' : e.kind === 'link' ? 'italic' : ''}`}>{e.name}</span>
           {mark && <span className={`shrink-0 text-meta ${mark === '!' ? 'text-secondary' : 'text-muted'}`}>{mark}</span>}
@@ -121,7 +122,7 @@ export function FileTree({ root, name, onOpen, attempt, git }: Props) {
   return (
     <div className="flex flex-col">
       <div onContextMenu={(ev) => open(ev, '')} className={`${ROW} pl-[4px] text-secondary`}>
-        <span aria-hidden className="flex w-2 shrink-0 justify-center text-meta">▾</span>
+        <span aria-hidden className="flex w-2 shrink-0 justify-center"><Disclosure /></span>
         <EntryIcon name={name} folder open />
         <span title={name} className="min-w-0 flex-1 truncate font-heading">{name}</span>
         <button title="New file" aria-label="New file" onClick={() => startNew('file', '')} className="flex size-3 items-center justify-center rounded-xs text-muted hover:bg-raised hover:text-secondary [&_svg]:size-[16px]"><NewFileIcon /></button>

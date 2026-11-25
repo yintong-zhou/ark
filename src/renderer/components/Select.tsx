@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Disclosure } from './StateIcons';
 import { Menu } from './Menu';
 import { BUTTON, BUTTON_INSET } from './ui';
 
@@ -23,7 +24,7 @@ export function Select({ value, options, onChange, label, placeholder, disabled,
         onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt({ x: r.left, y: r.bottom + 4, width: Math.max(160, r.width) }); }}
       >
         <span className="truncate">{current}</span>
-        <span aria-hidden className="text-[10px] leading-none">▾</span>
+        <span aria-hidden className="text-muted"><Disclosure open={!at} /></span>
       </button>
       {at && (
         <Menu

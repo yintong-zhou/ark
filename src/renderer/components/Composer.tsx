@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { StateIcon } from './StateIcons';
 import { ACCEPT, checkUploads } from '@shared/attachments';
 import { activeToken } from '@shared/tokens';
 import { Staged } from './Attachments';
@@ -79,7 +80,7 @@ export function Composer({ label, placeholder, value, onChange, onSubmit, disabl
   return (
     <div className="relative shrink-0 px-2 pb-2 pt-1.5 lg:px-3 lg:pb-3">
       {options.length > 0 && token && (
-        <ul id={listId} role="listbox" aria-label={token.trigger === '@' ? 'Agents' : 'Tags'} className="surface-floating absolute bottom-full left-2 z-10 mb-1 w-[min(280px,calc(100%-32px))] rounded-md bg-sidebar p-0.5 lg:left-3">
+        <ul id={listId} role="listbox" aria-label={token.trigger === '@' ? 'Agents' : 'Tags'} className="surface-floating arrive absolute bottom-full left-2 z-10 mb-1 w-[min(280px,calc(100%-32px))] rounded-md bg-sidebar p-0.5 lg:left-3">
           {options.map((o, i) => (
             <li key={o.key} role="option" aria-selected={i === sel}>
               <button
@@ -207,7 +208,7 @@ function suggest(trigger: '@' | '#', q: string, mentions: { id: string; name: st
       .map((m) => ({ key: m.id, insert: `@${m.id} `, lead: <AgentAvatar agent={m} name={m.name} size={24} />, label: m.name }));
   }
   if (!tags) return [];
-  const known: Option[] = tags.filter((t) => t.startsWith(q)).map((t) => ({ key: t, insert: `#${t} `, lead: <span aria-hidden>🏷️</span>, label: `#${t}` }));
-  const fresh: Option[] = q && /^\p{L}/u.test(q) && !tags.includes(q) ? [{ key: `new:${q}`, insert: `#${q} `, lead: <span aria-hidden>✨</span>, label: `#${q}`, hint: 'New tag' }] : [];
+  const known: Option[] = tags.filter((t) => t.startsWith(q)).map((t) => ({ key: t, insert: `#${t} `, lead: <StateIcon kind="tag" className="size-2 text-muted" />, label: `#${t}` }));
+  const fresh: Option[] = q && /^\p{L}/u.test(q) && !tags.includes(q) ? [{ key: `new:${q}`, insert: `#${q} `, lead: <StateIcon kind="tag" className="size-2 text-muted" />, label: `#${q}`, hint: 'New tag' }] : [];
   return [...known, ...fresh];
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { loadSize, saveSize } from '../saved';
 import { CloseIcon } from './Icons';
+import { Highlight, LayoutGroup } from '../motion';
 
 /** The pane that holds the work. Panes manage their own scrolling. */
 export function Main({ children }: { children: ReactNode }) {
@@ -26,7 +27,9 @@ export function Sidebar({ title, label, children, footer, side = 'left', header,
       <header className={`drag flex h-6 shrink-0 items-center border-b border-divider ${header ? 'px-1' : 'px-2'}`}>
         {header ?? <h2 className="truncate text-body">{title}</h2>}
       </header>
-      <div className={`min-h-0 flex-1 overflow-y-auto ${side === 'left' ? 'space-y-0.5 p-1' : ''}`}>{children}</div>
+      <LayoutGroup id={`side-${widthKey}`}>
+        <div className={`min-h-0 flex-1 overflow-y-auto ${side === 'left' ? 'space-y-0.5 p-1' : ''}`}>{children}</div>
+      </LayoutGroup>
       {footer}
       <div
         role="separator"
@@ -75,13 +78,14 @@ export function SideRow({ selected = false, waiting = false, onClick, lead, trai
         onClick={onClick}
         title={title}
         aria-current={selected ? 'page' : undefined}
-        className={`group flex h-4 w-full items-center gap-1 rounded-sm px-1 text-left ${onRemove ? 'pr-4' : ''} ${
-          selected ? 'control-raised bg-raised text-secondary' : `hover:bg-raised/50 hover:text-secondary ${waiting ? 'text-secondary' : 'text-muted'}`
+        className={`group relative flex h-4 w-full items-center gap-1 rounded-sm px-1 text-left ${onRemove ? 'pr-4' : ''} ${
+          selected ? 'text-secondary' : `hover:bg-raised/50 hover:text-secondary ${waiting ? 'text-secondary' : 'text-muted'}`
         }`}
       >
-        {lead && <span className="flex w-3 shrink-0 items-center justify-center">{lead}</span>}
-        <span className="min-w-0 flex-1 truncate">{children}</span>
-        {trail}
+        {selected && <Highlight group="row" className="control-raised absolute inset-0 rounded-sm bg-raised" />}
+        {lead && <span className="relative flex w-3 shrink-0 items-center justify-center">{lead}</span>}
+        <span className="relative min-w-0 flex-1 truncate">{children}</span>
+        {trail && <span className="relative flex shrink-0 items-center">{trail}</span>}
       </button>
       {onRemove && <button onClick={onRemove} aria-label={`Delete ${title ?? 'thread'}`} title="Delete thread" className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-secondary [&_svg]:size-2"><CloseIcon /></button>}
     </div>

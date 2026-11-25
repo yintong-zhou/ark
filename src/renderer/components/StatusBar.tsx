@@ -2,8 +2,9 @@ import { useState } from 'react';
 import type { AgentStatus, UsageState, UsageWindow } from '@shared/types';
 import { formatDuration, staleAge, windowView } from '@shared/usage-math';
 import { Bar } from './Bar';
-import { RefreshIcon } from './Icons';
+import { ClockIcon, RefreshIcon } from './Icons';
 import { EngineLogo } from './Logos';
+import { Tween } from '../motion';
 
 /**
  * The always-visible bottom strip: "Used", then for each agent its mark, the 5-hour bar, and the
@@ -29,7 +30,7 @@ export function StatusBar({ state, now, refresh }: { state: UsageState | null; n
         title="Refresh usage"
         className="ml-auto flex size-3 items-center justify-center rounded-xs hover:text-secondary [&_svg]:size-2"
       >
-        <span className={refreshing ? 'motion-safe:animate-spin' : ''}><RefreshIcon /></span>
+        <RefreshIcon />
       </button>
     </footer>
   );
@@ -48,9 +49,9 @@ function AgentUsage({ a, state, now }: { a: AgentStatus; state: UsageState | nul
         <>
           <Bar label="5 hours" wide pct={five.kind === 'live' ? five.pct : undefined} />
           <Reading title="5-hour window" w={a.fiveHour} now={now} />
-          <span aria-hidden className="h-[12px] w-px bg-divider" />
+          <span aria-hidden className="h-1.5 w-px bg-divider" />
           <Reading title="Weekly window" w={a.weekly} now={now} />
-          {age && <span title={`Reading from ${age} ago`}>🕓 {age}</span>}
+          {age && <span className="flex items-center gap-0.5 text-muted" title={`Reading from ${age} ago`}><ClockIcon />{age}</span>}
         </>
       )}
     </span>
@@ -61,10 +62,10 @@ function AgentUsage({ a, state, now }: { a: AgentStatus; state: UsageState | nul
 function Reading({ title, w, now }: { title: string; w?: UsageWindow; now: number }) {
   const v = windowView(w, now);
   return (
-    <span title={title} className="flex gap-[4px]">
+    <span title={title} className="flex gap-0.5 tabular-nums">
       {v.kind === 'live' ? (
         <>
-          <span className="text-secondary">{Math.round(v.pct)}%</span>
+          <span className="text-secondary"><Tween value={v.pct} />%</span>
           <span>{formatDuration(v.resetIn)}</span>
         </>
       ) : (

@@ -1,4 +1,5 @@
 import type { AgentDef } from '@shared/agent-file';
+import { StateIcon } from './StateIcons';
 import { MANAGER, type Thread, type ThreadMessage } from '@shared/thread';
 import { lastModel, tokensBy, tokensByAgent, windowLines } from '@shared/thread-view';
 import { roleLabels } from '@shared/roles';
@@ -18,8 +19,8 @@ export function TeamPanel({ thread, messages, agents }: { thread: Thread; messag
   const windows = windowLines(thread.windows);
   const ids = thread.phase === 'team' ? [MANAGER] : thread.team; // the team is picked after the first proposal
   const groups = [
-    { title: '🧭 Head of Staff', ids: ids.filter((id) => id === MANAGER) },
-    { title: '👥 Team', ids: ids.filter((id) => id !== MANAGER) },
+    { title: 'Head of Staff', icon: 'idea' as const, ids: ids.filter((id) => id === MANAGER) },
+    { title: 'Team', icon: 'team' as const, ids: ids.filter((id) => id !== MANAGER) },
   ].filter((g) => g.ids.length > 0);
 
   return (
@@ -27,7 +28,7 @@ export function TeamPanel({ thread, messages, agents }: { thread: Thread; messag
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {groups.map((g) => (
           <section key={g.title}>
-            <h3 className="section px-2 pb-[4px] pt-2 font-body font-normal text-muted">{g.title} - {g.ids.length}</h3>
+            <h3 className="section flex items-center gap-[4px] px-2 pb-[4px] pt-2 font-body font-normal text-muted"><StateIcon kind={g.icon} className="size-[14px]" />{g.title} - {g.ids.length}</h3>
             <ul>
               {g.ids.map((id) => {
                 const name = agents.find((a) => a.id === id)?.name ?? id;

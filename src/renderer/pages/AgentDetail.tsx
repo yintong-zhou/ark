@@ -31,33 +31,35 @@ export function AgentDetail({ id, state, now }: { id: AgentId; state: UsageState
           {sessions.length === 0 ? (
             <p className="text-muted">No sessions yet.</p>
           ) : (
-            <table className="w-full border-collapse">
-              <thead>
-                <tr>
-                  <th className={TH}>Project</th>
-                  <th className={TH}>Model</th>
-                  <th className={`${TH} text-right`}>Context</th>
-                  <th className={`${TH} text-right`}>Tokens</th>
-                  <th className={`${TH} text-right`}>Cost</th>
-                  <th className={`${TH} pr-0`}>Last update</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((s) => {
-                  const st = sessionState(s.lastSeen, now);
-                  return (
-                    <tr key={s.id} className={`border-t border-divider ${st === 'active' ? '' : 'text-muted'}`}>
-                      <td className="py-1 pr-2">{s.project || 'unknown project'}</td>
-                      <td className="py-1 pr-2">{s.model ?? '-'}</td>
-                      <td className="py-1 pr-2 text-right">{s.contextPct !== undefined ? `${Math.round(s.contextPct)}%` : '-'}</td>
-                      <td className="py-1 pr-2 text-right">{s.tokens?.toLocaleString('en-US') ?? '-'}</td>
-                      <td className="py-1 pr-2 text-right">{s.costUsd !== undefined ? `$${s.costUsd.toFixed(2)}` : '-'}</td>
-                      <td className="py-1">{formatAge(now - s.lastSeen)} ago</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="min-w-0 overflow-x-auto">
+              <table className="w-full border-collapse tabular-nums">
+                <thead>
+                  <tr>
+                    <th className={TH}>Project</th>
+                    <th className={TH}>Model</th>
+                    <th className={`${TH} text-right`}>Context</th>
+                    <th className={`${TH} text-right`}>Tokens</th>
+                    <th className={`${TH} text-right`}>Cost</th>
+                    <th className={`${TH} pr-0`}>Last update</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s) => {
+                    const st = sessionState(s.lastSeen, now);
+                    return (
+                      <tr key={s.id} className={`border-t border-divider ${st === 'active' ? '' : 'text-muted'}`}>
+                        <td className="py-1 pr-2">{s.project || 'unknown project'}</td>
+                        <td className="py-1 pr-2">{s.model ?? '-'}</td>
+                        <td className="py-1 pr-2 text-right">{s.contextPct !== undefined ? `${Math.round(s.contextPct)}%` : '-'}</td>
+                        <td className="py-1 pr-2 text-right">{s.tokens?.toLocaleString('en-US') ?? '-'}</td>
+                        <td className="py-1 pr-2 text-right">{s.costUsd !== undefined ? `$${s.costUsd.toFixed(2)}` : '-'}</td>
+                        <td className="py-1">{formatAge(now - s.lastSeen)} ago</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

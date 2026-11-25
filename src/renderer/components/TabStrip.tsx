@@ -4,10 +4,11 @@ import { closeBrowser, useBrowser } from '../browser/browser-store';
 import { activate, BROWSER_TAB, close, type TabsView } from '../editor/tabs-store';
 import { CloseIcon, PlusIcon } from './Icons';
 import { ICON_BUTTON } from './ui';
+import { Highlight, LayoutGroup } from '../motion';
 import { EntryIcon } from './EntryIcon';
 import { NewTabMenu } from './NewTabMenu';
 
-const TAB = 'no-drag group flex h-4 max-w-[200px] shrink-0 items-center gap-0.5 rounded-sm px-1.5 text-meta';
+const TAB = 'no-drag group relative isolate flex h-4 max-w-[200px] shrink-0 items-center gap-0.5 rounded-sm px-1.5 text-meta';
 
 type Props = { projectId: string; root: RootRef; label: string; tabs: TabsView; terminal: { open: boolean; onToggle: () => void } };
 
@@ -24,9 +25,10 @@ function hostOf(url: string): string {
 export function TabStrip({ projectId, root, label, tabs, terminal }: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number }>();
   const closeMenu = useCallback(() => setMenu(undefined), []);
-  const look = (on: boolean) => (on ? 'control-raised bg-raised text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary');
+  const look = (on: boolean) => (on ? 'text-secondary' : 'text-muted hover:bg-raised/50 hover:text-secondary');
   const browser = useBrowser(projectId);
   const byKey = new Map(tabs.docs.map((d) => [d.tab.key, d]));
+  const lit = (on: boolean) => on && <Highlight group="tab" className="control-raised absolute inset-0 -z-10 rounded-sm bg-raised" />;
   const closeButton = (name: string, on: boolean, onClose: () => void) => (
     <button
       aria-label={`Close ${name}`}
@@ -42,8 +44,10 @@ export function TabStrip({ projectId, root, label, tabs, terminal }: Props) {
   );
   return (
     <div className="flex h-5 shrink-0 items-center gap-0.5 border-b border-divider bg-sidebar px-1">
+      <LayoutGroup id={`tabs-${projectId}`}>
       <div role="tablist" aria-label="Open tabs" className="flex min-w-0 items-center gap-0.5 overflow-x-auto py-0.5">
         <button role="tab" aria-selected={tabs.active === null} onClick={() => activate(projectId, null)} className={`${TAB} ${look(tabs.active === null)}`}>
+          {lit(tabs.active === null)}
           <span className="truncate">{label}</span>
         </button>
         {tabs.keys.map((key) => {
@@ -62,6 +66,7 @@ export function TabStrip({ projectId, root, label, tabs, terminal }: Props) {
                 onAuxClick={(e) => e.button === 1 && void closeBrowser(projectId)}
                 className={`${TAB} cursor-default ${look(on)}`}
               >
+                {lit(on)}
                 <span className="truncate">{name}</span>
                 {closeButton(name, on, () => void closeBrowser(projectId))}
               </div>
@@ -82,6 +87,7 @@ export function TabStrip({ projectId, root, label, tabs, terminal }: Props) {
               onAuxClick={(e) => e.button === 1 && close(projectId, tab.key)}
               className={`${TAB} cursor-default ${look(on)}`}
             >
+              {lit(on)}
               <EntryIcon name={name} />
               <span className="truncate">{name}</span>
               {tab.root.kind === 'thread' && <span className="shrink-0 text-muted">· worktree</span>}
@@ -91,6 +97,7 @@ export function TabStrip({ projectId, root, label, tabs, terminal }: Props) {
           );
         })}
       </div>
+      </LayoutGroup>
       <button
         aria-label="New tab"
         aria-haspopup="menu"

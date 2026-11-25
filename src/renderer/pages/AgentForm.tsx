@@ -75,5 +75,5 @@ function Form({ initial, isNew, taken, face, skills, reloadSkills, installed, co
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return <label className="flex flex-col gap-[4px]"><span className="text-meta text-muted">{label}</span>{children}{hint && <span className="text-meta text-muted">{hint}</span>}</label>;
+  return <label className="flex flex-col gap-0.5"><span className="text-meta text-muted">{label}</span>{children}{hint && <span className="text-meta text-muted">{hint}</span>}</label>;
 }

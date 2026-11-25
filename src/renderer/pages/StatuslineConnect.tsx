@@ -26,7 +26,7 @@ export function StatuslineSection() {
   };
   return (
     <>
-      <div className="flex flex-col gap-2">
+      <div className="flex max-w-[65ch] flex-col gap-2 text-muted">
         <p>
           Claude Code shares context and usage limits through its status line. To read them, Ark changes the statusLine
           entry in ~/.claude/settings.json so that it runs a small Ark script first.

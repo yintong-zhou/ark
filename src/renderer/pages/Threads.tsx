@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { StateIcon } from '../components/StateIcons';
 import type { AgentDef } from '@shared/agent-file';
 import { findDocumentLink, threadDocumentRoots } from '@shared/document-link';
 import { rootKey, type RootRef } from '@shared/files';
@@ -48,9 +49,9 @@ const VIEW_ICON = { team: AgentsIcon, files: ExplorerIcon, git: GitBranchIcon };
 
 /** What a thread row says on the right. */
 const trail = (t: Thread) =>
-  needsYou(t) ? <Pill label="Your turn">✋</Pill>
+  needsYou(t) ? <Pill label="Your turn"><StateIcon kind="waiting" className="size-[14px] align-middle" /></Pill>
   : t.status === 'running' ? <Presence state="speaking" />
-  : t.status === 'error' ? <Pill label="Something went wrong">⚠️</Pill>
+  : t.status === 'error' ? <Pill label="Something went wrong"><StateIcon kind="warning" className="size-[14px] align-middle" /></Pill>
   : null;
 
 /** Threads on the left, conversation/editor in the middle, Team/Files/Git on the right. */
@@ -247,7 +248,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
           ) : !project ? (
             <>
               <PaneHeader title="Projects" />
-              <Empty glyph="📁" title="Add a project folder" action={<button onClick={onAddProject} className={CTA}>Add project</button>}>
+              <Empty glyph={<StateIcon kind="folder" className="size-3 text-muted" />} title="Add a project folder" action={<button onClick={onAddProject} className={CTA}>Add project</button>}>
                 A project is the folder your agents work in. Each project keeps its own threads.
               </Empty>
             </>
@@ -255,7 +256,7 @@ export function Threads({ ws, project, draft, onDraft, problem, attempt, onAddPr
             <>
               <PaneHeader title="New thread" meta={[`in ${project.name}`]} />
               <div className="flex min-h-0 flex-1 flex-col justify-end">
-                <Empty glyph="💡" title="What do you want to work on?">
+                <Empty glyph={<StateIcon kind="idea" className="size-3 text-muted" />} title="What do you want to work on?">
                   {permissionMode === 'ask' ? 'The Head of Staff proposes a team and waits for your approval.' : 'The team plans and builds autonomously. You can pause it at any time.'}
                 </Empty>
               </div>

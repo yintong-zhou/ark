@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import type { Project } from '@shared/thread';
 import { needsYou } from '@shared/thread-view';
 import { areaOf, type Screen } from './agents';
@@ -8,6 +9,7 @@ import { AgentsNav, UsageNav } from './components/Sidebars';
 import { StatusBar } from './components/StatusBar';
 import { readable } from './errors';
 import { useThreads } from './hooks/useThreads';
+import { Reveal } from './motion';
 import { useUsage } from './hooks/useUsage';
 import { Accounts } from './pages/Accounts';
 import { AgentDetail } from './pages/AgentDetail';
@@ -124,7 +126,9 @@ export default function App() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* the window's own title bar: Windows draws only its buttons over this strip */}
           <div className="drag h-4 shrink-0 bg-primary" />
-          <div className="flex min-h-0 flex-1 overflow-hidden rounded-tl-lg border-l border-t border-divider">
+          <div className="min-h-0 flex-1 overflow-hidden rounded-tl-lg border-l border-t border-divider">
+           {/* a new area fades in; the pages inside it rise a few pixels when the screen changes */}
+           <motion.div key={area} className="flex h-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             {area === 'threads' && (
               <Threads ws={ws} project={project} draft={draft} onDraft={setDraft} problem={problem} attempt={attempt} onAddProject={addProject} />
             )}
@@ -132,27 +136,32 @@ export default function App() {
               <>
                 <UsageNav screen={screen} state={state} onNavigate={setScreen} />
                 <Main>
+                 <Reveal key={screen.name === 'agent' ? `agent-${screen.id}` : screen.name} className="flex min-h-0 flex-1 flex-col">
                   {screen.name === 'usage' && <Usage state={state} now={now} refresh={refresh} onNavigate={setScreen} />}
                   {screen.name === 'agent' && <AgentDetail id={screen.id} state={state} now={now} />}
                   {screen.name === 'history' && <History />}
                   {screen.name === 'accounts' && <Accounts state={state} />}
+                 </Reveal>
                 </Main>
               </>
             )}
-            {area === 'settings' && <Main><Settings /></Main>}
+            {area === 'settings' && <Main><Reveal className="flex min-h-0 flex-1 flex-col"><Settings /></Reveal></Main>}
             {area === 'agents' && (
               <>
                 <AgentsNav screen={screen} onNavigate={setScreen} />
                 <Main>
+                 <Reveal key={screen.name} className="flex min-h-0 flex-1 flex-col">
                   {screen.name === 'agents' && <Agents state={state} onNavigate={setScreen} />}
                   {screen.name === 'agent-form' && (
                     <AgentForm id={screen.id} draft={screen.draft} onBack={() => setScreen({ name: 'agents' })} />
                   )}
                   {screen.name === 'head-form' && <HeadForm onBack={() => setScreen({ name: 'agents' })} />}
                   {screen.name === 'chat' && <Chat key={screen.agentId} agentId={screen.agentId} />}
+                 </Reveal>
                 </Main>
               </>
             )}
+           </motion.div>
           </div>
         </div>
       </div>

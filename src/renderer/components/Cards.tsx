@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { StateIcon } from './StateIcons';
 import type { AgentDef } from '@shared/agent-file';
 import { MANAGER, type BuildPhase, type Control, type PhaseStep, type Roles, type ThreadMessage } from '@shared/thread';
 import { parsePhases } from '@shared/plan';
@@ -29,7 +30,7 @@ export function Cards({ control, name, agents, active, pending, send, approve }:
   if (control.kind !== 'ask') return null;
   return (
     <Card>
-      <p className="whitespace-pre-wrap break-words leading-[22px] text-secondary"><span aria-hidden>❓ </span>{control.question}</p>
+      <p className="flex gap-1 whitespace-pre-wrap break-words leading-[22px] text-secondary"><span className="flex h-[22px] items-center"><StateIcon kind="question" className="size-2 text-muted" /></span><span className="min-w-0">{control.question}</span></p>
       {active && control.choices.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {control.choices.map((c) => (
@@ -50,7 +51,7 @@ function TeamCard({ control, name, agents, active, pending, approve }: {
   const options = agents.filter((a) => a.id !== MANAGER && !picked.includes(a.id) && !added.includes(a.id));
   return (
     <Card>
-      <p className="head leading-[22px]"><span aria-hidden>👥 </span>Proposed team</p>
+      <p className="head flex items-center gap-1 leading-[22px]"><StateIcon kind="team" className="size-2 text-muted" />Proposed team</p>
       {control.difficulty && <p className="text-meta text-muted">{control.difficulty === 'easy' ? 'Easy request' : 'Hard request'}</p>}
       <ul className="mt-1 flex flex-col gap-1">
         {control.picks.map((p) => (
@@ -70,12 +71,12 @@ function TeamCard({ control, name, agents, active, pending, approve }: {
           </li>
         ))}
       </ul>
-      {control.leftOut && <p className="mt-1 whitespace-pre-wrap text-muted" title="Left out"><span aria-hidden>🚫 </span>{control.leftOut}</p>}
+      {control.leftOut && <p className="mt-1 flex gap-1 whitespace-pre-wrap text-muted" title="Left out"><span className="flex h-[22px] items-center"><StateIcon kind="blocked" className="size-2 text-muted" /></span><span className="min-w-0">{control.leftOut}</span></p>}
       {active && (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           <Select inset label="Add an agent from the catalog" value="" placeholder="Add from catalog" onChange={(v) => setAdded([...added, v])} options={options.map((a) => ({ value: a.id, label: a.name }))} />
           {/* the manager leads every thread; main puts it first and drops a repeat */}
-          <button onClick={() => approve([...picked, ...added])} disabled={pending} className={`${CTA} ml-auto`}>✅ Approve team</button>
+          <button onClick={() => approve([...picked, ...added])} disabled={pending} className={`${CTA} ml-auto`}><StateIcon kind="check" />Approve team</button>
         </div>
       )}
     </Card>
@@ -91,7 +92,7 @@ export function PlanCard({ text, active, pending, start, roles, name, onLink }: 
   return (
     <Card>
       <details open={active}>
-        <summary className="head cursor-pointer leading-[22px] marker:text-muted"><span aria-hidden>📋 </span>Plan</summary>
+        <summary className="head cursor-pointer leading-[22px] marker:text-muted"><span className="inline-flex items-center gap-1 align-middle"><StateIcon kind="plan" className="size-2 text-muted" />Plan</span></summary>
         <Markdown text={text} className="mt-1 text-neutral-light" onLink={onLink} />
       </details>
       <div className="mt-1 text-meta text-muted">
@@ -101,7 +102,7 @@ export function PlanCard({ text, active, pending, start, roles, name, onLink }: 
       </div>
       {active && (
         <div className="mt-2">
-          <button onClick={start} disabled={pending} className={CTA}>🚀 Start build</button>
+          <button onClick={start} disabled={pending} className={CTA}><StateIcon kind="start" />Start build</button>
         </div>
       )}
     </Card>
@@ -126,7 +127,7 @@ export function PhaseCard({ phase, index, total, builder, reviews }: { phase: Bu
   return (
     <Card>
       <div className="flex items-baseline justify-between gap-2">
-        <p className="head leading-[22px]"><span aria-hidden>🧱 </span>Phase {index + 1}/{total} · {phase.title}</p>
+        <p className="head flex items-center gap-1 leading-[22px]"><StateIcon kind="phase" className="size-2 text-muted" />Phase {index + 1}/{total} · {phase.title}</p>
         <span className="text-meta text-muted">{STATE[phase.step]}</span>
       </div>
       <ul className="mt-1 text-secondary">
@@ -148,7 +149,7 @@ export function ApprovalCard({ m, name, pending, decision, busy, answer }: {
 }) {
   return (
     <Card>
-      <p className="head leading-[22px]"><span aria-hidden>🔐 </span>{name} wants to use {m.tool}</p>
+      <p className="head flex items-center gap-1 leading-[22px]"><StateIcon kind="lock" className="size-2 text-muted" />{name} wants to use {m.tool}</p>
       {m.detail && <pre className="mt-1 max-h-[160px] overflow-auto whitespace-pre-wrap break-all rounded-xs bg-primary p-1 font-mono text-meta text-neutral-light">{m.detail}</pre>}
       <div className="mt-2 flex items-center gap-1">
         {pending ? (
@@ -157,7 +158,7 @@ export function ApprovalCard({ m, name, pending, decision, busy, answer }: {
             <button onClick={() => answer(false)} disabled={busy} className={BUTTON_INSET}>Deny</button>
           </>
         ) : (
-          <span className="text-muted">{decision === true ? '✅ Allowed' : decision === false ? '🚫 Denied' : 'Expired'}</span>
+          <span className="flex items-center gap-1 text-muted">{decision === true ? <><StateIcon kind="check" />Allowed</> : decision === false ? <><StateIcon kind="blocked" />Denied</> : 'Expired'}</span>
         )}
       </div>
     </Card>

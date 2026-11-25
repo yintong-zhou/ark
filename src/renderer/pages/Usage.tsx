@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { EngineId } from '@shared/agent-file';
-import type { AgentStatus, Session, StatuslineStatus, UsageState, ViewMode } from '@shared/types';
-import { formatAge, sessionState } from '@shared/usage-math';
+import type { AgentStatus, Session, StatuslineStatus, UsageState, UsageWindow, ViewMode } from '@shared/types';
+import { formatAge, formatDuration, sessionState, staleAge, windowView } from '@shared/usage-math';
 import { AGENT_NAME, type Navigate } from '../agents';
 import { AgentTag } from '../components/AgentTag';
 import { RefreshIcon } from '../components/Icons';
@@ -10,6 +10,7 @@ import { Page } from '../components/Page';
 import { ApiKeyTotals } from '../components/StatusBar';
 import { CTA, ICON_BUTTON } from '../components/ui';
 import { WindowCell } from '../components/WindowCell';
+import { Tween } from '../motion';
 
 type Props = { state: UsageState | null; now: number; refresh: () => Promise<void>; onNavigate: Navigate };
 
@@ -36,7 +37,6 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
   const live = (state?.sessions ?? [])
     .filter((s) => ['active', 'idle'].includes(sessionState(s.lastSeen, now)))
     .sort((a, b) => b.lastSeen - a.lastSeen);
-  const withoutSessions = agents.filter((a) => !live.some((s) => s.agent === a.id));
   const claudeInstalled = byId.get('claude')?.installed;
 
   return (
@@ -52,7 +52,7 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
       }
     >
       {claudeInstalled && statusline !== 'connected' && (
-        <div className="flex items-center justify-between gap-2 rounded-sm bg-raised p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-raised p-2">
           <span>Claude Code sessions aren&apos;t reported yet.</span>
           <button onClick={() => onNavigate({ name: 'settings' })} className={CTA}>Open settings</button>
         </div>
@@ -61,21 +61,15 @@ export function Usage({ state, now, refresh, onNavigate }: Props) {
       {state === null ? (
         <p className="text-muted">Looking for agents on this machine.</p>
       ) : view === 'compact' ? (
-        <CompactTable sessions={live} byId={byId} now={now} onNavigate={onNavigate} thresholds={thresholds} />
+        <>
+          <AgentLimits agents={agents} now={now} onNavigate={onNavigate} compact />
+          <section className="flex flex-col gap-1">
+            <h2 className="font-body text-meta font-normal text-muted">Open sessions</h2>
+            <CompactTable sessions={live} byId={byId} now={now} onNavigate={onNavigate} thresholds={thresholds} />
+          </section>
+        </>
       ) : (
         <Detailed agents={agents} sessions={live} now={now} onNavigate={onNavigate} thresholds={thresholds} />
-      )}
-
-      {view === 'compact' && withoutSessions.length > 0 && (
-        <ul className="flex flex-col">
-          {withoutSessions.map((a) => (
-            <li key={a.id} className="flex items-center gap-2 border-t border-divider py-1">
-              <AgentTag id={a.id} />
-              <span className="w-13 shrink-0"><AgentLink a={a} onNavigate={onNavigate} /></span>
-              <AgentSummary a={a} now={now} />
-            </li>
-          ))}
-        </ul>
       )}
     </Page>
   );
@@ -89,19 +83,11 @@ function AgentLink({ a, onNavigate }: { a: AgentStatus; onNavigate: Navigate }) 
   );
 }
 
-/** What an agent without a live session shows: not installed, waiting, or its windows. */
-function AgentSummary({ a, now }: { a: AgentStatus; now: number }) {
+/** A limit-free account, a missing engine, or a reading not received yet. */
+function AgentSummary({ a }: { a: AgentStatus }) {
   if (!a.installed) return <span className="text-muted">not installed</span>;
   if (a.account?.method === 'apiKey') return <span className="text-muted">API key, no usage windows</span>;
-  if (!a.fiveHour && !a.weekly) {
-    return <span className="text-muted">{a.id === 'claude' ? 'Waiting for a Claude Code response' : 'No usage data yet'}</span>;
-  }
-  return (
-    <span className="flex gap-3">
-      <WindowCell label="5 hours" w={a.fiveHour} now={now} updatedAt={a.updatedAt} />
-      <WindowCell label="Week" w={a.weekly} now={now} updatedAt={a.updatedAt} />
-    </span>
-  );
+  return <span className="text-muted">{a.id === 'claude' ? 'Waiting for a Claude Code response' : 'No usage data yet'}</span>;
 }
 
 function ContextCell({ s, thresholds }: { s: Session; thresholds: Record<EngineId, number> }) {
@@ -109,7 +95,7 @@ function ContextCell({ s, thresholds }: { s: Session; thresholds: Record<EngineI
   return (
     <span className="flex items-center gap-1 whitespace-nowrap">
       <Bar label="Context" wide pct={s.contextPct} ticks={s.agent === 'opencode' ? [] : [thresholds[s.agent]]} />
-      <span className="w-5 text-right text-secondary">{Math.round(s.contextPct)}%</span>
+      <span className="w-5 text-right tabular-nums text-secondary"><Tween value={s.contextPct} />%</span>
     </span>
   );
 }
@@ -181,28 +167,9 @@ function Detailed({ agents, sessions, now, onNavigate, thresholds }: {
 }) {
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-3">
+      <AgentLimits agents={agents} now={now} onNavigate={onNavigate} />
       <section className="flex flex-col">
-        <h2 className="pb-1 text-body">Agents</h2>
-        {agents.map((a) => (
-          <div key={a.id} className={`flex flex-col gap-1 border-t border-divider py-2 ${a.installed ? '' : 'opacity-50'}`}>
-            <div className="flex items-center gap-1">
-              <AgentTag id={a.id} />
-              <AgentLink a={a} onNavigate={onNavigate} />
-              {a.account?.plan && <span className="text-muted">{a.account.plan}</span>}
-            </div>
-            {a.installed && a.account?.method !== 'apiKey' && (a.fiveHour || a.weekly) ? (
-              <>
-                <Row label="5 hours"><WindowCell label="5 hours" w={a.fiveHour} now={now} updatedAt={a.updatedAt} /></Row>
-                <Row label="Week"><WindowCell label="Week" w={a.weekly} now={now} updatedAt={a.updatedAt} /></Row>
-              </>
-            ) : (
-              <AgentSummary a={a} now={now} />
-            )}
-          </div>
-        ))}
-      </section>
-      <section className="flex flex-col">
-        <h2 className="pb-1 text-body">Open sessions</h2>
+        <h2 className="pb-1 font-body text-meta font-normal text-muted">Open sessions</h2>
         {sessions.length === 0 && <p className="border-t border-divider py-2 text-muted">No open sessions.</p>}
         {sessions.map((s) => (
           <div key={`${s.agent}:${s.id}`} className={`flex flex-col gap-1 border-t border-divider py-2 ${sessionState(s.lastSeen, now) === 'idle' ? 'opacity-50' : ''}`}>
@@ -217,6 +184,56 @@ function Detailed({ agents, sessions, now, onNavigate, thresholds }: {
           </div>
         ))}
       </section>
+    </div>
+  );
+}
+
+/** Limits lead the overview; sessions keep their compact or detailed presentation. */
+function AgentLimits({ agents, now, onNavigate, compact = false }: {
+  agents: AgentStatus[]; now: number; onNavigate: Navigate; compact?: boolean;
+}) {
+  return (
+    <section className="flex min-w-0 flex-col gap-1">
+      <h2 className="text-title">Agents</h2>
+      <div className={compact ? 'grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-x-3' : 'flex flex-col'}>
+        {agents.map((a) => (
+          <div key={a.id} className="flex min-w-0 flex-col gap-2 border-t border-divider py-2">
+            <div className="flex flex-wrap items-center gap-1">
+              <AgentTag id={a.id} />
+              <span className="head"><AgentLink a={a} onNavigate={onNavigate} /></span>
+              {a.account?.plan && <span className="text-meta text-muted">{a.account.plan}</span>}
+            </div>
+            {a.installed && a.account?.method !== 'apiKey' && (a.fiveHour || a.weekly) ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Gauge label="5 hours" w={a.fiveHour} now={now} updatedAt={a.updatedAt} />
+                <Gauge label="Week" w={a.weekly} now={now} updatedAt={a.updatedAt} />
+              </div>
+            ) : <AgentSummary a={a} />}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Gauge({ label, w, now, updatedAt }: { label: string; w?: UsageWindow; now: number; updatedAt?: number }) {
+  const v = windowView(w, now);
+  const age = staleAge(updatedAt, now);
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-1">
+        <span className="text-muted">{label}</span>
+        <span className="head text-[32px] leading-5 tabular-nums">
+          {v.kind === 'live' ? <><Tween value={v.pct} /><span className="text-title text-muted">%</span></> : '-'}
+        </span>
+      </div>
+      <div className="[&_[role=meter]]:w-full">
+        <Bar label={label} wide pct={v.kind === 'live' ? v.pct : undefined} ticks={v.kind === 'live' && v.pace !== undefined ? [v.pace] : []} />
+      </div>
+      <span className="text-meta text-muted">
+        {v.kind === 'live' ? `Resets in ${formatDuration(v.resetIn)}` : v.kind === 'reset' ? 'Reset, awaiting data' : 'No reading yet'}
+        {v.kind === 'live' && age && <span className="block">As of {age} ago</span>}
+      </span>
     </div>
   );
 }

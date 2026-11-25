@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { LayoutGroup, motion } from 'motion/react';
 import type { AgentDef } from '@shared/agent-file';
 import { TASK_LABELS } from '@shared/tasks';
 import type { TaskInput, TaskStatus, Thread, ThreadTask } from '@shared/thread';
 import { readable } from '../errors';
+import { SLIDE } from '../motion';
 import { EditIcon, TrashIcon } from './Icons';
 import { Select } from './Select';
 import { BUTTON, BUTTON_INSET, CTA, ICON_BUTTON, INPUT } from './ui';
@@ -70,6 +72,7 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
       </form>
       {problem && <p role="alert" className="mb-2 text-muted">{problem}</p>}
       <div className="overflow-x-auto pb-1">
+      <LayoutGroup id={`board-${thread.id}`}>
       <div className="grid min-w-[640px] grid-cols-3 gap-2">
         {(Object.keys(TASK_LABELS) as TaskStatus[]).map((column) => {
           const cards = tasks.filter((t) => t.status === column);
@@ -78,7 +81,7 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
               <h2 className="mb-2 font-heading text-secondary">{TASK_LABELS[column]} <span className="text-meta text-muted">{cards.length}</span></h2>
               <ul className="flex flex-col gap-1">
                 {cards.map((task) => (
-                  <li key={task.id} className="surface-card rounded-md bg-sidebar p-1.5">
+                  <motion.li key={task.id} layout="position" layoutId={task.id} transition={SLIDE} className="surface-card rounded-md bg-sidebar p-1.5">
                     <p className="whitespace-pre-wrap break-words text-secondary">{task.title}</p>
                     <p className="my-1 text-meta text-muted">{task.agent ? name(task.agent) : 'Unassigned'}</p>
                     <Select label={`Status of ${task.title}`} value={task.status} disabled={busy || editing?.id === task.id} onChange={(v) => void save(task, { title: task.title, agent: task.agent, status: v as TaskStatus })} className="mb-1 w-full" options={Object.entries(TASK_LABELS).map(([value, label]) => ({ value, label }))} />
@@ -104,7 +107,7 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
                         </>
                       )}
                     </div>
-                  </li>
+                  </motion.li>
                 ))}
               </ul>
               {!cards.length && <p className="text-meta text-muted">No tasks</p>}
@@ -112,6 +115,7 @@ export function TaskBoard({ thread, agents }: { thread: Thread; agents: AgentDef
           );
         })}
       </div>
+      </LayoutGroup>
       </div>
     </section>
   );

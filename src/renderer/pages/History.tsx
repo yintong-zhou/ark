@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { HistoryDay } from '@shared/types';
 import { AGENT_NAME } from '../agents';
-import { Page } from '../components/Page';
+import { Empty, Page } from '../components/Page';
 
 const pct = (v?: number) => (v === undefined ? '-' : `${Math.round(v)}%`);
 const TH = 'py-1 pr-2 text-left text-meta font-normal text-muted';
@@ -17,10 +17,10 @@ export function History() {
         Peak 5 hours is the highest reading of the day; week is the last reading of the day.
       </p>
       {days === null ? null : days.length === 0 ? (
-        <p className="max-w-[65ch] text-muted">Nothing recorded yet. Keep Ark open while you work and the days fill in.</p>
+        <Empty title="No history yet">Keep Ark open while you work and the days fill in.</Empty>
       ) : (
         <div className="min-w-0 overflow-x-auto">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 <th className={TH}>Day</th>

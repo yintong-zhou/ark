@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { motion } from 'motion/react';
 import { formatEngineSetting, type AgentDef, type EngineId } from '@shared/agent-file';
 import { agentProblems } from '@shared/agent-problems';
 import { assignAgent, createTeam, deleteTeam, groupAgents, renameTeam, type AgentTeams } from '@shared/agent-teams';
@@ -14,6 +15,7 @@ import { Select } from '../components/Select';
 import { BUTTON, CTA, INPUT } from '../components/ui';
 import { readable } from '../errors';
 import { useCatalog } from '../hooks/useCatalog';
+import { Stagger, staggerItem } from '../motion';
 
 const OPEN_KEY = 'ark-agent-teams-open';
 const readOpen = (): Record<string, boolean> => {
@@ -121,7 +123,7 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
 
 
   const renderRow = (a: AgentDef, move?: ReactNode) => (
-    <Row key={a.id} a={a} move={move} problems={agentProblems(a, skillNames, engines)} onNavigate={onNavigate} />
+    <Row key={a.id} a={a} move={move} entrance={!move && (catalog?.agents.indexOf(a) ?? 12) < 11} problems={agentProblems(a, skillNames, engines)} onNavigate={onNavigate} />
   );
 
   return (
@@ -185,31 +187,36 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
       {(problem ?? error) && <p role="alert" className="text-muted">{problem ?? error}</p>}
       {catalog === null && !error && <p className="text-muted">Loading agents.</p>}
 
-      <ul className="flex flex-col">
-        {head && <li className="flex gap-2 border-t border-divider py-2">
-          <AgentAvatar agent={head} name={head.name} />
-          <div className="min-w-0 flex-1"><h2 className="text-body">Head of Staff</h2><p className="text-muted">Built into Ark. It coordinates every thread.</p><p className="text-meta text-muted">{formatEngineSetting(head.engine)}</p></div>
-          <button onClick={() => onNavigate({ name: 'head-form' })} className={BUTTON}>Edit</button>
-        </li>}
-        {catalog && catalog.agents.length === 0 && <li className="border-t border-divider py-2 text-muted">No agents yet. Create one with New agent, or add a ready team above.</li>}
-        {catalog && agentTeams.teams.length === 0 && catalog.agents.map(renderRow)}
-        {catalog && agentTeams.teams.length > 0 && groupAgents(catalog.agents, agentTeams).map((group) => {
-          const key = group.team?.id ?? 'ungrouped';
-          return (
-            <AgentTeamSection
-              key={key}
-              group={group}
-              teams={agentTeams.teams}
-              open={isOpen(key)}
-              onToggle={() => toggle(key)}
-              onRename={async (name) => { await saveAgentTeams(renameTeam(agentTeams, key, name)); }}
-              onDelete={() => void removeTeam(key, group.team?.name ?? '', group.agents.length)}
-              onMove={(id, teamId) => void edit((t) => assignAgent(t, id, teamId))}
-              renderRow={renderRow}
-            />
-          );
-        })}
-      </ul>
+      {catalog && <Stagger>
+        <ul className="flex flex-col">
+          {head && <motion.li {...staggerItem} className="group/agent flex gap-2 border-t border-divider py-2">
+            <AgentAvatar agent={head} name={head.name} />
+            <div className="min-w-0 flex-1"><h2 className="text-body">Head of Staff</h2><p className="text-muted">Built into Ark. It coordinates every thread.</p><p className="text-meta text-muted">{formatEngineSetting(head.engine)}</p></div>
+            <div className="opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 motion-safe:transition-opacity motion-safe:duration-[120ms] motion-safe:ease-(--ease)">
+              <button onClick={() => onNavigate({ name: 'head-form' })} className={BUTTON}>Edit</button>
+            </div>
+          </motion.li>}
+          {catalog && catalog.agents.length === 0 && <li className="border-t border-divider py-2 text-muted">No agents yet. Create one with New agent, or add a ready team above.</li>}
+          {catalog && agentTeams.teams.length === 0 && catalog.agents.map((a) => renderRow(a))}
+          {catalog && agentTeams.teams.length > 0 && groupAgents(catalog.agents, agentTeams).map((group, index) => {
+            const key = group.team?.id ?? 'ungrouped';
+            return (
+              <AgentTeamSection
+                key={key}
+                group={group}
+                entrance={index < 11}
+                teams={agentTeams.teams}
+                open={isOpen(key)}
+                onToggle={() => toggle(key)}
+                onRename={async (name) => { await saveAgentTeams(renameTeam(agentTeams, key, name)); }}
+                onDelete={() => void removeTeam(key, group.team?.name ?? '', group.agents.length)}
+                onMove={(id, teamId) => void edit((t) => assignAgent(t, id, teamId))}
+                renderRow={renderRow}
+              />
+            );
+          })}
+        </ul>
+      </Stagger>}
 
       {catalog && catalog.invalid.length > 0 && (
         <section className="flex flex-col">
@@ -228,11 +235,11 @@ export function Agents({ state, onNavigate }: { state: UsageState | null; onNavi
   );
 }
 
-function Row({ a, problems, move, onNavigate }: { a: AgentDef; problems: string[]; move?: ReactNode; onNavigate: Navigate }) {
+function Row({ a, problems, move, entrance, onNavigate }: { a: AgentDef; problems: string[]; move?: ReactNode; entrance: boolean; onNavigate: Navigate }) {
   return (
-    <li className="flex gap-2 border-t border-divider py-2">
+    <motion.li {...(entrance ? staggerItem : {})} className="group/agent flex gap-2 border-t border-divider py-2">
       <AgentAvatar agent={a} name={a.name} />
-      <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-baseline gap-1">
           <h2 className="text-body">{a.name}</h2>
           <span className="flex items-center gap-1 text-meta text-muted">
@@ -243,7 +250,7 @@ function Row({ a, problems, move, onNavigate }: { a: AgentDef; problems: string[
         </div>
         {a.description && <p className="line-clamp-2 max-w-[65ch] text-muted">{a.description}</p>}
         {a.skills.length > 0 && (
-          <ul className="flex flex-wrap gap-[4px]">
+          <ul className="flex flex-wrap gap-0.5">
             {a.skills.map((s) => (
               <li key={s} className="rounded-full bg-raised px-1 text-meta text-muted">{s}</li>
             ))}
@@ -253,12 +260,12 @@ function Row({ a, problems, move, onNavigate }: { a: AgentDef; problems: string[
           <p key={p} className="text-meta text-secondary">{p}</p>
         ))}
       </div>
-      <div className="flex shrink-0 items-start gap-1">
+      <div className="flex shrink-0 items-start gap-1 opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 motion-safe:transition-opacity motion-safe:duration-[120ms] motion-safe:ease-(--ease)">
         {move}
         <button onClick={() => onNavigate({ name: 'chat', agentId: a.id })} className={BUTTON}>Chat</button>
         <button onClick={() => onNavigate({ name: 'agent-form', id: a.id })} className={BUTTON}>Edit</button>
       </div>
-    </li>
+    </motion.li>
   );
 }
 
