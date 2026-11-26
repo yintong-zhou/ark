@@ -1,0 +1,56 @@
+@import 'tailwindcss';
+
+/*
+ * Brand tokens (brand-guidelines.md). No new hues: depth comes from steps between Primary and Dark neutral.
+ * Sidebar = Primary + 4% Secondary, Content = Primary + 2% Secondary.
+ */
+@theme {
+  --font-heading: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --color-rail: #0e1013;
+  --color-sidebar: #17191c;
+  --color-content: #131518;
+  --color-raised: #2c2f36;
+  --color-ink: #fafaf9;
+  --color-body: #dee1e6;
+  --color-muted: rgb(222 225 230 / 0.55);
+  --color-line: rgb(44 47 54 / 0.6);
+  --color-accent: #00a896;
+
+  --radius-detail: 4px;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-frame: 14px;
+}
+
+html {
+  background: var(--color-rail);
+  color: var(--color-body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+::selection { background: var(--color-raised); color: var(--color-ink); }
+
+/* Keyboard focus is always visible; Light neutral, since the accent is kept for calls to action. */
+:focus-visible { outline: 2px solid var(--color-body); outline-offset: 2px; }
+
+h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; color: var(--color-ink); }
+
+/* An agent's eyes: closed for a moment every few seconds, each face on its own rhythm (--blink-d, --blink-w). */
+@keyframes blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95.5% { transform: scaleY(0.1); }
+}
+@utility blink {
+  @media (prefers-reduced-motion: no-preference) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: blink var(--blink-d, 6s) var(--blink-w, 0s) infinite;
+  }
+}
