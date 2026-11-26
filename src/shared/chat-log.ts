@@ -30,6 +30,8 @@ export function chatReducer(s: ChatState, a: Action): ChatState {
     }
     case 'limits':
       return s; // feeds the usage view only
+    case 'activity':
+      return s; // team threads show it; a plain chat already shows its own busy state
     case 'approval':
       return s; // approval cards belong to team threads; a plain chat has no UI for them
     case 'error':

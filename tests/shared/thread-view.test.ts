@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { Reaction, Thread, ThreadMessage } from '@shared/thread';
-import { actionable, cyclePhases, cycleReviews, decisionsOf, needsYou, GROUP_WINDOW_MS, lastModel, mergeMessages, reactionsOf, startsGroup, tokensBy, tokensByAgent, windowLines } from '@shared/thread-view';
+import { actionable, agentState, taskLine, cyclePhases, cycleReviews, decisionsOf, needsYou, GROUP_WINDOW_MS, lastModel, mergeMessages, reactionsOf, startsGroup, tokensBy, tokensByAgent, windowLines } from '@shared/thread-view';
 
 const thread = (over: Partial<Thread> = {}): Thread => ({
   id: 't', projectId: 'p', title: 'T', createdAt: 0, phase: 'team', status: 'waiting', team: [],
@@ -135,4 +135,55 @@ test('only the latest Head Git proposal is actionable while waiting in done', ()
   expect(actionable(thread({ phase: 'done' }), [say(1, 'head-of-staff', { control })])).toEqual({ kind: 'git', seq: 1 });
   expect(actionable(thread({ phase: 'done' }), [say(1, 'planner', { control })])).toBeUndefined();
   expect(actionable(thread({ phase: 'planning' }), [say(1, 'head-of-staff', { control })])).toBeUndefined();
+});
+
+const user = (seq: number): ThreadMessage => ({ seq, at: seq, kind: 'user', text: 'go' });
+const card = (seq: number): ThreadMessage => ({ seq, at: seq, kind: 'phase', index: 0 });
+
+test('agentState: working and your turn come from the thread, done and standby from the messages', () => {
+  expect(agentState(thread({ speaking: 'dev' }), [], 'dev')).toBe('working');
+  expect(agentState(thread({ waitingOn: 'dev' }), [], 'dev')).toBe('waiting');
+  expect(agentState(thread(), [], 'dev')).toBe('standby');
+  expect(agentState(thread(), [user(1), say(2, 'dev')], 'dev')).toBe('done');
+  expect(agentState(thread(), [user(1), say(2, 'dev')], 'seo')).toBe('standby'); // another agent's message does not count
+  expect(agentState(thread(), [say(1, 'dev'), user(2)], 'dev')).toBe('standby'); // a new user message starts the round again
+  expect(agentState(thread(), [user(1), say(2, 'dev'), card(3)], 'dev')).toBe('standby'); // so does the next phase card
+  expect(agentState(thread({ speaking: 'dev' }), [user(1), say(2, 'dev')], 'dev')).toBe('working');
+});
+
+test('agentState: notes, reactions, approvals and decisions never make an agent done', () => {
+  const noise: ThreadMessage[] = [
+    { seq: 2, at: 2, kind: 'note', text: 'n' }, react(3, 1, '👍'),
+    { seq: 4, at: 4, kind: 'approval', agent: 'dev', tool: 'command', detail: 'npm test' },
+    { seq: 5, at: 5, kind: 'decision', target: 4, allow: true },
+  ];
+  expect(agentState(thread(), [user(1), ...noise], 'dev')).toBe('standby');
+});
+
+const phases = (step: 'develop' | 'review' | 'security' | 'blocked' | 'done') =>
+  Array.from({ length: 3 }, (_, i) => ({ title: `P${i}`, text: '', step: i === 1 ? step : 'develop' as const, rounds: 0, notes: 0, open: 0 }));
+const building = (step: 'develop' | 'review' | 'security' | 'blocked' | 'done', over: Partial<Thread> = {}) => thread({
+  phase: 'build', status: 'running',
+  roles: { builders: ['dev'], codeReview: 'cr', securityReview: 'sec' },
+  build: { worktree: 'w', branch: 'b', plan: 'p', phases: phases(step), current: 1 },
+  ...over,
+});
+
+test('taskLine: planning is the same for every speaker', () => {
+  expect(taskLine(thread({ phase: 'team' }), 'project-manager')).toBe('Planning');
+  expect(taskLine(thread({ phase: 'planning' }), 'seo')).toBe('Planning');
+});
+
+test('taskLine: a build role sees the phase and its step, other speakers see nothing', () => {
+  expect(taskLine(building('develop'), 'dev')).toBe('Phase 2/3 - develop');
+  expect(taskLine(building('review'), 'cr')).toBe('Phase 2/3 - code review');
+  expect(taskLine(building('security'), 'sec')).toBe('Phase 2/3 - security review');
+  expect(taskLine(building('blocked'), 'dev')).toBe('Phase 2/3 - blocked');
+  expect(taskLine(building('develop'), 'project-manager')).toBeUndefined();
+  expect(taskLine(thread({ phase: 'done' }), 'dev')).toBeUndefined();
+});
+
+test('taskLine: a build thread with no build (old data) shows nothing and does not throw', () => {
+  expect(taskLine(building('develop', { build: undefined }), 'dev')).toBeUndefined();
+  expect(taskLine(building('develop', { roles: undefined }), 'dev')).toBeUndefined();
 });

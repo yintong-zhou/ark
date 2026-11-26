@@ -1,4 +1,5 @@
 import type { ChatEvent, UsageWindow } from '@shared/types';
+import { claudeAction } from '@shared/activity';
 import { num, obj, str } from '../json';
 import { checkClaudeInit } from './isolation';
 import { isProjectCheck } from './approval-policy';
@@ -89,6 +90,11 @@ export function startClaudeSession(o: {
         request: { engine: 'claude', tool, input: shellStateKnown ? input : { ...input, arkShellStateUnknown: true }, cwd: o.cwd } });
     } else if (line.type === 'assistant') {
       const content = obj(line.message)?.content;
+      if (Array.isArray(content)) for (const block of content) {
+        const part = obj(block);
+        const name = str(part?.name);
+        if (part?.type === 'tool_use' && name !== undefined) emit({ type: 'activity', action: claudeAction(name) });
+      }
       const text = Array.isArray(content)
         ? content.map((p) => (obj(p)?.type === 'text' ? (str(obj(p)?.text) ?? '') : '')).join('')
         : '';

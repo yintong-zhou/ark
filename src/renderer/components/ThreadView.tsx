@@ -15,6 +15,7 @@ import { ModelMark } from './Logos';
 import { Markdown } from './Markdown';
 import { PauseIcon, TasksIcon, ThreadIcon } from './Icons';
 import { PaneHeader } from './Page';
+import { ProgressRow } from './ProgressRow';
 import { TaskBoard } from './TaskBoard';
 import { BUTTON, ICON_BUTTON } from './ui';
 import { modeOf } from '@shared/permissions';
@@ -63,7 +64,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
   // keep the latest message and the composer in view
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'end' });
-  }, [messages.length, board]);
+  }, [messages.length, board, thread.speaking]); // the progress row at the end appears when an agent starts
 
   const name = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
   const card = actionable(thread, messages);
@@ -212,6 +213,7 @@ export function ThreadView({ thread, messages, agents, tags, onTag, onLink }: Pr
             );
           })}
         </ol>
+        <ProgressRow thread={thread} agents={agents} />
         <div ref={end} />
       </div>}
 

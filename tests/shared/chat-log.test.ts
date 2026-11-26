@@ -6,6 +6,11 @@ const run = (events: Parameters<typeof chatReducer>[1][]): ChatState => events.r
 const ev = (event: ChatEvent) => ({ type: 'event' as const, event });
 const turn = ev({ type: 'turn', model: 'sonnet', tokens: { input: 24240, cached: 17329, output: 5 } });
 
+test('an activity event leaves the chat state untouched', () => {
+  const s = run([{ type: 'sent', text: 'hi' }]);
+  expect(chatReducer(s, ev({ type: 'activity', action: 'running' }))).toBe(s);
+});
+
 test('busy until the turn ends', () => {
   const sent = run([{ type: 'sent', text: 'hi' }]);
   expect(sent.busy).toBe(true);

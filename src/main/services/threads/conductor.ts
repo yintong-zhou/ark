@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { agentId, type AgentDef, type EngineId, type Permissions } from '@shared/agent-file';
+import type { ThreadActivity } from '@shared/activity';
 import type { ImageInput, Upload } from '@shared/attachments';
 import {
   BUILD_TURN_MS, MANAGER,
@@ -68,6 +69,8 @@ const REVIEW_REQUEST_BUDGET = 40_000;
 
 export class Conductor {
   private readonly listeners = new Set<(u: ThreadUpdate) => void>();
+  private readonly liveActivity = new Map<string, ThreadActivity>();
+  private readonly activityListeners = new Set<(threadId: string, a: ThreadActivity | undefined) => void>();
   private readonly generation = new Map<string, number>();
   private readonly interrupts = new Map<string, { to?: string }>(); // a user message sent during a turn
   // ponytail: live sessions stay open until Ark quits; only the speaker's is stopped when the thread pauses or fails (or hands off). Stopping idle threads' sessions is the upgrade if the process count matters.
@@ -83,12 +86,28 @@ export class Conductor {
   constructor(private readonly deps: ConductorDeps) {
     deps.runner.onEvent((chatId, e) => {
       if (e.type === 'approval') this.approval(chatId, e);
+      if (e.type === 'activity') {
+        for (const [id, sessions] of this.sessions) for (const [agent, chat] of sessions) {
+          if (chat !== chatId) continue;
+          const current = this.liveActivity.get(id);
+          if (current?.agent === agent && current.action !== e.action) this.setActivity(id, { ...current, action: e.action });
+        }
+      }
     });
   }
 
   onUpdate(cb: (u: ThreadUpdate) => void): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
+  }
+
+  onActivity(cb: (threadId: string, a: ThreadActivity | undefined) => void): () => void {
+    this.activityListeners.add(cb);
+    return () => this.activityListeners.delete(cb);
+  }
+
+  activity(threadId: string): ThreadActivity | undefined {
+    return this.liveActivity.get(threadId);
   }
 
   create(projectId: string, text: string, files: Upload[] = [], mode: PermissionMode = 'auto'): Thread {
@@ -374,6 +393,7 @@ export class Conductor {
       for (const agent of [...(this.sessions.get(threadId)?.keys() ?? [])]) this.dropSession(threadId, agent);
       this.sessions.delete(threadId);
       await this.deps.store.removeThread(threadId, trash);
+      if (this.liveActivity.has(threadId)) this.setActivity(threadId, undefined);
     } finally {
       this.deleting.delete(threadId);
     }
@@ -419,12 +439,24 @@ export class Conductor {
   }
 
   private emit(thread: Thread, added: ThreadMessage[]): void {
+    const current = this.liveActivity.get(thread.id);
+    if (thread.speaking && current?.agent !== thread.speaking) {
+      this.setActivity(thread.id, { agent: thread.speaking, action: 'thinking', since: Date.now() });
+    } else if (!thread.speaking && current) this.setActivity(thread.id, undefined);
     for (const cb of this.listeners) {
       try {
         cb({ thread, added });
       } catch {
         // a broken listener must not break the thread
       }
+    }
+  }
+
+  private setActivity(id: string, activity: ThreadActivity | undefined): void {
+    if (activity) this.liveActivity.set(id, activity);
+    else this.liveActivity.delete(id);
+    for (const cb of this.activityListeners) {
+      try { cb(id, activity); } catch { /* a broken listener must not break the thread */ }
     }
   }
 
@@ -698,6 +730,9 @@ export class Conductor {
     const engine = this.engines.get(chatId);
     const moved = () => engine && (t = { ...t, windows: moveWindows(t.windows, engine, this.deps.windows(engine), Date.now() / 1000) });
     moved();
+    // The same agent can speak twice in a row without `speaking` ever clearing (a correction, an answer to a message
+    // sent mid-turn): each turn starts over as thinking. Only an existing entry is reset, never one created here.
+    if (this.liveActivity.get(id)?.agent === agent) this.setActivity(id, { agent, action: 'thinking', since: Date.now() });
     try {
       result = await runner.turn(chatId, parts.filter(Boolean).join('\n\n'), o.timeoutMs, undefined, images);
     } finally {

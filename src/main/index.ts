@@ -165,6 +165,9 @@ app.whenReady().then(() => {
   conductor.onUpdate((u) => {
     if (!win.isDestroyed()) win.webContents.send('threads:update', u);
   });
+  conductor.onActivity((id, a) => {
+    if (!win.isDestroyed()) win.webContents.send('threads:activity', id, a);
+  });
   app.on('second-instance', () => {
     if (win.isDestroyed()) return;
     if (win.isMinimized()) win.restore();

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { loadSize, saveSize } from '../saved';
 import { CloseIcon } from './Icons';
+import { StateIcon } from './StateIcons';
 import { Highlight, LayoutGroup } from '../motion';
 
 /** The pane that holds the work. Panes manage their own scrolling. */
@@ -102,10 +103,21 @@ export function Pill({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-/** Who is speaking breathes, who waits for the user is Accent, the rest is quiet. */
-export function Presence({ state }: { state: 'speaking' | 'waiting' | 'idle' }) {
-  const label = { speaking: 'speaking', waiting: 'your turn', idle: 'idle' }[state];
-  const look = { speaking: 'bg-secondary breathe', waiting: 'bg-accent', idle: 'bg-neutral-light/40' }[state];
+/**
+ * Who is working breathes, who waits for the user is Accent, who has finished shows a check, a member that has not
+ * started is a hollow ring, the rest is quiet.
+ */
+export function Presence({ state }: { state: 'speaking' | 'waiting' | 'idle' | 'done' | 'standby' }) {
+  const label = { speaking: 'working', waiting: 'your turn', idle: 'idle', done: 'done', standby: 'standby' }[state];
+  if (state === 'done') {
+    return (
+      <span title={label} className="flex size-1 shrink-0 items-center justify-center text-muted">
+        <StateIcon kind="check" className="size-[12px]" />
+        <span className="sr-only">{label}</span>
+      </span>
+    );
+  }
+  const look = { speaking: 'bg-secondary breathe', waiting: 'bg-accent', idle: 'bg-neutral-light/40', standby: 'border border-neutral-light/60' }[state];
   return (
     <span title={label} className={`size-1 shrink-0 rounded-full ${look}`}>
       <span className="sr-only">{label}</span>
