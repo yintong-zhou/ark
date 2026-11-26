@@ -1,4 +1,4 @@
-import type { Build, BuildPhase, Reaction, Thread, ThreadMessage, ThreadWindows } from './thread';
+import type { Build, BuildPhase, PhaseStep, Reaction, Thread, ThreadMessage, ThreadWindows } from './thread';
 import type { TokenCount } from './types';
 
 type AgentMessage = Extract<ThreadMessage, { kind: 'agent' }>;
@@ -15,6 +15,33 @@ export function cyclePhases(b: Build | undefined, cycle = 1): BuildPhase[] | und
 export function cycleReviews(b: Build | undefined, cycle = 1): { code: boolean | undefined; security: boolean | undefined } {
   const context = cycle === (b?.cycle ?? 1) ? b?.reviewContext : b?.previous?.[cycle - 1]?.reviewContext;
   return { code: context ? !!context.roles.codeReview : undefined, security: context ? !!context.roles.securityReview : undefined };
+}
+
+export type AgentState = 'working' | 'waiting' | 'done' | 'standby';
+
+/**
+ * Where one team member stands: working or waiting for the user (from the thread), done once it has answered since the
+ * last user message or phase card, standby otherwise.
+ */
+export function agentState(t: Thread, messages: ThreadMessage[], id: string): AgentState {
+  if (t.speaking === id) return 'working';
+  if (t.waitingOn === id) return 'waiting';
+  const round = messages.slice(messages.findLastIndex((m) => m.kind === 'user' || m.kind === 'phase') + 1);
+  return round.some((m) => m.kind === 'agent' && m.agent === id) ? 'done' : 'standby';
+}
+
+const STEP: Record<PhaseStep, string> = { develop: 'develop', review: 'code review', security: 'security review', blocked: 'blocked', done: 'done' };
+
+/** What the agent's turn is for: "Planning", or the build phase and step when the agent holds a build role. */
+export function taskLine(t: Thread, agent: string): string | undefined {
+  if (t.phase === 'team' || t.phase === 'planning') return 'Planning';
+  if (t.phase !== 'build' || !t.build) return undefined;
+  const phases = cyclePhases(t.build, t.build.cycle);
+  const phase = phases?.[t.build.current];
+  const r = t.roles;
+  const builds = !!r && (r.builders.includes(agent) || r.codeReview === agent || r.securityReview === agent);
+  if (!phases || !phase || !(builds || phase.builder === agent)) return undefined;
+  return `Phase ${t.build.current + 1}/${phases.length} - ${STEP[phase.step]}`;
 }
 
 /** The card the user can act on: the last agent message, while the thread waits for the user. */

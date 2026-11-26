@@ -20,3 +20,27 @@ test('Thread cost labels a list-price estimate as an estimate and says when one 
   expect(html).toContain('Estimated at standard public API list prices as of');
   expect(html).not.toMatch(/at least|lower bound|no public api price/i);
 });
+
+// One row of the panel, by the agent's id shown as its name.
+const rowOf = (html: string, id: string) => html.split('<li ').find((r) => r.includes(`>${id}<`)) ?? '';
+const spoke = (seq: number, agent: string) => ({ seq, at: seq, kind: 'agent', agent, text: 'ok', model: '', tokens: { input: 0, cached: 0, output: 0 } }) as unknown as ThreadMessage;
+const said = (seq: number) => ({ seq, at: seq, kind: 'user', text: 'go' }) as ThreadMessage;
+const team = (over: Partial<Thread> = {}) =>
+  ({ id: 't', phase: 'planning', status: 'running', team: ['project-manager', 'seo', 'cr', 'sec'], ...over }) as unknown as Thread;
+
+test('every team member shows working, your turn, done or standby', () => {
+  const thread = team({ speaking: 'seo', waitingOn: 'cr' });
+  const html = renderToStaticMarkup(createElement(TeamPanel, { thread, messages: [said(1), spoke(2, 'project-manager')], agents: [], activity: { agent: 'seo', action: 'reading', since: 0 } }));
+  expect(rowOf(html, 'project-manager')).toContain('done');
+  expect(rowOf(html, 'seo')).toContain('working');
+  expect(rowOf(html, 'cr')).toContain('your turn');
+  expect(rowOf(html, 'sec')).toContain('standby');
+});
+
+test('a working agent shows its action and task under its name, the others do not', () => {
+  const thread = team({ speaking: 'seo' });
+  const html = renderToStaticMarkup(createElement(TeamPanel, { thread, messages: [], agents: [], activity: { agent: 'seo', action: 'reading', since: 0 } }));
+  expect(rowOf(html, 'seo')).toContain('Reading files');
+  expect(rowOf(html, 'seo')).toContain('Planning');
+  expect(rowOf(html, 'cr')).not.toContain('Reading files');
+});

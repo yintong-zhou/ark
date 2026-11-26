@@ -49,6 +49,18 @@ const opts = (spawn: ReturnType<typeof fakeAppServer>['spawn']) => ({
   spawn,
 });
 
+test('activity reports started tool categories but ignores messages', async () => {
+  const fake = fakeAppServer(handlers());
+  const session = await startCodexSession(opts(fake.spawn));
+  const events: ChatEvent[] = [];
+  session.onEvent((e) => events.push(e));
+  fake.notify('item/started', { item: { type: 'commandExecution', command: 'rm -rf secret' } });
+  fake.notify('item/started', { item: { type: 'agentMessage' } });
+  await flush();
+  expect(events).toEqual([{ type: 'activity', action: 'running' }]);
+  session.stop();
+});
+
 test('Full access is explicit and only applies to a developer build', async () => {
   const fake = fakeAppServer(handlers());
   const session = await startCodexSession({ ...opts(fake.spawn), permissions: 'build', permissionMode: 'full' });

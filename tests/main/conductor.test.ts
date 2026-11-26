@@ -179,6 +179,72 @@ const last = (id: string) => store.messages(id).at(-1) as ThreadMessage;
 // Existing workflow tests explicitly exercise manual sessions.
 const create = (projectId: string, text: string, files: import('@shared/attachments').Upload[] = []) => c.create(projectId, text, files, 'ask');
 
+test('activity: a speaking agent starts as thinking and follows engine events without duplicate pushes', async () => {
+  const updates: unknown[][] = [];
+  const unsubscribe = c.onActivity((id, a) => updates.push([id, a]));
+  const t = create(projectId, 'Test');
+  await turns(1);
+  const initial = c.activity(t.id)!;
+  expect(initial).toEqual({ agent: MANAGER, action: 'thinking', since: expect.any(Number) });
+  runner.emit(runner.turns[0].chatId, { type: 'activity', action: 'editing' });
+  runner.emit(runner.turns[0].chatId, { type: 'activity', action: 'editing' });
+  const edited = { agent: MANAGER, action: 'editing', since: initial.since };
+  expect(c.activity(t.id)).toEqual(edited);
+  expect(Object.keys(c.activity(t.id)!)).toEqual(['agent', 'action', 'since']);
+  expect(updates.filter(([, a]) => (a as { action?: string } | undefined)?.action === 'editing')).toEqual([[t.id, edited]]);
+  unsubscribe();
+});
+
+test('activity: a second turn of the same agent starts again as thinking with a new start time', async () => {
+  const t = create(projectId, 'Test');
+  await turns(1);
+  const first = c.activity(t.id)!;
+  runner.emit(runner.turns[0].chatId, { type: 'activity', action: 'editing' });
+  await new Promise((r) => setTimeout(r, 5));
+  // a team with an unknown agent: the Head of Staff is asked again, so it speaks twice in a row
+  runner.reply(MANAGER, ark({ team: [{ agent: 'ghost', reason: 'boo' }], leftOut: '' }));
+  await turns(2);
+  expect(runner.turns[1].agent).toBe(MANAGER);
+  const second = c.activity(t.id)!;
+  expect(second.action).toBe('thinking');
+  expect(second.since).toBeGreaterThan(first.since);
+});
+
+test.each(['reply', 'pause', 'error'] as const)('activity: cleared after %s', async (outcome) => {
+  const updates: unknown[][] = [];
+  c.onActivity((id, a) => updates.push([id, a]));
+  const t = create(projectId, 'Test');
+  await turns(1);
+  expect(c.activity(t.id)).toBeDefined();
+  if (outcome === 'pause') await c.pause(t.id);
+  else {
+    runner.reply(MANAGER, outcome === 'error' ? new Error('failed') : TEAM);
+    await idle();
+  }
+  expect(c.activity(t.id)).toBeUndefined();
+  expect(updates).toContainEqual([t.id, undefined]);
+});
+
+test('activity: ignores other and removed chats and drops the removed thread', async () => {
+  const t = await planning();
+  await turns(2);
+  runner.reply(MANAGER, ark({ next: 'planner' }));
+  await turns(3);
+  const initial = c.activity(t.id);
+  const updates: unknown[][] = [];
+  c.onActivity((id, a) => updates.push([id, a]));
+  runner.emit(runner.turns[0].chatId, { type: 'activity', action: 'running' });
+  runner.emit('unknown', { type: 'activity', action: 'running' });
+  expect(c.activity(t.id)).toEqual(initial);
+  expect(updates).toEqual([]);
+  await c.pause(t.id);
+  await c.remove(t.id, async (path) => rmSync(path, { recursive: true }));
+  updates.length = 0;
+  runner.emit(runner.turns[2].chatId, { type: 'activity', action: 'editing' });
+  expect(c.activity(t.id)).toBeUndefined();
+  expect(updates).toEqual([]);
+});
+
 /** A thread past the team phase: PM proposed planner + seo, the user approved. */
 async function planning(first = 'Build a landing page') {
   runner.reply(MANAGER, TEAM);

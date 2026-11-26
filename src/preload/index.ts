@@ -100,6 +100,7 @@ const api: ArkApi = {
     startDeveloper: (id) => ipcRenderer.invoke('threads:start-developer', id),
     answer: (id, seq, allow) => ipcRenderer.invoke('threads:answer', id, seq, allow),
     pause: (id) => ipcRenderer.invoke('threads:pause', id),
+    activity: (id) => ipcRenderer.invoke('threads:get-activity', id),
     saveTask: (id, taskId, task) => ipcRenderer.invoke('threads:save-task', id, taskId, task),
     removeTask: (id, taskId) => ipcRenderer.invoke('threads:remove-task', id, taskId),
     onUpdate: (cb) => {
@@ -107,6 +108,13 @@ const api: ArkApi = {
       ipcRenderer.on('threads:update', listener);
       return () => {
         ipcRenderer.removeListener('threads:update', listener);
+      };
+    },
+    onActivity: (cb) => {
+      const listener = (_e: unknown, id: string, a: import('@shared/activity').ThreadActivity | undefined) => cb(id, a);
+      ipcRenderer.on('threads:activity', listener);
+      return () => {
+        ipcRenderer.removeListener('threads:activity', listener);
       };
     },
   },

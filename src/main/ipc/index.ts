@@ -370,6 +370,7 @@ export function registerIpc({ win, usage, history, statusline, userData, catalog
   handle('threads:start-developer', (id) => conductor.startDeveloper(uuid(id, 'thread')));
   handle('threads:answer', (id, n, allow) => conductor.answer(uuid(id, 'thread'), seq(n), bool(allow)));
   handle('threads:pause', (id) => conductor.pause(uuid(id, 'thread')));
+  handle('threads:get-activity', (id) => conductor.activity(uuid(id, 'thread')));
   handle('threads:save-task', (id, taskId, task) => conductor.saveTask(uuid(id, 'thread'), taskId === null ? null : uuid(taskId, 'task'), task));
   handle('threads:remove-task', (id, taskId) => conductor.removeTask(uuid(id, 'thread'), uuid(taskId, 'task')));
 

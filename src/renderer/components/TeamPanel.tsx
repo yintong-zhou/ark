@@ -1,7 +1,9 @@
+import { activityLabel, type ThreadActivity } from '@shared/activity';
 import type { AgentDef } from '@shared/agent-file';
 import { StateIcon } from './StateIcons';
 import { MANAGER, type Thread, type ThreadMessage } from '@shared/thread';
-import { lastModel, tokensBy, tokensByAgent, windowLines } from '@shared/thread-view';
+import { agentState, lastModel, taskLine, tokensBy, tokensByAgent, windowLines, type AgentState } from '@shared/thread-view';
+import { useActivity } from '../hooks/useActivity';
 import { roleLabels } from '@shared/roles';
 import { estimateUsd, formatUsd, PRICES_CHECKED } from '@shared/pricing';
 import { AgentAvatar } from './Avatar';
@@ -10,8 +12,12 @@ import { ModelMark } from './Logos';
 import { Presence } from './Shell';
 import { TokenLine } from './TokenLine';
 
+const PRESENCE = { working: 'speaking', waiting: 'waiting', done: 'done', standby: 'standby' } as const satisfies Record<AgentState, string>;
+
 /** Team details inside the shared workspace column: roles, presence and usage. */
-export function TeamPanel({ thread, messages, agents }: { thread: Thread; messages: ThreadMessage[]; agents: AgentDef[] }) {
+export function TeamPanel({ thread, messages, agents, activity }: { thread: Thread; messages: ThreadMessage[]; agents: AgentDef[]; activity?: ThreadActivity }) {
+  const live = useActivity(thread.id);
+  const current = activity ?? live;
   const tokens = tokensByAgent(messages);
   const byModel = Object.entries(tokensBy(messages, (m) => m.model))
     .filter(([model]) => model)
@@ -34,13 +40,16 @@ export function TeamPanel({ thread, messages, agents }: { thread: Thread; messag
                 const name = agents.find((a) => a.id === id)?.name ?? id;
                 const assignment = thread.assignments?.[id];
                 const model = assignment?.model ?? lastModel(messages, id); // same source as the engine icon
-                const state = thread.speaking === id ? 'speaking' : thread.waitingOn === id ? 'waiting' : 'idle';
+                const state = agentState(thread, messages, id);
+                const task = state === 'working' ? taskLine(thread, id) : undefined;
+                const doing = state === 'working' ? activityLabel((current?.agent === id ? current.action : undefined) ?? 'thinking', (thread.approvals?.length ?? 0) > 0) : undefined;
                 return (
                   <li key={id} className="relative flex items-center gap-1 px-2 py-1">
                     {state === 'waiting' && <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-accent" />}
                     <AgentAvatar agent={agents.find((a) => a.id === id)} name={name} size={32} />
                     <div className="flex min-w-0 flex-1 flex-col">
                       <span className="head truncate leading-[22px]">{name}</span>
+                      {doing && <span className="truncate text-meta text-secondary">{[doing, task].filter(Boolean).join(' - ')}</span>}
                       {roleLabels(thread.roles, id).length > 0 && <span className="text-meta text-muted">{roleLabels(thread.roles, id).join(', ')}</span>}
                       {model && (
                         <span className="flex items-center gap-[4px] truncate text-meta text-muted" title={model}>
@@ -50,7 +59,7 @@ export function TeamPanel({ thread, messages, agents }: { thread: Thread; messag
                       )}
                       {tokens[id] && <TokenLine tokens={tokens[id]} />}
                     </div>
-                    <Presence state={state} />
+                    <Presence state={PRESENCE[state]} />
                   </li>
                 );
               })}

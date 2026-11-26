@@ -14,6 +14,23 @@ const [init, assistant, result] = fixture;
 
 const flush = () => new Promise((r) => setTimeout(r, 10));
 
+test('activity reports only tool categories and preserves text', async () => {
+  const { child, events } = start();
+  child.emitLine(init);
+  child.emitLine({ type: 'assistant', message: { content: [
+    { type: 'tool_use', name: 'Bash', input: { command: 'rm -rf secret' } }, { type: 'text', text: 'hello' },
+  ] } });
+  child.emitLine({ type: 'assistant', message: { content: [
+    { type: 'tool_use', name: 'Read' }, { type: 'tool_use', name: 'Edit' },
+  ] } });
+  child.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'only text' }] } });
+  await flush();
+  expect(events.filter((e) => e.type === 'activity')).toEqual([
+    { type: 'activity', action: 'running' }, { type: 'activity', action: 'reading' }, { type: 'activity', action: 'editing' },
+  ]);
+  expect(events.filter((e) => e.type === 'message')).toEqual([{ type: 'message', text: 'hello' }, { type: 'message', text: 'only text' }]);
+});
+
 function start(cwd = 'D:\\x', exe = 'C:\\claude.exe', projectCommands = new Set<string>()) {
   const child = new FakeChild();
   const spawned: { command: string; args: string[]; cwd: string; shell: boolean }[] = [];

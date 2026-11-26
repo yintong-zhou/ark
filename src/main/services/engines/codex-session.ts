@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Permissions } from '@shared/agent-file';
 import type { PermissionMode } from '@shared/permissions';
 import type { ChatEvent } from '@shared/types';
+import { codexAction } from '@shared/activity';
 import { parseRateLimitsResult } from '../adapters/codex-appserver';
 import { num, obj, str } from '../json';
 import { AppServerClient } from './app-server-client';
@@ -153,7 +154,11 @@ export async function startCodexSession(o: {
   client.onNotification((method, params) => {
     if (ended) return;
     const p = obj(params);
-    if (method === 'item/completed') {
+    if (method === 'item/started') {
+      const type = str(obj(p?.item)?.type);
+      const action = type === undefined ? undefined : codexAction(type);
+      if (action !== undefined) emit({ type: 'activity', action });
+    } else if (method === 'item/completed') {
       const item = obj(p?.item);
       const text = item?.type === 'agentMessage' ? str(item.text) : undefined;
       if (text) emit({ type: 'message', text });

@@ -1,3 +1,4 @@
+import type { ActivityAction, ThreadActivity } from './activity';
 import type { AgentDef, EngineId, EngineSetting, Tier } from './agent-file';
 import type { PromptBrief } from './agent-draft';
 import type { AgentTeams } from './agent-teams';
@@ -154,6 +155,9 @@ export interface ArkApi {
     saveTask(id: string, taskId: string | null, task: TaskInput): Promise<void>;
     removeTask(id: string, taskId: string): Promise<void>;
     onUpdate(cb: (u: ThreadUpdate) => void): () => void;
+    /** What the speaking agent is doing now; undefined when no agent is working. */
+    activity(id: string): Promise<ThreadActivity | undefined>;
+    onActivity(cb: (threadId: string, a: ThreadActivity | undefined) => void): () => void;
   };
   /** A project folder or a thread worktree; paths are '/'-separated and relative to it. */
   files: {
@@ -258,5 +262,6 @@ export type ChatEvent =
   | { type: 'message'; text: string }
   | { type: 'turn'; model: string; tokens: TokenCount; contextWindow?: number; contextUsed?: number }
   | { type: 'approval'; id: string; tool: string; detail: string; request?: import('./permissions').ApprovalRequest }
+  | { type: 'activity'; action: ActivityAction } // transient: what the engine is doing, a category only
   | { type: 'limits'; engine: EngineId; windows: UsageWindow[] }
   | { type: 'error'; kind: 'isolation' | 'engine' | 'exit'; detail: string };
