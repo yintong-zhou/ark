@@ -24,6 +24,7 @@ behavior in `README.md`.
 - `src/main/ipc/index.ts`: IPC handlers. `src/preload/index.ts`: the `contextBridge` API.
 - `src/shared/`: types and pure logic used by both main and renderer.
 - `src/renderer/`: React UI (`pages/`, `components/`, `hooks/`).
+- `landing/`: the public website (Vite + React + Tailwind + motion, deployed on Vercel with Root Directory `landing`). Its own package, outside the app's checks and build; see `landing/README.md`.
 - `tests/main`, `tests/shared`: unit tests (vitest). `tests/live`: real-engine tests. `tests/fixtures`, `tests/helpers`: shared test data.
 - `docs/handoff/`: session handoffs (Italian, newest last). Read the latest before continuing earlier work.
 - `docs/superpowers/`: specs and plans. `directives/` and `execution/` are currently empty.
